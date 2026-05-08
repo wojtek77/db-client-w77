@@ -6,82 +6,439 @@ import * as ini from 'ini';
 import * as os from 'os';
 
 export async function activate(context: vscode.ExtensionContext) {
+    console.log(new Date().toLocaleTimeString('pl-PL', { hour12: false }));
+    
     let panel: vscode.WebviewPanel | undefined;
 
     const cnfOptions = await getOptionsFromCnf('~/.db_configs/local-system.cnf');
+    
     const pool = mariadb.createPool({
         ...cnfOptions,
         connectionLimit: 5,
-        connectTimeout: 10000,      // Czas na nawiązanie połączenia (ważne przy latencji)
-        acquireTimeout: 10000,      // Czas na pobranie połączenia z puli
-        // To jest kluczowe dla "Time Query": sterownik MariaDB w Node.js 
-        // domyślnie parsuje liczby jako stringi, co jest wolniejsze. 
-        // Pozwolenie mu na natywne typy przyśpiesza przetwarzanie 20k wierszy.
+        connectTimeout: 10000,
+        acquireTimeout: 10000,
         supportBigNumbers: true,
         bigNumberStrings: false,
-        // Ta opcja sprawia, że sterownik zwraca BigInt jako Number
         insertIdAsNumber: true,
         bigIntAsNumber: true 
     });
     
-    const startConn = performance.now(); // START: Czas połączenia
-    // MariaDB pool nie łączy się natychmiast, więc sprawdzimy to przy pierwszym zapytaniu
+    const startConn = performance.now();
     const conn = await pool.getConnection();
     const endConn = performance.now();
     const connectionTime = (endConn - startConn).toFixed(2);
+    console.log('Connection time:', connectionTime, 'ms');
 
     let disposable = vscode.commands.registerCommand('mariadb-client.openEditor', async () => {
+        console.log('=== OPEN EDITOR START ===');
+        const commandStart = performance.now();
+        
         panel = vscode.window.createWebviewPanel(
-            'dbEditor', 'MariaDB Editor', vscode.ViewColumn.One, { enableScripts: true }
+            'dbEditor', 
+            'MariaDB Editor', 
+            vscode.ViewColumn.One, 
+            { 
+                enableScripts: true,
+                enableCommandUris: true,
+                retainContextWhenHidden: true
+            }
         );
-
-        // 1. Pobierz dane
-        // let rawSql = "select id, status from student where id = '0000033b-7e89-d3dc-1e39-55e9aded23c6'";
-        let rawSql = "select id from student s limit 20000";
-        // let rawSql = "select s.id, (select c.id from client c where c.id = s.client_id) client_id from student s where 1 limit 10000";
-        // let rawSql = "select s.id, (select c.id from client c where c.id = s.client_id) client_id from student s where 1";
-        const sql = sanitizeSql(rawSql); // dodanie zabezpiecznie LIMIT 200 jeśli brak LIMIT
-        const startQuery = performance.now(); // START: Czas Select
+        
+        console.log('Panel created');
+        
+        let rawSql = "select * from student s limit 20000";
+        const sql = sanitizeSql(rawSql);
+        
+        console.log('=== STARTING QUERY ===');
+        const startQuery = performance.now();
         const rows = await conn.execute(sql);
         const endQuery = performance.now();
         const queryTime = (endQuery - startQuery).toFixed(2);
-        conn.release(); // Zwolnij połączenie
         
-        // Wyświetlenie informacji
-        // vscode.window.showInformationMessage(
-        //     `Połączono: ${connectionTime}ms | Select: ${queryTime}ms`
-        // );
+        console.log(`=== QUERY TIME: ${queryTime}ms, ROWS: ${rows.length}`);
+        conn.release();
+        
+        console.log('=== GENERATING HTML ===');
+        const startHtmlGen = performance.now();
+        const htmlContent = getWebviewContent(rows, connectionTime, queryTime);
+        const endHtmlGen = performance.now();
+        const htmlGenTime = (endHtmlGen - startHtmlGen).toFixed(2);
+        
+        console.log(`=== HTML GEN TIME: ${htmlGenTime}ms`);
+        
+        console.log('=== SETTING WEBVIEW HTML ===');
+        const startWebviewSet = performance.now();
+        panel.webview.html = htmlContent;
+        const endWebviewSet = performance.now();
+        const webviewSetTime = (endWebviewSet - startWebviewSet).toFixed(2);
+        
+        const totalTime = (performance.now() - commandStart).toFixed(2);
+        
+        console.log(`=== WEBVIEW SET TIME: ${webviewSetTime}ms`);
+        console.log(`=== TOTAL TIME: ${totalTime}ms`);
+        console.log('=== BREAKDOWN ===');
+        console.log(`Query: ${queryTime}ms`);
+        console.log(`HTML Generation: ${htmlGenTime}ms`);
+        console.log(`Webview Set: ${webviewSetTime}ms`);
+        
+        vscode.window.showInformationMessage(
+            `⏱️ Total: ${totalTime}ms | Query: ${queryTime}ms | HTML: ${htmlGenTime}ms | Webview: ${webviewSetTime}ms`
+        );
 
-        // 1. Wysyłamy szkielet strony (bez danych)
-        panel.webview.html = getWebviewContent(connectionTime, queryTime, rows.length);
-
-        // 2. Wysyłamy dane jako JSON (to jest bardzo szybkie)
-        panel.webview.postMessage({ command: 'setData', rows: rows });
-
-        // 3. Nasłuchuj na zmiany z Webview
         panel.webview.onDidReceiveMessage(async (message) => {
             if (message.command === 'updateCell') {
                 const { id, column, value } = message;
                 try {
                     const startUpdate = performance.now();
-                    // Zmieniamy na tabelę 'student'. 
-                    // UUID musi być przekazane jako string, sterownik mariadb sam o to zadba przez '?'
-                    await conn.execute(
+                    const newConn = await pool.getConnection();
+                    await newConn.execute(
                         `UPDATE student SET ${column} = ? WHERE id = ?`, 
                         [value, id]
                     );
                     const updateTime = (performance.now() - startUpdate).toFixed(2);
-                    vscode.window.setStatusBarMessage(`Zaktualizowano studenta "${id}: ${column} = ${value}" (${updateTime}ms)`, 10000);
+                    vscode.window.setStatusBarMessage(`Zaktualizowano (${updateTime}ms)`, 10000);
+                    newConn.release();
+                    
+                    panel?.webview.postMessage({ 
+                        command: 'updateConfirmed', 
+                        id, 
+                        column, 
+                        value 
+                    });
                 } catch (err: any) {
                     vscode.window.showErrorMessage("Błąd zapisu SQL: " + err.message);
-                } finally {
-                    conn.release();
                 }
             }
         }, undefined, context.subscriptions);
     });
 
     context.subscriptions.push(disposable);
+}
+
+function getWebviewContent(rows: any[], connTime: string, qTime: string): string {
+    if (!rows || rows.length === 0) {
+        return `<html><body>Brak danych</body></html>`;
+    }
+    
+    const headers = Object.keys(rows[0]);
+    const rowCount = rows.length;
+    const formattedCount = rowCount.toLocaleString();
+    const ROWS_PER_PAGE = 500;
+    
+    // Przygotuj dane jako JSON
+    const jsonData = rows.map(row => {
+        const obj: any = {};
+        headers.forEach(h => {
+            obj[h] = row[h] === null ? '' : String(row[h]);
+        });
+        return obj;
+    });
+    
+    return `<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body { 
+                font-size: 12px; 
+                padding: 10px;
+                background: var(--vscode-editor-background);
+                margin: 0;
+                height: 100vh;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+            }
+            .toolbar {
+                padding: 8px;
+                background: var(--vscode-editor-background);
+                border-bottom: 1px solid var(--vscode-panel-border);
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                flex-shrink: 0;
+            }
+            .stats {
+                color: gray;
+                font-size: 11px;
+                flex: 1;
+            }
+            .pagination {
+                display: flex;
+                gap: 5px;
+                align-items: center;
+            }
+            .table-container {
+                flex: 1;
+                overflow: auto;
+                margin-top: 10px;
+            }
+            table { 
+                border-collapse: collapse;
+                font-family: var(--vscode-editor-font-family);
+                font-size: 12px;
+                width: 100%;
+            }
+            th, td { 
+                border: 1px solid var(--vscode-panel-border); 
+                padding: 4px 8px;
+                text-align: left; 
+                white-space: nowrap;
+            }
+            th {
+                background-color: var(--vscode-editor-background);
+                position: sticky;
+                top: 0;
+                z-index: 10;
+                font-weight: bold;
+            }
+            td:first-child {
+                background-color: var(--vscode-sideBar-background);
+                color: #888;
+                text-align: right;
+                font-weight: bold;
+            }
+            tr:hover td {
+                background-color: var(--vscode-list-hoverBackground);
+            }
+            td[contenteditable="true"]:focus {
+                outline: 2px solid var(--vscode-focusBorder);
+                background-color: var(--vscode-editor-background);
+            }
+            button {
+                background: var(--vscode-button-background);
+                color: var(--vscode-button-foreground);
+                border: none;
+                padding: 4px 12px;
+                cursor: pointer;
+                border-radius: 2px;
+                font-size: 11px;
+            }
+            button:hover {
+                background: var(--vscode-button-hoverBackground);
+            }
+            button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+            .page-info {
+                font-size: 11px;
+                margin: 0 10px;
+            }
+            select {
+                background: var(--vscode-dropdown-background);
+                color: var(--vscode-dropdown-foreground);
+                border: 1px solid var(--vscode-dropdown-border);
+                padding: 4px;
+                border-radius: 2px;
+                font-size: 11px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="toolbar">
+            <div class="stats">
+                🔌 ${connTime}ms | ⚡ ${qTime}ms | 📊 ${formattedCount} rekordów
+            </div>
+            <button onclick="exportToCSV()">💾 Eksportuj CSV</button>
+            <div class="pagination">
+                <button onclick="firstPage()" id="firstBtn" title="Pierwsza strona">⏮️</button>
+                <button onclick="prevPage()" id="prevBtn" title="Poprzednia strona">◀</button>
+                <span class="page-info">
+                    Strona <span id="currentPage">1</span> z <span id="totalPages">${Math.ceil(rowCount / ROWS_PER_PAGE)}</span>
+                </span>
+                <button onclick="nextPage()" id="nextBtn" title="Następna strona">▶</button>
+                <button onclick="lastPage()" id="lastBtn" title="Ostatnia strona">⏭️</button>
+                <select id="pageSelect" onchange="goToPage()" title="Idź do strony">
+                    ${Array.from({length: Math.ceil(rowCount / ROWS_PER_PAGE)}, (_, i) => `<option value="${i+1}">${i+1}</option>`).join('')}
+                </select>
+            </div>
+        </div>
+        
+        <div class="table-container">
+            <table id="dataTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        ${headers.map(h => `<th>${escapeHtmlStatic(h)}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr><td colspan="${headers.length + 1}" style="text-align: center;">Ładowanie...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <script>
+            const vscode = acquireVsCodeApi();
+            const allData = ${JSON.stringify(jsonData)};
+            const headers = ${JSON.stringify(headers)};
+            const ROWS_PER_PAGE = ${ROWS_PER_PAGE};
+            const totalPages = Math.ceil(allData.length / ROWS_PER_PAGE);
+            let currentPage = 1;
+            
+            function escapeHtml(str) {
+                if (!str) return '';
+                return String(str).replace(/[&<>]/g, function(m) {
+                    if (m === '&') return '&amp;';
+                    if (m === '<') return '&lt;';
+                    if (m === '>') return '&gt;';
+                    return m;
+                });
+            }
+            
+            function renderPage() {
+                const start = (currentPage - 1) * ROWS_PER_PAGE;
+                const end = Math.min(start + ROWS_PER_PAGE, allData.length);
+                const pageRows = allData.slice(start, end);
+                
+                const tbody = document.getElementById('tableBody');
+                const startRender = performance.now();
+                
+                const fragment = document.createDocumentFragment();
+                
+                for (let i = 0; i < pageRows.length; i++) {
+                    const row = pageRows[i];
+                    const rowNum = start + i + 1;
+                    const rowId = escapeHtml(String(row.id || ''));
+                    
+                    const tr = document.createElement('tr');
+                    let html = '<td style="font-weight: bold;">' + rowNum + '</td>';
+                    
+                    for (const header of headers) {
+                        const value = row[header] || '';
+                        html += '<td contenteditable="true" ' +
+                               'onblur="updateCell(\\'' + rowId + '\\', \\'' + escapeHtml(header) + '\\', this.textContent)">' +
+                               escapeHtml(value) + 
+                               '</td>';
+                    }
+                    
+                    tr.innerHTML = html;
+                    fragment.appendChild(tr);
+                }
+                
+                tbody.innerHTML = '';
+                tbody.appendChild(fragment);
+                
+                const endRender = performance.now();
+                console.log('Page ' + currentPage + ' rendered in ' + (endRender - startRender).toFixed(2) + 'ms');
+                
+                // Aktualizuj UI paginacji
+                document.getElementById('currentPage').textContent = currentPage;
+                document.getElementById('pageSelect').value = currentPage;
+                document.getElementById('prevBtn').disabled = currentPage === 1;
+                document.getElementById('firstBtn').disabled = currentPage === 1;
+                document.getElementById('nextBtn').disabled = currentPage === totalPages;
+                document.getElementById('lastBtn').disabled = currentPage === totalPages;
+            }
+            
+            function updateCell(id, column, value) {
+                vscode.postMessage({ command: 'updateCell', id: id, column: column, value: value });
+            }
+            
+            function nextPage() {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderPage();
+                }
+            }
+            
+            function prevPage() {
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderPage();
+                }
+            }
+            
+            function firstPage() {
+                currentPage = 1;
+                renderPage();
+            }
+            
+            function lastPage() {
+                currentPage = totalPages;
+                renderPage();
+            }
+            
+            function goToPage() {
+                const page = parseInt(document.getElementById('pageSelect').value);
+                if (page !== currentPage) {
+                    currentPage = page;
+                    renderPage();
+                }
+            }
+            
+            function exportToCSV() {
+                let csv = headers.join(',') + '\\n';
+                for (const row of allData) {
+                    const line = headers.map(h => {
+                        let cell = row[h] || '';
+                        if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\\n'))) {
+                            cell = '"' + cell.replace(/"/g, '""') + '"';
+                        }
+                        return cell;
+                    }).join(',');
+                    csv += line + '\\n';
+                }
+                
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'export_' + new Date().toISOString().slice(0,19).replace(/:/g, '-') + '.csv';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+            
+            window.addEventListener('message', event => {
+                if (event.data.command === 'updateConfirmed') {
+                    // Aktualizuj widoczną tabelę
+                    const rows = document.querySelectorAll('#tableBody tr');
+                    for (const row of rows) {
+                        if (row.cells[0].textContent === event.data.id) {
+                            for (let i = 0; i < headers.length; i++) {
+                                if (headers[i] === event.data.column) {
+                                    const cell = row.cells[i + 1];
+                                    cell.textContent = event.data.value;
+                                    cell.style.backgroundColor = '#90EE90';
+                                    setTimeout(() => { 
+                                        cell.style.backgroundColor = ''; 
+                                    }, 500);
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    
+                    // Aktualizuj dane w allData
+                    for (let i = 0; i < allData.length; i++) {
+                        if (String(allData[i].id) === String(event.data.id)) {
+                            allData[i][event.data.column] = event.data.value;
+                            break;
+                        }
+                    }
+                }
+            });
+            
+            // Renderuj pierwszą stronę
+            renderPage();
+            console.log('Pagination initialized: ' + allData.length + ' rows, ' + totalPages + ' pages');
+        </script>
+    </body>
+    </html>`;
+}
+
+function escapeHtmlStatic(str: string): string {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 async function getOptionsFromCnf(filePath: string): Promise<any> {
@@ -118,7 +475,6 @@ async function getOptionsFromCnf(filePath: string): Promise<any> {
         ...(parsedIni.client || {})
     };
 
-    // Budujemy obiekt wynikowy dynamicznie
     const options: any = {};
 
     if (mergedClient.socket) options.socketPath = mergedClient.socket;
@@ -128,7 +484,6 @@ async function getOptionsFromCnf(filePath: string): Promise<any> {
     if (mergedClient.database) options.database = mergedClient.database;
     if (mergedClient.port) options.port = parseInt(mergedClient.port);
 
-    // Specyficzna obsługa booleanów (tylko jeśli istnieją w pliku)
     if (mergedClient.hasOwnProperty('skip-ssl')) {
         options.ssl = !(mergedClient['skip-ssl'] === true || mergedClient['skip-ssl'] === 'true');
     }
@@ -142,8 +497,6 @@ async function getOptionsFromCnf(filePath: string): Promise<any> {
     return options;
 }
 
-
-// Funkcja pomocnicza do czytania "surowych" sekcji bez mapowania na finalny obiekt
 async function getRawSections(filePath: string): Promise<any> {
     const absolutePath = filePath.replace(/^~($|\/|\\)/, `${os.homedir()}$1`);
     if (!fs.existsSync(absolutePath)) return null;
@@ -157,127 +510,9 @@ async function getRawSections(filePath: string): Promise<any> {
 
 function sanitizeSql(sql: string): string {
     const cleanSql = sql.trim();
-    // Sprawdza czy zaczyna się od SELECT i czy NIE MA " limit " (ze spacją pośrodku)
     const needsLimit = /^select(?!.+\slimit\s)/is.test(cleanSql);
     if (needsLimit) {
-        // Czyścimy ewentualny średnik i dopisujemy limit
         return cleanSql.replace(/;$/, "").trim() + " LIMIT 200";
     }
     return cleanSql;
-}
-
-function getWebviewContent(connTime: string, qTime: string, rowCount: number) {
-    // Formatujemy liczbę (np. 20000 -> 20 000)
-    const formattedCount = rowCount.toLocaleString();
-    
-    return `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body { font-size: 12px; padding: 0; margin: 0; }
-                table { 
-                    border-collapse: collapse; 
-                    width: 1%; /* Tabela dopasuje się do treści */
-                    min-width: 300px;
-                    color: var(--vscode-editor-foreground); 
-                    font-family: var(--vscode-editor-font-family);
-                }
-                th, td { 
-                    border: 1px solid var(--vscode-panel-border); 
-                    padding: 2px 6px; /* Bardzo małe odstępy (góra/dół lewo/prawo) */
-                    text-align: left; 
-                    white-space: nowrap; /* Tekst w jednej linii, kolumny będą wąskie */
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    max-width: 400px; /* Maksymalna szerokość kolumny, żeby nie uciekła za ekran */
-                }
-                th {
-                    background-color: var(--vscode-editor-background);
-                    position: sticky; /* Nagłówek będzie widoczny przy przewijaniu */
-                    top: 0;
-                    z-index: 10;
-                    border-bottom: 2px solid var(--vscode-panel-border);
-                }
-                .loading { color: orange; padding: 10px; font-weight: bold; }
-                
-                /* Pierwsza kolumna (numery wierszy) */
-                td:first-child {
-                    color: #888;
-                    text-align: right;
-                    padding-right: 8px;
-                    background-color: var(--vscode-sideBar-background);
-                    user-select: none;
-                    width: 1%; /* Wymusza minimalną szerokość dla kolumny z numerami */
-                    white-space: nowrap;
-                }
-                
-                /* Efekt najechania dla lepszej czytelności małej tabeli */
-                tr:hover { background-color: var(--vscode-list-hoverBackground); }
-                
-                /* Styl dla edytowanej komórki */
-                td[contenteditable="true"]:focus {
-                    outline: 1px solid var(--vscode-focusBorder);
-                    background-color: var(--vscode-editor-background);
-                }
-            </style>
-        </head>
-        <body>
-            <div id="stats" style="color: gray; font-size: 11px; padding: 5px;">
-                Latency: ${connTime}ms | Query: ${qTime}ms
-            </div>
-            <div id="status" class="loading">Renderowanie ${formattedCount} wierszy...</div>
-            
-            <table id="myTable" style="display:none;">
-                <thead><tr id="headerRow"></tr></thead>
-                <tbody id="tableBody"></tbody>
-            </table>
-
-            <script>
-                const vscode = acquireVsCodeApi();
-
-                // SŁUCHACZ: Czeka na dane z VS Code
-                window.addEventListener('message', event => {
-                    const message = event.data;
-                    if (message.command === 'setData') {
-                        renderTable(message.rows);
-                    }
-                });
-
-                function renderTable(rows) {
-                    if (!rows || rows.length === 0) {
-                        document.getElementById('status').innerText = 'Brak danych do wyświetlenia.';
-                        return;
-                    }
-                    
-                    const headers = Object.keys(rows[0]);
-                    const headerRow = document.getElementById('headerRow');
-                    const tableBody = document.getElementById('tableBody');
-
-                    // 1. Buduj nagłówki
-                    headerRow.innerHTML = '<th></th>' + headers.map(h => '<th>' + h + '</th>').join('');
-
-                    // 2. Buduj wiersze (używamy DocumentFragment dla wydajności)
-                    const fragment = document.createDocumentFragment();
-                    rows.forEach((row, index) => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = '<td>'+(index+1)+'</td>' + headers.map(h => 
-                            '<td contenteditable="true" onblur="updateData(\\'' + row.id + '\\', \\'' + h + '\\', this.textContent)">' + 
-                            (row[h] === null ? '' : row[h]) + 
-                            '</td>'
-                        ).join('');
-                        fragment.appendChild(tr);
-                    });
-
-                    tableBody.appendChild(fragment);
-                    document.getElementById('myTable').style.display = 'table';
-                    document.getElementById('status').style.display = 'none';
-                }
-
-                function updateData(id, column, value) {
-                    vscode.postMessage({ command: 'updateCell', id, column, value });
-                }
-            </script>
-        </body>
-        </html>`;
 }
