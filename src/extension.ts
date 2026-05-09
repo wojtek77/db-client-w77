@@ -390,9 +390,7 @@ window.addEventListener('message', event => {
             for (const key in row) {
 
                 obj[key] =
-                    row[key] === null
-                        ? ''
-                        : String(row[key]);
+                    row[key] ?? '';
             }
 
             return obj;
@@ -481,7 +479,8 @@ function renderHeaders() {
 
     for (const header of headers) {
 
-        const th = document.createElement('th');
+        const th =
+            document.createElement('th');
 
         th.textContent = header;
 
@@ -541,8 +540,9 @@ function renderPage() {
 
             td.dataset.column = header;
 
-            td.textContent =
-                row[header] || '';
+            const value = row[header];
+
+            td.textContent = value ?? '';
 
             tr.appendChild(td);
         }
