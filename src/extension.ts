@@ -533,16 +533,19 @@ function renderPage() {
 
             const td =
                 document.createElement('td');
+            
+            const value = row[header];
 
-            td.contentEditable = 'true';
+            td.dataset.value = value ?? '';
 
             td.dataset.id = row.id || '';
 
             td.dataset.column = header;
 
-            const value = row[header];
-
-            td.textContent = value ?? '';
+            td.textContent =
+                value === null || value === undefined
+                    ? ''
+                    : String(value);
 
             tr.appendChild(td);
         }
@@ -605,6 +608,73 @@ document.addEventListener('focusout', function(e) {
     });
 
 }, true);
+
+const rowsLayer =
+    document.getElementById('tableBody');
+rowsLayer.addEventListener('dblclick', e => {
+
+    const cell = e.target.closest('td');
+
+    if (!cell) return;
+
+    if (cell.querySelector('input')) {
+        return;
+    }
+
+    const oldValue =
+        cell.dataset.value || '';
+
+    const input =
+        document.createElement('input');
+
+    input.value = oldValue;
+
+    input.style.width = '100%';
+    input.style.border = 'none';
+    input.style.padding = '0';
+    input.style.margin = '0';
+    input.style.background = 'transparent';
+    input.style.color = 'inherit';
+    input.style.font = 'inherit';
+
+    cell.innerHTML = '';
+
+    cell.appendChild(input);
+
+    input.focus();
+
+    input.select();
+
+    function save() {
+
+        const newValue = input.value;
+
+        cell.dataset.value = newValue;
+
+        cell.textContent = newValue;
+
+        vscode.postMessage({
+            command: 'updateCell',
+            id: cell.dataset.id,
+            column: cell.dataset.column,
+            value: newValue
+        });
+    }
+
+    input.addEventListener('blur', save);
+
+    input.addEventListener('keydown', ev => {
+
+        if (ev.key === 'Enter') {
+            input.blur();
+        }
+
+        if (ev.key === 'Escape') {
+
+            cell.textContent = oldValue;
+        }
+    });
+});
 
 function nextPage() {
 
