@@ -4,14 +4,16 @@ import * as fs from 'fs';
 import * as ini from 'ini';
 import * as os from 'os';
 
+let pool: mariadb.Pool;
+let conn: mariadb.PoolConnection;
+
 export async function activate(context: vscode.ExtensionContext) {
     console.log(new Date().toLocaleTimeString('pl-PL', { hour12: false }));
 
     let panel: vscode.WebviewPanel | undefined;
 
     const cnfOptions = await getOptionsFromCnf('~/.db_configs/local-system.cnf');
-
-    const pool = mariadb.createPool({
+    pool = mariadb.createPool({
         ...cnfOptions,
         connectionLimit: 5,
         connectTimeout: 10000,
@@ -21,18 +23,16 @@ export async function activate(context: vscode.ExtensionContext) {
         insertIdAsNumber: true,
         bigIntAsNumber: true
     });
-
     const startConn = performance.now();
-
-    const conn = await pool.getConnection();
-
+    conn = await pool.getConnection();
+    conn.on('error', err => {
+        console.error('MariaDB connection error:', err);
+    });
     const endConn = performance.now();
-
     const connectionTime = (endConn - startConn).toFixed(2);
-
     console.log('Connection time:', connectionTime, 'ms');
 
-    let disposable = vscode.commands.registerCommand('mariadb-client.openEditor', async () => {
+    const disposable = vscode.commands.registerCommand('mariadb-client.openEditor', async () => {
 
         console.log('=== OPEN EDITOR START ===');
 
@@ -51,28 +51,46 @@ export async function activate(context: vscode.ExtensionContext) {
 
         console.log('Panel created');
 
-        let rawSql = 'select * from student s limit 20000';
+        let rawSql = `
+                        select id, status
+                        from student s
+                        order by id
+                        limit 1
+                    `;
 
         const sql = sanitizeSql(rawSql);
 
-        console.log('=== STARTING QUERY ===');
+        let rows: any[] = [];
+        let queryTime = '0';
+        try {
+            console.log('=== STARTING QUERY ===');
 
-        const startQuery = performance.now();
+            const startQuery = performance.now();
+            rows = await conn.query(sql);
+            // to działa identycznie jak to co powyżej
+            // rows = await conn.query({ sql, metaAsArray: false });
+            const endQuery = performance.now();
 
-        const rows = await conn.execute(sql);
+            queryTime = (
+                endQuery - startQuery
+            ).toFixed(2);
 
-        const endQuery = performance.now();
+            console.log(
+                `=== QUERY TIME: ${queryTime}ms, ROWS: ${rows.length}`
+            );
+        } catch (err: any) {
+            console.error(err);
 
-        const queryTime = (endQuery - startQuery).toFixed(2);
+            vscode.window.showErrorMessage(
+                'Błąd zapytania SQL: ' + err.message
+            );
 
-        console.log(`=== QUERY TIME: ${queryTime}ms, ROWS: ${rows.length}`);
-
-        conn.release();
+            return;
+        }
 
         console.log('=== SETTING EMPTY WEBVIEW ===');
 
         panel.webview.html = getWebviewContent(
-            [],
             connectionTime,
             queryTime
         );
@@ -81,7 +99,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         const CHUNK_SIZE = 200;
 
-        (async () => {
+        void (async () => {
 
             for (
                 let i = 0;
@@ -99,7 +117,6 @@ export async function activate(context: vscode.ExtensionContext) {
                         i + CHUNK_SIZE >= rows.length
                 });
 
-                // oddaj event loop
                 await new Promise(resolve =>
                     setTimeout(resolve, 0)
                 );
@@ -117,7 +134,7 @@ export async function activate(context: vscode.ExtensionContext) {
             `⏱️ Total: ${totalTime}ms | Query: ${queryTime}ms`
         );
 
-        panel.webview.onDidReceiveMessage(async (message) => {
+        const messageDisposable = panel.webview.onDidReceiveMessage(async (message) => {
 
             if (message.command === 'updateCell') {
 
@@ -126,24 +143,17 @@ export async function activate(context: vscode.ExtensionContext) {
                 try {
 
                     const startUpdate = performance.now();
-
-                    const newConn = await pool.getConnection();
-
-                    await newConn.execute(
-                        `UPDATE student SET ${column} = ? WHERE id = ?`,
+                    await conn.execute(
+                        `UPDATE student SET \`${column}\` = ? WHERE id = ?`,
                         [value, id]
                     );
-
                     const updateTime = (
                         performance.now() - startUpdate
                     ).toFixed(2);
-
                     vscode.window.setStatusBarMessage(
                         `Zaktualizowano (${updateTime}ms)`,
                         3000
                     );
-
-                    newConn.release();
 
                     panel?.webview.postMessage({
                         command: 'updateConfirmed',
@@ -160,13 +170,33 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }
         }, undefined, context.subscriptions);
+        panel.onDidDispose(() => {
+            messageDisposable.dispose();
+            panel = undefined;
+        });
     });
 
     context.subscriptions.push(disposable);
 }
 
+export async function deactivate() {
+
+    try {
+        if (conn) await conn.end();
+    } catch (err) {
+        console.error('Błąd conn.end():', err);
+    }
+
+    try {
+        if (pool) await pool.end();
+    } catch (err) {
+        console.error('Błąd pool.end():', err);
+    }
+
+    console.log('WYWOŁANIE FUNKCJI DEACTIVATE');
+}
+
 function getWebviewContent(
-    rows: any[],
     connTime: string,
     qTime: string
 ): string {
@@ -252,11 +282,6 @@ td:first-child {
 
 tr:hover td {
     background-color: var(--vscode-list-hoverBackground);
-}
-
-td[contenteditable="true"]:focus {
-    outline: 2px solid var(--vscode-focusBorder);
-    background-color: var(--vscode-editor-background);
 }
 
 button {
@@ -383,20 +408,7 @@ window.addEventListener('message', event => {
 
         const start = performance.now();
 
-        const mapped = msg.rows.map(row => {
-
-            const obj = {};
-
-            for (const key in row) {
-
-                obj[key] =
-                    row[key] ?? '';
-            }
-
-            return obj;
-        });
-
-        allData.push(...mapped);
+        allData.push(...msg.rows);
 
         if (headers.length === 0 && allData.length) {
 
@@ -422,7 +434,7 @@ window.addEventListener('message', event => {
 
         console.log(
             'Chunk loaded:',
-            mapped.length,
+            msg.rows.length,
             'rows in',
             (end - start).toFixed(2),
             'ms'
@@ -455,20 +467,6 @@ window.addEventListener('message', event => {
         });
     }
 });
-
-function escapeHtml(str) {
-
-    if (!str) return '';
-
-    return String(str).replace(/[&<>]/g, function(m) {
-
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-
-        return m;
-    });
-}
 
 function renderHeaders() {
 
@@ -536,9 +534,15 @@ function renderPage() {
             
             const value = row[header];
 
-            td.dataset.value = value ?? '';
+            td.dataset.value =
+                value === null || value === undefined
+                    ? ''
+                    : String(value);
 
-            td.dataset.id = row.id || '';
+            td.dataset.id =
+                row.id !== undefined && row.id !== null
+                    ? String(row.id)
+                    : '';
 
             td.dataset.column = header;
 
@@ -584,7 +588,10 @@ function renderPage() {
     );
 }
 
-document.addEventListener('focusout', function(e) {
+const rowsLayer =
+    document.getElementById('tableBody');
+
+rowsLayer.addEventListener('dblclick', e => {
 
     const target = e.target;
 
@@ -592,30 +599,11 @@ document.addEventListener('focusout', function(e) {
         return;
     }
 
-    if (target.tagName !== 'TD') {
+    const cell = target.closest('td');
+
+    if (!cell.dataset.column) {
         return;
     }
-
-    if (!target.dataset.column) {
-        return;
-    }
-
-    vscode.postMessage({
-        command: 'updateCell',
-        id: target.dataset.id,
-        column: target.dataset.column,
-        value: target.textContent
-    });
-
-}, true);
-
-const rowsLayer =
-    document.getElementById('tableBody');
-rowsLayer.addEventListener('dblclick', e => {
-
-    const cell = e.target.closest('td');
-
-    if (!cell) return;
 
     if (cell.querySelector('input')) {
         return;
@@ -670,6 +658,12 @@ rowsLayer.addEventListener('dblclick', e => {
         }
 
         if (ev.key === 'Escape') {
+
+            input.removeEventListener('blur', save);
+
+            input.blur();
+
+            cell.dataset.value = oldValue;
 
             cell.textContent = oldValue;
         }
@@ -779,17 +773,6 @@ function exportToCSV() {
 </body>
 </html>
 `;
-}
-
-function escapeHtmlStatic(str: string): string {
-    if (!str) return '';
-
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
 }
 
 async function getOptionsFromCnf(filePath: string): Promise<any> {
