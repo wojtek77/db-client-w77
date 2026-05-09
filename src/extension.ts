@@ -77,16 +77,35 @@ export async function activate(context: vscode.ExtensionContext) {
             queryTime
         );
 
-        console.log('=== SENDING DATA ===');
+        console.log('=== SENDING DATA IN CHUNKS ===');
 
-        setTimeout(() => {
+        const CHUNK_SIZE = 200;
 
-            panel?.webview.postMessage({
-                command: 'setData',
-                rows
-            });
+        (async () => {
 
-        }, 50);
+            for (
+                let i = 0;
+                i < rows.length;
+                i += CHUNK_SIZE
+            ) {
+
+                const chunk =
+                    rows.slice(i, i + CHUNK_SIZE);
+
+                panel?.webview.postMessage({
+                    command: 'appendData',
+                    rows: chunk,
+                    isLast:
+                        i + CHUNK_SIZE >= rows.length
+                });
+
+                // oddaj event loop
+                await new Promise(resolve =>
+                    setTimeout(resolve, 0)
+                );
+            }
+
+        })();
 
         const totalTime = (
             performance.now() - commandStart
@@ -360,11 +379,11 @@ window.addEventListener('message', event => {
 
     const msg = event.data;
 
-    if (msg.command === 'setData') {
+    if (msg.command === 'appendData') {
 
         const start = performance.now();
 
-        allData = msg.rows.map(row => {
+        const mapped = msg.rows.map(row => {
 
             const obj = {};
 
@@ -379,31 +398,45 @@ window.addEventListener('message', event => {
             return obj;
         });
 
-        if (!allData.length) {
-            return;
-        }
+        allData.push(...mapped);
 
-        headers = Object.keys(allData[0]);
+        if (headers.length === 0 && allData.length) {
+
+            headers = Object.keys(allData[0]);
+
+            renderHeaders();
+        }
 
         totalPages = Math.ceil(
             allData.length / ROWS_PER_PAGE
         );
 
-        renderHeaders();
-
-        renderPage();
-
         document.getElementById(
             'totalPages'
         ).textContent = totalPages;
 
+        // render tylko pierwszego chunk
+        if (currentPage === 1) {
+            renderPage();
+        }
+
         const end = performance.now();
 
         console.log(
-            'Data loaded in',
+            'Chunk loaded:',
+            mapped.length,
+            'rows in',
             (end - start).toFixed(2),
             'ms'
         );
+
+        if (msg.isLast) {
+
+            console.log(
+                'ALL DATA LOADED:',
+                allData.length
+            );
+        }
     }
 
     if (msg.command === 'updateConfirmed') {
