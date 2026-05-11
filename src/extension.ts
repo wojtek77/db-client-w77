@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import * as mariadb from 'mariadb';
 import * as fs from 'fs';
 import * as ini from 'ini';
@@ -91,6 +92,8 @@ export async function activate(context: vscode.ExtensionContext) {
         console.log('=== SETTING EMPTY WEBVIEW ===');
 
         panel.webview.html = getWebviewContent(
+            panel.webview,
+            context.extensionPath,
             connectionTime,
             queryTime
         );
@@ -197,9 +200,23 @@ export async function deactivate() {
 }
 
 function getWebviewContent(
+    webview: vscode.Webview,
+    extensionPath: string,
     connTime: string,
     qTime: string
 ): string {
+    
+    const styleUri = webview.asWebviewUri(
+        vscode.Uri.file(
+            path.join(
+                extensionPath,
+                'src',
+                'webview',
+                'media',
+                'styles.css'
+            )
+        )
+    );
 
     return `
 <!DOCTYPE html>
@@ -209,119 +226,7 @@ function getWebviewContent(
 
 <meta charset="UTF-8">
 
-<style>
-
-body {
-    font-size: 12px;
-    padding: 10px;
-    background: var(--vscode-editor-background);
-    margin: 0;
-    height: 100vh;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-}
-
-.toolbar {
-    padding: 8px;
-    background: var(--vscode-editor-background);
-    border-bottom: 1px solid var(--vscode-panel-border);
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.stats {
-    color: gray;
-    font-size: 11px;
-    flex: 1;
-}
-
-.pagination {
-    display: flex;
-    gap: 5px;
-    align-items: center;
-}
-
-.table-container {
-    flex: 1;
-    overflow: auto;
-    margin-top: 10px;
-}
-
-table {
-    border-collapse: collapse;
-    font-family: var(--vscode-editor-font-family);
-    font-size: 12px;
-    width: 100%;
-}
-
-th,
-td {
-    border: 1px solid var(--vscode-panel-border);
-    padding: 4px 8px;
-    text-align: left;
-    white-space: nowrap;
-}
-
-th {
-    background-color: var(--vscode-editor-background);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    font-weight: bold;
-}
-
-td:first-child {
-    background-color: var(--vscode-sideBar-background);
-    color: #888;
-    text-align: right;
-    font-weight: bold;
-}
-
-tr:hover td {
-    background-color: var(--vscode-list-hoverBackground);
-}
-
-button {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-    border: none;
-    padding: 4px 12px;
-    cursor: pointer;
-    border-radius: 2px;
-    font-size: 11px;
-}
-
-button:hover {
-    background: var(--vscode-button-hoverBackground);
-}
-
-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.page-info {
-    font-size: 11px;
-    margin: 0 10px;
-}
-
-select {
-    background: var(--vscode-dropdown-background);
-    color: var(--vscode-dropdown-foreground);
-    border: 1px solid var(--vscode-dropdown-border);
-    padding: 4px;
-    border-radius: 2px;
-    font-size: 11px;
-}
-
-.updated-cell {
-    background: #90EE90 !important;
-}
-
-</style>
+<link rel="stylesheet" href="${styleUri}">
 
 </head>
 
