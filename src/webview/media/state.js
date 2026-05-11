@@ -1,0 +1,9 @@
+window.state = {
+    allData: [],
+    headers: [],
+    currentPage: 1,
+    totalPages: 1,
+    ROWS_PER_PAGE: 200
+};
+
+console.log('STATE LOADED');

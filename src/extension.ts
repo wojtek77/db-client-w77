@@ -53,10 +53,10 @@ export async function activate(context: vscode.ExtensionContext) {
         console.log('Panel created');
 
         let rawSql = `
-                        select id, status
+                        select *
                         from student s
                         order by id
-                        limit 1
+                        limit 400
                     `;
 
         const sql = sanitizeSql(rawSql);
@@ -217,6 +217,84 @@ function getWebviewContent(
             )
         )
     );
+    
+    const stateUri = webview.asWebviewUri(
+        vscode.Uri.file(
+            path.join(
+                extensionPath,
+                'src',
+                'webview',
+                'media',
+                'state.js'
+            )
+        )
+    );
+    const tableRendererUri = webview.asWebviewUri(
+        vscode.Uri.file(
+            path.join(
+                extensionPath,
+                'src',
+                'webview',
+                'media',
+                'tableRenderer.js'
+            )
+        )
+    );
+    const paginationUri = webview.asWebviewUri(
+        vscode.Uri.file(
+            path.join(
+                extensionPath,
+                'src',
+                'webview',
+                'media',
+                'pagination.js'
+            )
+        )
+    );
+    const editorUri = webview.asWebviewUri(
+        vscode.Uri.file(
+            path.join(
+                extensionPath,
+                'src',
+                'webview',
+                'media',
+                'editor.js'
+            )
+        )
+    );
+    const csvExportUri = webview.asWebviewUri(
+        vscode.Uri.file(
+            path.join(
+                extensionPath,
+                'src',
+                'webview',
+                'media',
+                'csvExport.js'
+            )
+        )
+    );
+    const messageHandlerUri = webview.asWebviewUri(
+        vscode.Uri.file(
+            path.join(
+                extensionPath,
+                'src',
+                'webview',
+                'media',
+                'messageHandler.js'
+            )
+        )
+    );
+    const appUri = webview.asWebviewUri(
+        vscode.Uri.file(
+            path.join(
+                extensionPath,
+                'src',
+                'webview',
+                'media',
+                'app.js'
+            )
+        )
+    );
 
     return `
 <!DOCTYPE html>
@@ -291,389 +369,13 @@ function getWebviewContent(
 
 </div>
 
-<script>
-
-const vscode = acquireVsCodeApi();
-
-let allData = [];
-
-let headers = [];
-
-const ROWS_PER_PAGE = 200;
-
-let totalPages = 1;
-
-let currentPage = 1;
-
-window.addEventListener('message', event => {
-
-    const msg = event.data;
-
-    if (msg.command === 'appendData') {
-
-        const start = performance.now();
-
-        allData.push(...msg.rows);
-
-        if (headers.length === 0 && allData.length) {
-
-            headers = Object.keys(allData[0]);
-
-            renderHeaders();
-        }
-
-        totalPages = Math.ceil(
-            allData.length / ROWS_PER_PAGE
-        );
-
-        document.getElementById(
-            'totalPages'
-        ).textContent = totalPages;
-
-        // render tylko pierwszego chunk
-        if (currentPage === 1) {
-            renderPage();
-        }
-
-        const end = performance.now();
-
-        console.log(
-            'Chunk loaded:',
-            msg.rows.length,
-            'rows in',
-            (end - start).toFixed(2),
-            'ms'
-        );
-
-        if (msg.isLast) {
-
-            console.log(
-                'ALL DATA LOADED:',
-                allData.length
-            );
-        }
-    }
-
-    if (msg.command === 'updateConfirmed') {
-
-        const cells = document.querySelectorAll(
-            '[data-id="' + msg.id + '"][data-column="' + msg.column + '"]'
-        );
-
-        cells.forEach(cell => {
-
-            cell.classList.add('updated-cell');
-
-            setTimeout(() => {
-
-                cell.classList.remove('updated-cell');
-
-            }, 500);
-        });
-    }
-});
-
-function renderHeaders() {
-
-    const headerRow =
-        document.getElementById('headerRow');
-
-    headerRow.innerHTML = '<th>#</th>';
-
-    for (const header of headers) {
-
-        const th =
-            document.createElement('th');
-
-        th.textContent = header;
-
-        headerRow.appendChild(th);
-    }
-}
-
-function renderPage() {
-
-    const start =
-        (currentPage - 1) * ROWS_PER_PAGE;
-
-    const end =
-        Math.min(
-            start + ROWS_PER_PAGE,
-            allData.length
-        );
-
-    const pageRows =
-        allData.slice(start, end);
-
-    const tbody =
-        document.getElementById('tableBody');
-
-    const startRender = performance.now();
-
-    tbody.innerHTML = '';
-
-    const fragment =
-        document.createDocumentFragment();
-
-    for (let i = 0; i < pageRows.length; i++) {
-
-        const row = pageRows[i];
-
-        const rowNum = start + i + 1;
-
-        const tr = document.createElement('tr');
-
-        const rowCell =
-            document.createElement('td');
-
-        rowCell.style.fontWeight = 'bold';
-
-        rowCell.textContent = String(rowNum);
-
-        tr.appendChild(rowCell);
-
-        for (const header of headers) {
-
-            const td =
-                document.createElement('td');
-            
-            const value = row[header];
-
-            td.dataset.value =
-                value === null || value === undefined
-                    ? ''
-                    : String(value);
-
-            td.dataset.id =
-                row.id !== undefined && row.id !== null
-                    ? String(row.id)
-                    : '';
-
-            td.dataset.column = header;
-
-            td.textContent =
-                value === null || value === undefined
-                    ? ''
-                    : String(value);
-
-            tr.appendChild(td);
-        }
-
-        fragment.appendChild(tr);
-    }
-
-    tbody.appendChild(fragment);
-
-    document.getElementById(
-        'currentPage'
-    ).textContent = currentPage;
-
-    document.getElementById(
-        'prevBtn'
-    ).disabled = currentPage === 1;
-
-    document.getElementById(
-        'firstBtn'
-    ).disabled = currentPage === 1;
-
-    document.getElementById(
-        'nextBtn'
-    ).disabled = currentPage === totalPages;
-
-    document.getElementById(
-        'lastBtn'
-    ).disabled = currentPage === totalPages;
-
-    const endRender = performance.now();
-
-    console.log(
-        'Render:',
-        (endRender - startRender).toFixed(2),
-        'ms'
-    );
-}
-
-const rowsLayer =
-    document.getElementById('tableBody');
-
-rowsLayer.addEventListener('dblclick', e => {
-
-    const target = e.target;
-
-    if (!(target instanceof HTMLElement)) {
-        return;
-    }
-
-    const cell = target.closest('td');
-
-    if (!cell.dataset.column) {
-        return;
-    }
-
-    if (cell.querySelector('input')) {
-        return;
-    }
-
-    const oldValue =
-        cell.dataset.value || '';
-
-    const input =
-        document.createElement('input');
-
-    input.value = oldValue;
-
-    input.style.width = '100%';
-    input.style.border = 'none';
-    input.style.padding = '0';
-    input.style.margin = '0';
-    input.style.background = 'transparent';
-    input.style.color = 'inherit';
-    input.style.font = 'inherit';
-
-    cell.innerHTML = '';
-
-    cell.appendChild(input);
-
-    input.focus();
-
-    input.select();
-
-    function save() {
-
-        const newValue = input.value;
-
-        cell.dataset.value = newValue;
-
-        cell.textContent = newValue;
-
-        vscode.postMessage({
-            command: 'updateCell',
-            id: cell.dataset.id,
-            column: cell.dataset.column,
-            value: newValue
-        });
-    }
-
-    input.addEventListener('blur', save);
-
-    input.addEventListener('keydown', ev => {
-
-        if (ev.key === 'Enter') {
-            input.blur();
-        }
-
-        if (ev.key === 'Escape') {
-
-            input.removeEventListener('blur', save);
-
-            input.blur();
-
-            cell.dataset.value = oldValue;
-
-            cell.textContent = oldValue;
-        }
-    });
-});
-
-function nextPage() {
-
-    if (currentPage < totalPages) {
-
-        currentPage++;
-
-        renderPage();
-    }
-}
-
-function prevPage() {
-
-    if (currentPage > 1) {
-
-        currentPage--;
-
-        renderPage();
-    }
-}
-
-function firstPage() {
-
-    currentPage = 1;
-
-    renderPage();
-}
-
-function lastPage() {
-
-    currentPage = totalPages;
-
-    renderPage();
-}
-
-function exportToCSV() {
-
-    let csv = headers.join(',') + '\\n';
-
-    for (const row of allData) {
-
-        const line = headers.map(h => {
-
-            let cell = row[h] || '';
-
-            if (
-                typeof cell === 'string' &&
-                (
-                    cell.includes(',') ||
-                    cell.includes('"') ||
-                    cell.includes('\\n')
-                )
-            ) {
-
-                cell =
-                    '"' +
-                    cell.replace(/"/g, '""') +
-                    '"';
-            }
-
-            return cell;
-
-        }).join(',');
-
-        csv += line + '\\n';
-    }
-
-    const blob = new Blob(
-        [csv],
-        {
-            type: 'text/csv;charset=utf-8;'
-        }
-    );
-
-    const url =
-        URL.createObjectURL(blob);
-
-    const a =
-        document.createElement('a');
-
-    a.href = url;
-
-    a.download =
-        'export_' +
-        new Date()
-            .toISOString()
-            .slice(0,19)
-            .replace(/:/g, '-') +
-        '.csv';
-
-    document.body.appendChild(a);
-
-    a.click();
-
-    document.body.removeChild(a);
-
-    URL.revokeObjectURL(url);
-}
-
-</script>
+<script src="${stateUri}"></script>
+<script src="${tableRendererUri}"></script>
+<script src="${paginationUri}"></script>
+<script src="${editorUri}"></script>
+<script src="${csvExportUri}"></script>
+<script src="${messageHandlerUri}"></script>
+<script src="${appUri}"></script>
 
 </body>
 </html>
