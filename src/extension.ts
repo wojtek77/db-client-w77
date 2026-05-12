@@ -160,8 +160,8 @@ function getWebviewContent(
             path.join(
                 extensionPath,
                 'src',
-                'webview',
-                'media',
+                'panel',
+                'assets',
                 'styles.css'
             )
         )
@@ -172,8 +172,8 @@ function getWebviewContent(
             path.join(
                 extensionPath,
                 'src',
-                'webview',
-                'media',
+                'panel',
+                'assets',
                 'state.js'
             )
         )
@@ -183,8 +183,8 @@ function getWebviewContent(
             path.join(
                 extensionPath,
                 'src',
-                'webview',
-                'media',
+                'panel',
+                'assets',
                 'tableRenderer.js'
             )
         )
@@ -194,8 +194,8 @@ function getWebviewContent(
             path.join(
                 extensionPath,
                 'src',
-                'webview',
-                'media',
+                'panel',
+                'assets',
                 'pagination.js'
             )
         )
@@ -205,8 +205,8 @@ function getWebviewContent(
             path.join(
                 extensionPath,
                 'src',
-                'webview',
-                'media',
+                'panel',
+                'assets',
                 'editor.js'
             )
         )
@@ -216,8 +216,8 @@ function getWebviewContent(
             path.join(
                 extensionPath,
                 'src',
-                'webview',
-                'media',
+                'panel',
+                'assets',
                 'csvExport.js'
             )
         )
@@ -227,8 +227,8 @@ function getWebviewContent(
             path.join(
                 extensionPath,
                 'src',
-                'webview',
-                'media',
+                'panel',
+                'assets',
                 'messageHandler.js'
             )
         )
@@ -238,8 +238,8 @@ function getWebviewContent(
             path.join(
                 extensionPath,
                 'src',
-                'webview',
-                'media',
+                'panel',
+                'assets',
                 'app.js'
             )
         )
