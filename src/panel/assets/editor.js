@@ -1,7 +1,6 @@
 function initEditor(vscode) {
 
-    const rowsLayer =
-        document.getElementById('tableBody');
+    const rowsLayer = document.getElementById('tableBody');
 
     rowsLayer.addEventListener('dblclick', e => {
 
@@ -13,6 +12,7 @@ function initEditor(vscode) {
 
         const cell = target.closest('td');
 
+        // Pomijamy komórkę z numerem wiersza (pierwsza kolumna)
         if (!cell.dataset.column) {
             return;
         }
@@ -21,11 +21,15 @@ function initEditor(vscode) {
             return;
         }
 
-        const oldValue =
-            cell.dataset.value || '';
+        const oldValue = cell.dataset.value || '';
+        
+        // ⭐ Pobierz indeksy wiersza i kolumny z atrybutów data-row i data-col
+        const rowIndex = parseInt(cell.getAttribute('data-row'));
+        const columnIndex = parseInt(cell.getAttribute('data-col'));
+        
+        console.log('Editing cell - rowIndex:', rowIndex, 'columnIndex:', columnIndex);
 
-        const input =
-            document.createElement('input');
+        const input = document.createElement('input');
 
         input.value = oldValue;
 
@@ -58,13 +62,13 @@ function initEditor(vscode) {
             }
 
             cell.dataset.value = newValue;
-
             cell.textContent = newValue;
 
+            // ⭐ WYŚLIJ NOWY FORMAT (rowIndex, columnIndex)
             vscode.postMessage({
                 command: 'updateCell',
-                id: cell.dataset.id,
-                column: cell.dataset.column,
+                rowIndex: rowIndex,
+                columnIndex: columnIndex,
                 value: newValue
             });
         }
@@ -84,7 +88,6 @@ function initEditor(vscode) {
                 input.blur();
 
                 cell.dataset.value = oldValue;
-
                 cell.textContent = oldValue;
             }
         });

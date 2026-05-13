@@ -1,81 +1,63 @@
 function renderHeaders() {
-
-    const headerRow =
-        document.getElementById('headerRow');
-
+    console.log('renderHeaders - headers:', window.state.headers);
+    
+    const headerRow = document.getElementById('headerRow');
     headerRow.innerHTML = '<th>#</th>';
 
-    for (const header of window.state.headers) {
-
-        const th =
-            document.createElement('th');
-
+    for (let i = 0; i < window.state.headers.length; i++) {
+        const header = window.state.headers[i];
+        const th = document.createElement('th');
         th.textContent = header;
-
+        th.dataset.columnIndex = i;
         headerRow.appendChild(th);
     }
 }
 
 function renderPage() {
-
-    const pageRows = window.state.currentRows;
+    console.log('renderPage - rows:', window.state.currentRows);
     
-    // obliczenie, ile było wcześniej wyświetlonych rekordów
+    const pageRows = window.state.currentRows;
+    const headers = window.state.headers;
     const currentPage = window.state.currentPage;
     const ROWS_PER_PAGE = window.state.ROWS_PER_PAGE;
     const extraRows = (currentPage - 1) * ROWS_PER_PAGE;
 
-    const tbody =
-        document.getElementById('tableBody');
-
-    const startRender = performance.now();
+    const tbody = document.getElementById('tableBody');
+    
+    if (!pageRows || pageRows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="100">Brak danych</td></tr>';
+        return;
+    }
 
     tbody.innerHTML = '';
-
-    const fragment =
-        document.createDocumentFragment();
+    const fragment = document.createDocumentFragment();
 
     for (let i = 0; i < pageRows.length; i++) {
-
         const row = pageRows[i];
-
         const rowNum = extraRows + i + 1;
+        const globalRowIndex = (currentPage - 1) * ROWS_PER_PAGE + i;
 
         const tr = document.createElement('tr');
+        tr.dataset.rowIndex = globalRowIndex;
 
-        const rowCell =
-            document.createElement('td');
-
+        // Numer wiersza
+        const rowCell = document.createElement('td');
         rowCell.style.fontWeight = 'bold';
-
         rowCell.textContent = String(rowNum);
-
         tr.appendChild(rowCell);
 
-        for (const header of window.state.headers) {
-
-            const td =
-                document.createElement('td');
+        // Kolumny
+        for (let j = 0; j < headers.length; j++) {
+            const td = document.createElement('td');
+            const value = row[j];
             
-            const value = row[header];
-
-            td.dataset.value =
-                value === null || value === undefined
-                    ? ''
-                    : String(value);
-
-            td.dataset.id =
-                row.id !== undefined && row.id !== null
-                    ? String(row.id)
-                    : '';
-
-            td.dataset.column = header;
-
-            td.textContent =
-                value === null || value === undefined
-                    ? ''
-                    : String(value);
-
+            td.dataset.value = (value === null || value === undefined) ? '' : String(value);
+            td.dataset.row = globalRowIndex;
+            td.dataset.col = j;
+            td.dataset.column = headers[j];
+            
+            td.textContent = (value === null || value === undefined) ? '' : String(value);
+            
             tr.appendChild(td);
         }
 
@@ -83,32 +65,6 @@ function renderPage() {
     }
 
     tbody.appendChild(fragment);
-
-    document.getElementById(
-        'currentPage'
-    ).textContent = window.state.currentPage;
-
-    document.getElementById(
-        'prevBtn'
-    ).disabled = window.state.currentPage === 1;
-
-    document.getElementById(
-        'firstBtn'
-    ).disabled = window.state.currentPage === 1;
-
-    document.getElementById(
-        'nextBtn'
-    ).disabled = window.state.currentPage === window.state.totalPages;
-
-    document.getElementById(
-        'lastBtn'
-    ).disabled = window.state.currentPage === window.state.totalPages;
-
-    const endRender = performance.now();
-
-    console.log(
-        'Render:',
-        (endRender - startRender).toFixed(2),
-        'ms'
-    );
+    
+    console.log('Rendered', pageRows.length, 'rows');
 }

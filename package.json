@@ -3,6 +3,7 @@
   "displayName": "db-client-w77",
   "description": "DB client",
   "version": "0.0.1",
+  "icon": "git.png",
   "engines": {
     "vscode": "^1.118.0"
   },
@@ -12,10 +13,40 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "sqlResults",
+          "title": "SQL",
+          "icon": "$(database)"
+        }
+      ]
+    },
+    "views": {
+      "sqlResults": [
+        {
+          "icon": "git.png",
+          "type": "webview",
+          "id": "sqlResultsView",
+          "name": "Wyniki SQL"
+        }
+      ]
+    },
     "commands": [
       {
-        "command": "mariadb-client.openEditor",
-        "title": "Uruchom Klienta MariaDB"
+        "command": "db-client.executeSQL",
+        "title": "Wykonaj SQL z edytora"
+      },
+      {
+        "command": "db-client.openPanel",
+        "title": "Otwórz panel wyników SQL"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "db-client.executeSQL",
+        "key": "ctrl+enter",
+        "when": "editorTextFocus && !editorReadonly && resourceExtname == '.sql'"
       }
     ]
   },
