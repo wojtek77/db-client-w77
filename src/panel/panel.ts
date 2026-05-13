@@ -102,18 +102,29 @@ export function registerPanelCommand(
                     const { id, column, value } = message;
                     const { updateTime, success, errorMessage } = await executeUpdate(id, column, value);
                     if (success) {
+                        
+                        // aktualizacja daych w backend
+                        const row = rows.find(r =>
+                            String(r.id) === String(id)
+                        );
+                        if (row) {
+                            row[column] = value;
+                        }
+
                         vscode.window.setStatusBarMessage(
                             `Zaktualizowano (${updateTime}ms)`,
                             3000
                         );
-    
+
                         panel?.webview.postMessage({
                             command: 'updateConfirmed',
                             id,
                             column,
                             value
                         });
+
                     } else {
+
                         vscode.window.showErrorMessage(
                             'Błąd zapisu SQL: ' + errorMessage
                         );

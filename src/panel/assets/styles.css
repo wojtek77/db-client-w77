@@ -1,6 +1,5 @@
 body {
     font-size: 12px;
-    padding: 10px;
     background: var(--vscode-editor-background);
     margin: 0;
     height: 100vh;
@@ -41,7 +40,7 @@ table {
     border-collapse: collapse;
     font-family: var(--vscode-editor-font-family);
     font-size: 12px;
-    width: 100%;
+    width: 1%;
 }
 
 th,

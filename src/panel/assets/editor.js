@@ -31,11 +31,13 @@ function initEditor(vscode) {
 
         input.style.width = '100%';
         input.style.border = 'none';
-        input.style.padding = '0';
+        input.style.padding = '3px';
         input.style.margin = '0';
         input.style.background = 'transparent';
         input.style.color = 'inherit';
         input.style.font = 'inherit';
+        input.style.fontWeight = 'bold';
+        input.style.fontSize = '133%';
 
         cell.innerHTML = '';
 
@@ -48,6 +50,12 @@ function initEditor(vscode) {
         function save() {
 
             const newValue = input.value;
+
+            if (oldValue === newValue) {
+                cell.dataset.value = oldValue;
+                cell.textContent = oldValue;
+                return;
+            }
 
             cell.dataset.value = newValue;
 

@@ -19,6 +19,11 @@ function renderHeaders() {
 function renderPage() {
 
     const pageRows = window.state.currentRows;
+    
+    // obliczenie, ile było wcześniej wyświetlonych rekordów
+    const currentPage = window.state.currentPage;
+    const ROWS_PER_PAGE = window.state.ROWS_PER_PAGE;
+    const extraRows = (currentPage - 1) * ROWS_PER_PAGE;
 
     const tbody =
         document.getElementById('tableBody');
@@ -34,7 +39,7 @@ function renderPage() {
 
         const row = pageRows[i];
 
-        const rowNum = i + 1;
+        const rowNum = extraRows + i + 1;
 
         const tr = document.createElement('tr');
 
