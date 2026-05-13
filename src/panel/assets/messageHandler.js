@@ -6,17 +6,21 @@ window.addEventListener('message', event => {
 
         const start = performance.now();
 
-        window.state.allData.push(...msg.rows);
+        window.state.currentRows = msg.rows;
 
-        if (window.state.headers.length === 0 && window.state.allData.length) {
+        if (window.state.headers.length === 0 && window.state.currentRows.length) {
 
-            window.state.headers = Object.keys(window.state.allData[0]);
+            window.state.headers = Object.keys(window.state.currentRows[0]);
 
             renderHeaders();
         }
 
+        // window.state.totalPages = Math.ceil(
+        //     window.state.allData.length / window.state.ROWS_PER_PAGE
+        // );
+        
         window.state.totalPages = Math.ceil(
-            window.state.allData.length / window.state.ROWS_PER_PAGE
+            msg.totalRows / window.state.ROWS_PER_PAGE
         );
 
         document.getElementById(
@@ -24,9 +28,7 @@ window.addEventListener('message', event => {
         ).textContent = window.state.totalPages;
 
         // render tylko pierwszego chunk
-        if (window.state.currentPage === 1) {
-            renderPage();
-        }
+        renderPage();
 
         const end = performance.now();
 
@@ -41,8 +43,8 @@ window.addEventListener('message', event => {
         if (msg.isLast) {
 
             console.log(
-                'ALL DATA LOADED:',
-                window.state.allData.length
+                'PAGE LOADED:',
+                window.state.currentRows.length
             );
         }
     }

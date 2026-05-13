@@ -18,17 +18,7 @@ function renderHeaders() {
 
 function renderPage() {
 
-    const start =
-        (window.state.currentPage - 1) * window.state.ROWS_PER_PAGE;
-
-    const end =
-        Math.min(
-            start + window.state.ROWS_PER_PAGE,
-            window.state.allData.length
-        );
-
-    const pageRows =
-        window.state.allData.slice(start, end);
+    const pageRows = window.state.currentRows;
 
     const tbody =
         document.getElementById('tableBody');
@@ -44,7 +34,7 @@ function renderPage() {
 
         const row = pageRows[i];
 
-        const rowNum = start + i + 1;
+        const rowNum = i + 1;
 
         const tr = document.createElement('tr');
 

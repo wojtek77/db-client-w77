@@ -4,7 +4,10 @@ function nextPage() {
 
         window.state.currentPage++;
 
-        renderPage();
+        window.vscode.postMessage({
+            command: 'loadPage',
+            page: window.state.currentPage
+        });
     }
 }
 
@@ -14,7 +17,10 @@ function prevPage() {
 
         window.state.currentPage--;
 
-        renderPage();
+        window.vscode.postMessage({
+            command: 'loadPage',
+            page: window.state.currentPage
+        });
     }
 }
 
@@ -22,14 +28,20 @@ function firstPage() {
 
     window.state.currentPage = 1;
 
-    renderPage();
+    window.vscode.postMessage({
+        command: 'loadPage',
+        page: 1
+    });
 }
 
 function lastPage() {
 
     window.state.currentPage = window.state.totalPages;
 
-    renderPage();
+    window.vscode.postMessage({
+        command: 'loadPage',
+        page: window.state.currentPage
+    });
 }
 
 window.nextPage = nextPage;

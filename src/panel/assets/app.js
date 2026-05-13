@@ -1,4 +1,4 @@
-const vscode = acquireVsCodeApi();
+window.vscode = acquireVsCodeApi();
 
 renderHeaders();
 renderPage();

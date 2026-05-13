@@ -1,5 +1,5 @@
 window.state = {
-    allData: [],
+    currentRows: [],
     headers: [],
     currentPage: 1,
     totalPages: 1,

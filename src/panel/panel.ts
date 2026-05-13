@@ -53,34 +53,16 @@ export function registerPanelCommand(
                 queryTime
             );
     
-            console.log('=== SENDING DATA IN CHUNKS ===');
-    
-            const CHUNK_SIZE = 200;
-    
-            void (async () => {
-    
-                for (
-                    let i = 0;
-                    i < rows.length;
-                    i += CHUNK_SIZE
-                ) {
-    
-                    const chunk =
-                        rows.slice(i, i + CHUNK_SIZE);
-    
-                    panel?.webview.postMessage({
-                        command: 'appendData',
-                        rows: chunk,
-                        isLast:
-                            i + CHUNK_SIZE >= rows.length
-                    });
-    
-                    await new Promise(resolve =>
-                        setTimeout(resolve, 0)
-                    );
-                }
-    
-            })();
+            console.log('=== SENDING FIRST PAGE ===');
+
+            const firstPage = rows.slice(0, 200);
+
+            panel.webview.postMessage({
+                command: 'appendData',
+                rows: firstPage,
+                totalRows: rows.length,
+                isLast: true
+            });
     
             const totalTime = (
                 performance.now() - commandStart
@@ -93,6 +75,27 @@ export function registerPanelCommand(
             );
     
             const messageDisposable = panel.webview.onDidReceiveMessage(async (message) => {
+                
+                if (message.command === 'loadPage') {
+
+                    const page = message.page;
+
+                    const start =
+                        (page - 1) * 200;
+
+                    const end =
+                        start + 200;
+
+                    const pageRows =
+                        rows.slice(start, end);
+
+                    panel?.webview.postMessage({
+                        command: 'appendData',
+                        rows: pageRows,
+                        totalRows: rows.length,
+                        isLast: true
+                    });
+                }
     
                 if (message.command === 'updateCell') {
                     

@@ -23,7 +23,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 select *
                 from student s
                 order by id
-                limit 400
+                limit 20000
                 `;
     
     const disposable = registerPanelCommand(
