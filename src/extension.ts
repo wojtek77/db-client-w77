@@ -295,7 +295,7 @@ export async function activate(context: vscode.ExtensionContext) {
     setGetCachedColumnsFunction(getCachedColumnsAsStrings);
 
     // Utwórz provider dla panelu wyników
-    sqlResultsProvider = new SqlResultsProvider(connectionTime.toString(), context.extensionPath);
+    sqlResultsProvider = new SqlResultsProvider(connectionTime.toString(), context.extensionPath, context);
     
     // Zarejestruj WebviewViewProvider
     context.subscriptions.push(
