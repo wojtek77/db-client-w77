@@ -20,7 +20,7 @@ export function getHtml(
     const tableRendererUri = toUri('tableRenderer.js');
     const paginationUri = toUri('pagination.js');
     const editorUri = toUri('editor.js');
-    const csvExportUri = toUri('csvExport.js');
+    const exportUri = toUri('export.js');
     const messageHandlerUri = toUri('messageHandler.js');
     const appUri = toUri('app.js');
 
@@ -46,6 +46,10 @@ export function getHtml(
 
     <button onclick="exportToCSV()">
         💾 Eksportuj CSV
+    </button>
+    
+    <button onclick="exportToTXT()">
+        📄 Eksportuj TXT
     </button>
 
     <div class="pagination">
@@ -101,7 +105,7 @@ export function getHtml(
 <script src="${tableRendererUri}"></script>
 <script src="${paginationUri}"></script>
 <script src="${editorUri}"></script>
-<script src="${csvExportUri}"></script>
+<script src="${exportUri}"></script>
 <script src="${messageHandlerUri}"></script>
 <script src="${appUri}"></script>
 

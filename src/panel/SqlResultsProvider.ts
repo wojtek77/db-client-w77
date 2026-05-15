@@ -47,6 +47,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (msg.command === 'exportCSV') {
                 await this.exportToCSV(msg.rows, msg.headers);
             }
+            
+            if (msg.command === 'exportTXT') {
+                await this.exportToTXT(msg.rows, msg.headers);
+            }
         });
     }
 
@@ -225,6 +229,69 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         } catch (err: any) {
             console.error('Błąd eksportu:', err);
             vscode.window.showErrorMessage(`❌ Błąd eksportu: ${err.message}`);
+        }
+    }
+    
+    private async exportToTXT(rows: any[][], headers: string[]) {
+        try {
+            // Generuj TXT (format tabelaryczny)
+            let txt = '';
+            
+            // Oblicz szerokości kolumn (dla czytelnego formatowania)
+            const colWidths: number[] = [];
+            for (let i = 0; i < headers.length; i++) {
+                let maxWidth = headers[i].length;
+                for (const row of rows) {
+                    const cellStr = String(row[i] === null || row[i] === undefined ? '' : row[i]);
+                    if (cellStr.length > maxWidth) maxWidth = cellStr.length;
+                }
+                colWidths.push(Math.min(maxWidth, 50)); // ogranicz do 50 znaków
+            }
+            
+            // Linia oddzielająca
+            const separator = '+-' + colWidths.map(w => '-'.repeat(w)).join('-+-') + '-+';
+            
+            // Nagłówki
+            txt += separator + '\n';
+            txt += '| ';
+            for (let i = 0; i < headers.length; i++) {
+                txt += headers[i].padEnd(colWidths[i]) + ' | ';
+            }
+            txt += '\n' + separator + '\n';
+            
+            // Dane
+            for (const row of rows) {
+                txt += '| ';
+                for (let i = 0; i < headers.length; i++) {
+                    let cellStr = String(row[i] === null || row[i] === undefined ? '' : row[i]);
+                    if (cellStr.length > colWidths[i]) {
+                        cellStr = cellStr.substring(0, colWidths[i] - 3) + '...';
+                    }
+                    txt += cellStr.padEnd(colWidths[i]) + ' | ';
+                }
+                txt += '\n';
+            }
+            txt += separator + '\n';
+            txt += `Liczba wierszy: ${rows.length}\n`;
+            
+            // Zapytaj użytkownika o lokalizację
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+            const defaultUri = vscode.Uri.file(`export_${timestamp}.txt`);
+            
+            const uri = await vscode.window.showSaveDialog({
+                defaultUri: defaultUri,
+                filters: {
+                    'Text files': ['txt']
+                }
+            });
+            
+            if (uri) {
+                await vscode.workspace.fs.writeFile(uri, Buffer.from(txt, 'utf8'));
+                vscode.window.showInformationMessage(`✅ Eksportowano ${rows.length} wierszy do ${uri.fsPath}`);
+            }
+        } catch (err: any) {
+            console.error('Błąd eksportu TXT:', err);
+            vscode.window.showErrorMessage(`❌ Błąd eksportu TXT: ${err.message}`);
         }
     }
 }
