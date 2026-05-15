@@ -55,25 +55,12 @@ window.addEventListener('message', event => {
     }
 
     if (msg.command === 'updateConfirmed') {
-        // Dla nowego formatu (rowIndex, columnIndex)
-        if (msg.rowIndex !== undefined && msg.columnIndex !== undefined) {
-            const cells = document.querySelectorAll(
-                `[data-row="${msg.rowIndex}"][data-col="${msg.columnIndex}"]`
-            );
-            cells.forEach(cell => {
-                cell.classList.add('updated-cell');
-                setTimeout(() => cell.classList.remove('updated-cell'), 500);
-            });
-        } 
-        // Dla starego formatu (id, column)
-        else if (msg.id !== undefined && msg.column !== undefined) {
-            const cells = document.querySelectorAll(
-                `[data-id="${msg.id}"][data-column="${msg.column}"]`
-            );
-            cells.forEach(cell => {
-                cell.classList.add('updated-cell');
-                setTimeout(() => cell.classList.remove('updated-cell'), 500);
-            });
-        }
+        const cells = document.querySelectorAll(
+            `[data-row="${msg.rowIndex}"][data-col="${msg.columnIndex}"]`
+        );
+        cells.forEach(cell => {
+            cell.classList.add('updated-cell');
+            setTimeout(() => cell.classList.remove('updated-cell'), 500);
+        });
     }
 });
