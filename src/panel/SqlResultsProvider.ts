@@ -43,6 +43,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (msg.command === 'updateCell') {
                 await this.updateCellInDB(msg.rowIndex, msg.columnIndex, msg.value);
             }
+            
+            if (msg.command === 'exportCSV') {
+                await this.exportToCSV(msg.rows, msg.headers);
+            }
         });
     }
 
@@ -181,6 +185,46 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             this._view.show?.(true);
         } else {
             vscode.commands.executeCommand('sqlResultsView.focus');
+        }
+    }
+    
+    private async exportToCSV(rows: any[][], headers: string[]) {
+        try {
+            // Generuj CSV
+            let csv = headers.join(',') + '\n';
+            
+            for (const row of rows) {
+                const line = row.map(cell => {
+                    if (cell === null || cell === undefined) {
+                        return '';
+                    }
+                    let cellStr = String(cell);
+                    if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+                        cellStr = '"' + cellStr.replace(/"/g, '""') + '"';
+                    }
+                    return cellStr;
+                }).join(',');
+                csv += line + '\n';
+            }
+            
+            // Zapytaj użytkownika o lokalizację
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+            const defaultUri = vscode.Uri.file(`export_${timestamp}.csv`);
+            
+            const uri = await vscode.window.showSaveDialog({
+                defaultUri: defaultUri,
+                filters: {
+                    'CSV files': ['csv']
+                }
+            });
+            
+            if (uri) {
+                await vscode.workspace.fs.writeFile(uri, Buffer.from(csv, 'utf8'));
+                vscode.window.showInformationMessage(`✅ Eksportowano ${rows.length} wierszy do ${uri.fsPath}`);
+            }
+        } catch (err: any) {
+            console.error('Błąd eksportu:', err);
+            vscode.window.showErrorMessage(`❌ Błąd eksportu: ${err.message}`);
         }
     }
 }

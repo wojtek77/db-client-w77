@@ -1,65 +1,37 @@
 function exportToCSV() {
-
-    let csv = window.state.headers.join(',') + '\\n';
-
-    for (const row of window.state.allData) {
-
-        const line = window.state.headers.map(h => {
-
-            let cell = row[h] || '';
-
-            if (
-                typeof cell === 'string' &&
-                (
-                    cell.includes(',') ||
-                    cell.includes('"') ||
-                    cell.includes('\\n')
-                )
-            ) {
-
-                cell =
-                    '"' +
-                    cell.replace(/"/g, '""') +
-                    '"';
-            }
-
-            return cell;
-
-        }).join(',');
-
-        csv += line + '\\n';
+    console.log('=== EXPORT CSV: funkcja wywołana ===');
+    
+    const rows = window.state.currentRows;
+    const headers = window.state.headers;
+    
+    console.log('rows:', rows);
+    console.log('headers:', headers);
+    
+    if (!rows || rows.length === 0) {
+        console.warn('Brak danych do eksportu');
+        return;
     }
-
-    const blob = new Blob(
-        [csv],
-        {
-            type: 'text/csv;charset=utf-8;'
-        }
-    );
-
-    const url =
-        URL.createObjectURL(blob);
-
-    const a =
-        document.createElement('a');
-
-    a.href = url;
-
-    a.download =
-        'export_' +
-        new Date()
-            .toISOString()
-            .slice(0,19)
-            .replace(/:/g, '-') +
-        '.csv';
-
-    document.body.appendChild(a);
-
-    a.click();
-
-    document.body.removeChild(a);
-
-    URL.revokeObjectURL(url);
+    
+    if (!headers || headers.length === 0) {
+        console.warn('Brak nagłówków do eksportu');
+        return;
+    }
+    
+    // ⭐ UŻYJ GLOBALNEJ INSTANCJI (ustawionej w app.js)
+    if (typeof window.vscode === 'undefined') {
+        console.error('window.vscode is not defined');
+        return;
+    }
+    
+    console.log('Używam window.vscode do wysłania wiadomości');
+    
+    window.vscode.postMessage({
+        command: 'exportCSV',
+        rows: rows,
+        headers: headers
+    });
+    
+    console.log('Wiadomość wysłana');
 }
 
 window.exportToCSV = exportToCSV;
