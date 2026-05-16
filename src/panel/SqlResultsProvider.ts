@@ -35,6 +35,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         };
 
         this.updateHtml();
+        
+        // ⭐ REWELACYJNE ZABEZPIECZENIE:
+        webviewView.onDidDispose(() => {
+            console.log('Czyszczenie zniszczonej referencji Webview');
+            this._view = undefined; // Dzięki temu program wie, że stary widok już nie istnieje!
+        });
 
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             if (msg.command === 'loadPage') {
@@ -159,13 +165,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     public async executeQuery(sql: string) {
         const { rows, headers, queryTime, success, errorMessage } = await executeQuery(sql);
         
+        // ⭐ BEZPIECZNIK BŁĘDÓW: Jeśli widok jest zniszczony, nie próbuj wysyłać wiadomości o błędzie
         if (!success) {
             vscode.window.showErrorMessage(`Błąd zapytania: ${errorMessage}`);
-            if (this._view) {
-                this._view.webview.postMessage({
-                    command: 'error',
-                    message: errorMessage
-                });
+            if (this._view) { // To bezpieczne sprawdzenie zapobiegnie crashowi
+                this._view.webview.postMessage({ command: 'error', message: errorMessage });
             }
             return;
         }
@@ -179,18 +183,31 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         
         console.log(`Wykonano zapytanie. Nagłówki: ${headers.join(', ')}, Liczba wierszy: ${rows.length}`);
 
+        // ⭐ KLUCZOWY BEZPIECZNIK POŁĄCZENIA:
+        // Jeśli użytkownik zamknął plik i otworzył go ponownie, 'this._view' będzie undefined (dzięki krokowi 1).
+        // Wtedy wywołujemy show(), co zmusi VS Code do ponownego odpalenia 'resolveWebviewView' i stworzenia nowego okna.
+        if (!this._view) {
+            this.show({ preserveFocus: true });
+        }
+        
         this.updateHtml();
         
         setTimeout(() => {
-            this.sendPage(1);
+            if (this._view) { // Dodatkowe upewnienie się przed wysłaniem paczki
+                this.sendPage(1);
+            }
         }, 100);
     }
 
-    public show() {
+    public show(options?: { preserveFocus?: boolean }) {
+        const preserveFocus = options?.preserveFocus ?? true;
+        
         if (this._view) {
-            this._view.show?.(true);
+            // ! WAŻNE: W VS Code flaga 'preserveFocus' działa odwrotnie niż Twój stary wpis.
+            // Przekazanie true oznacza: ZACHOWAJ FOKUS W EDYTORZE (nie kradnij go).
+            this._view.show?.(preserveFocus); 
         } else {
-            vscode.commands.executeCommand('sqlResultsView.focus');
+            vscode.commands.executeCommand('sqlResultsView.focus', { preserveFocus: preserveFocus });
         }
     }
     

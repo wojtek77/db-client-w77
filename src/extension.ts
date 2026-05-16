@@ -284,18 +284,7 @@ async function checkSqlEditors() {
 async function startExtension() {
     // ⭐ USTAW KONTEKST – zakładka stanie się widoczna
     await vscode.commands.executeCommand('setContext', 'dbClientActive', true);
-    
     extensionRunning = true;
-
-    // await vscode.commands.executeCommand(
-    //     'setContext',
-    //     'dbClient.panelVisible',
-    //     true
-    // );
-    
-    // otwórz panel ponownie
-    await vscode.commands.executeCommand('sqlResultsView.focus');
-
     console.log('DB Client started');
 }
 
@@ -415,7 +404,20 @@ export async function activate(context: vscode.ExtensionContext) {
         
         if (sqlResultsProvider) {
             await sqlResultsProvider.executeQuery(sql);
-            sqlResultsProvider.show();
+            // Przekazujemy true, aby pokazanie panelu wyników NIE kradło kursora z edytora tekstu
+            sqlResultsProvider.show({ preserveFocus: true });
+            
+            // ABSOLUTNY BEZPIECZNIK: Wymuszamy powrót fokusu na edytor tekstu po 100ms.
+            // To odzyska kursor nawet jeśli Webview spróbuje go ukraść po odebraniu danych.
+            // setTimeout(() => {
+                // if (vscode.window.activeTextEditor) {
+                //     vscode.window.showTextDocument(vscode.window.activeTextEditor.document, {
+                //         viewColumn: vscode.window.activeTextEditor.viewColumn,
+                //         preserveFocus: false, // false wymusza fizyczne przeniesienie uwagi na edytor
+                //         preview: false
+                //     });
+                // }
+            // }, 100);
         }
     });
 
