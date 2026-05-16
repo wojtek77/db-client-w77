@@ -266,6 +266,9 @@ function findCurrentQuery(text: string, cursorOffset: number): string {
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log(new Date().toLocaleTimeString('pl-PL', { hour12: false }));
+    
+    // ⭐ USTAW KONTEKST – zakładka stanie się widoczna
+    await vscode.commands.executeCommand('setContext', 'dbClientActive', true);
 
     const db = ConnectionManager.getInstance();
     const cnfOptions = await CnfLoader.getOptionsFromCnf('~/.db_configs/local-system.cnf');
@@ -358,6 +361,9 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export async function deactivate() {
+    // ⭐ UKRYJ ZAKŁADKĘ
+    await vscode.commands.executeCommand('setContext', 'dbClientActive', false);
+    
     await ConnectionManager.getInstance().disconnect();
     console.log('WYWOŁANIE FUNKCJI DEACTIVATE');
 }

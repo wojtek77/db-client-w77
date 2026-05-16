@@ -18,7 +18,8 @@
         {
           "id": "sqlResults",
           "title": "SQL",
-          "icon": "$(database)"
+          "icon": "$(database)",
+          "when": "dbClientActive"
         }
       ]
     },
@@ -28,7 +29,8 @@
           "icon": "git.png",
           "type": "webview",
           "id": "sqlResultsView",
-          "name": "Wyniki SQL"
+          "name": "Wyniki SQL",
+          "when": "dbClientActive"
         }
       ]
     },
