@@ -10,6 +10,8 @@ let tableNames: string[] = [];
 // Cache dla kolumn tabel - przechowuje pełne informacje o kolumnach
 let tableColumnsCache: Map<string, any[]> = new Map();
 
+let extensionRunning = false;
+
 // Funkcja formatująca typ kolumny z dodatkowymi informacjami
 function formatColumnType(column: any): string {
     let typeDisplay = column.type.toUpperCase();
@@ -264,12 +266,77 @@ function findCurrentQuery(text: string, cursorOffset: number): string {
     return query;
 }
 
+async function checkSqlEditors() {
+
+    const hasSqlDocuments = vscode.workspace.textDocuments.some(doc =>
+        doc.languageId === 'sql'
+    );
+
+    if (hasSqlDocuments && !extensionRunning) {
+        await startExtension();
+    }
+
+    if (!hasSqlDocuments && extensionRunning) {
+        await stopExtension();
+    }
+}
+
+async function startExtension() {
+    // ⭐ USTAW KONTEKST – zakładka stanie się widoczna
+    await vscode.commands.executeCommand('setContext', 'dbClientActive', true);
+    
+    extensionRunning = true;
+
+    // await vscode.commands.executeCommand(
+    //     'setContext',
+    //     'dbClient.panelVisible',
+    //     true
+    // );
+    
+    // otwórz panel ponownie
+    await vscode.commands.executeCommand('sqlResultsView.focus');
+
+    console.log('DB Client started');
+}
+
+async function stopExtension() {
+    
+    // ⭐ UKRYJ ZAKŁADKĘ
+    await vscode.commands.executeCommand('setContext', 'dbClientActive', false);
+
+    extensionRunning = false;
+
+    // await vscode.commands.executeCommand(
+    //     'setContext',
+    //     'dbClient.panelVisible',
+    //     false
+    // );
+
+    // tutaj:
+    // - dispose providerów
+    // - zamknięcie połączeń DB
+    // - cleanup timerów
+    // - cleanup listenerów
+    // - cleanup cache
+
+    console.log('DB Client stopped');
+}
+
 export async function activate(context: vscode.ExtensionContext) {
     console.log(new Date().toLocaleTimeString('pl-PL', { hour12: false }));
     
-    // ⭐ USTAW KONTEKST – zakładka stanie się widoczna
-    await vscode.commands.executeCommand('setContext', 'dbClientActive', true);
+    checkSqlEditors();
 
+    context.subscriptions.push(
+        vscode.workspace.onDidOpenTextDocument(() => {
+            checkSqlEditors();
+        }),
+
+        vscode.workspace.onDidCloseTextDocument(() => {
+            checkSqlEditors();
+        }),
+    );
+    
     const db = ConnectionManager.getInstance();
     const cnfOptions = await CnfLoader.getOptionsFromCnf('~/.db_configs/local-system.cnf');
     
@@ -361,9 +428,8 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export async function deactivate() {
-    // ⭐ UKRYJ ZAKŁADKĘ
-    await vscode.commands.executeCommand('setContext', 'dbClientActive', false);
-    
     await ConnectionManager.getInstance().disconnect();
     console.log('WYWOŁANIE FUNKCJI DEACTIVATE');
+    
+    stopExtension();
 }
