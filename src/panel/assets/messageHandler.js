@@ -1,10 +1,20 @@
 window.addEventListener('message', event => {
 
     const msg = event.data;
-    console.log('Message received in webview:', msg);
+    
+    if (msg.command === 'loadingData') {
+        // spinner
+        document.getElementById('loadingOverlay').style.display = 'flex';
+    }
 
     if (msg.command === 'appendData') {
-        console.log('Headers in webview:', msg.headers);
+        // spinner
+        document.getElementById('loadingOverlay').style.display = 'none';
+        
+        // ustawienie połączenia z DB i czasów
+        document.getElementById('connectionName').textContent = msg.connectionName;
+        document.getElementById('connectionTime').textContent = msg.connectionTime;
+        document.getElementById('queryTime').textContent = msg.queryTime;
 
         const start = performance.now();
 
@@ -41,16 +51,8 @@ window.addEventListener('message', event => {
 
         const end = performance.now();
 
-        console.log(
-            'Chunk loaded:',
-            msg.rows.length,
-            'rows in',
-            (end - start).toFixed(2),
-            'ms'
-        );
-
         if (msg.isLast) {
-            console.log('LAST PAGE:', window.state.currentRows.length);
+            
         }
     }
 

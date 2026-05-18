@@ -14,13 +14,13 @@ export async function executeQuery(sql: string) {
     let headers: string[] = [];
     
     try {
-        console.log('=== STARTING QUERY ===');
-        console.log('SQL:', sql);
+        
+        
         
         // 1. Parsuj SQL, aby poznać kolumny
         const parsed = await parseSelectQuery(sql);
-        console.log('Parsed columns:', parsed.columns);
-        console.log('Parsed tables:', parsed.tables);
+        
+        
         
         sql = SqlUtil.appendLimit(sql);
         
@@ -35,17 +35,17 @@ export async function executeQuery(sql: string) {
         // 3. Ustal nagłówki (z parsera lub z cache)
         if (parsed.columns.length > 0) {
             headers = parsed.columns;
-            console.log('Headers from parser:', headers);
+            
         } else {
             // Fallback: jeśli parser nie dał rady, użyj numerów kolumn
-            console.log('No headers from parser, using fallback');
+            
             if (rows.length > 0) {
                 headers = rows[0].map((_: any, index: number) => `col_${index + 1}`);
-                console.log('Fallback headers:', headers);
+                
             }
         }
         
-        console.log(`=== QUERY TIME: ${queryTime}ms, ROWS: ${rows.length}, HEADERS: ${headers.join(', ')}`);
+        
         success = true;
     } catch (err: any) {
         console.error(err);
@@ -83,7 +83,7 @@ export async function getTableNames(database?: string): Promise<string[]> {
         const rows = await conn.query(sql);
         tables = rows.map((row: any) => row.TABLE_NAME);
         
-        console.log(`Pobrano ${tables.length} tabel:`, tables);
+        
     } catch (err: any) {
         console.error('Błąd pobierania tabel:', err);
     }
@@ -141,7 +141,7 @@ export async function getTableColumns(tableName: string): Promise<{
             numericScale: row.NUMERIC_SCALE
         }));
         
-        console.log(`Pobrano ${columns.length} kolumn dla tabeli ${tableName}`);
+        
     } catch (err: any) {
         console.error(`Błąd pobierania kolumn dla tabeli ${tableName}:`, err);
     }

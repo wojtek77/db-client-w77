@@ -3,6 +3,7 @@ import { ConnectionManager } from './db/ConnectionManager';
 import { CnfLoader } from "./db/CnfLoader";
 import { SqlResultsProvider } from './panel/SqlResultsProvider';
 import { getTableNames, getTableColumns, setGetCachedColumnsFunction } from './db/query';
+import path from 'path';
 
 let sqlResultsProvider: SqlResultsProvider | undefined = undefined;
 let tableNames: string[] = [];
@@ -48,14 +49,14 @@ function formatColumnType(column: any): string {
 // Funkcja do pobierania kolumn z cache lub z bazy (dla autouzupełniania)
 export async function getCachedColumns(tableName: string): Promise<any[]> {
     if (tableColumnsCache.has(tableName)) {
-        console.log(`Kolumny dla ${tableName} pobrane z cache`);
+        
         return tableColumnsCache.get(tableName)!;
     }
     
-    console.log(`Pobieranie kolumn dla ${tableName} z bazy...`);
+    
     const columns = await getTableColumns(tableName);
     tableColumnsCache.set(tableName, columns);
-    console.log(`Zapisano ${columns.length} kolumn dla ${tableName} w cache`);
+    
     
     return columns;
 }
@@ -285,7 +286,7 @@ async function startExtension() {
     // ⭐ USTAW KONTEKST – zakładka stanie się widoczna
     await vscode.commands.executeCommand('setContext', 'dbClientActive', true);
     extensionRunning = true;
-    console.log('DB Client started');
+    
 }
 
 async function stopExtension() {
@@ -308,13 +309,13 @@ async function stopExtension() {
     // - cleanup listenerów
     // - cleanup cache
 
-    console.log('DB Client stopped');
+    
 }
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log(new Date().toLocaleTimeString('pl-PL', { hour12: false }));
     
-    checkSqlEditors();
+    await startExtension();
 
     context.subscriptions.push(
         vscode.workspace.onDidOpenTextDocument(() => {
@@ -327,11 +328,13 @@ export async function activate(context: vscode.ExtensionContext) {
     );
     
     const db = ConnectionManager.getInstance();
-    const cnfOptions = await CnfLoader.getOptionsFromCnf('~/.db_configs/local-system.cnf');
+    const cnfFile = '~/.db_configs/local-system.cnf';
+    const connectionName = path.basename(cnfFile, '.cnf');
+    const cnfOptions = await CnfLoader.getOptionsFromCnf(cnfFile);
     
     const databaseName = cnfOptions.database || '';
     
-    const connectionTime = await db.connect({
+    const connectionTime = await db.connect(connectionName, {
         ...cnfOptions,
         connectionLimit: 5,
         connectTimeout: 10000,
@@ -345,7 +348,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Po połączeniu, pobierz nazwy tabel
     try {
         tableNames = await getTableNames(databaseName);
-        console.log(`Załadowano ${tableNames.length} tabel do autouzupełniania`);
+        
     } catch (err) {
         console.error('Nie udało się pobrać tabel:', err);
     }
@@ -354,13 +357,18 @@ export async function activate(context: vscode.ExtensionContext) {
     setGetCachedColumnsFunction(getCachedColumnsAsStrings);
 
     // Utwórz provider dla panelu wyników
-    sqlResultsProvider = new SqlResultsProvider(connectionTime.toString(), context.extensionPath, context);
+    sqlResultsProvider = new SqlResultsProvider(context);
     
     // Zarejestruj WebviewViewProvider
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             'sqlResultsView',
-            sqlResultsProvider
+            sqlResultsProvider,
+            {
+                webviewOptions: {
+                    retainContextWhenHidden: true
+                }
+            }
         )
     );
 
@@ -375,19 +383,17 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Komenda do wykonania SQL
     const executeEditorSQL = vscode.commands.registerCommand('db-client.executeSQL', async () => {
-        console.log('=== Komenda executeSQL wywołana ===');
-        
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showErrorMessage('Nie masz otwartego edytora z kodem SQL');
             return;
         }
         
-        const fileName = editor.document.fileName;
-        if (!fileName.endsWith('.sql')) {
-            vscode.window.showWarningMessage('Skrót Ctrl+Enter działa tylko dla plików .sql');
-            return;
-        }
+        // const fileName = editor.document.fileName;
+        // if (!fileName.endsWith('.sql')) {
+        //     vscode.window.showWarningMessage('Skrót Ctrl+Enter działa tylko dla plików .sql');
+        //     return;
+        // }
         
         const fullText = editor.document.getText();
         const cursorPosition = editor.selection.active;
@@ -400,38 +406,22 @@ export async function activate(context: vscode.ExtensionContext) {
             return;
         }
         
-        console.log('Wykonywane zapytanie:', sql);
-        
         if (sqlResultsProvider) {
             await sqlResultsProvider.executeQuery(sql);
-            // Przekazujemy true, aby pokazanie panelu wyników NIE kradło kursora z edytora tekstu
-            sqlResultsProvider.show({ preserveFocus: true });
-            
-            // ABSOLUTNY BEZPIECZNIK: Wymuszamy powrót fokusu na edytor tekstu po 100ms.
-            // To odzyska kursor nawet jeśli Webview spróbuje go ukraść po odebraniu danych.
-            // setTimeout(() => {
-                // if (vscode.window.activeTextEditor) {
-                //     vscode.window.showTextDocument(vscode.window.activeTextEditor.document, {
-                //         viewColumn: vscode.window.activeTextEditor.viewColumn,
-                //         preserveFocus: false, // false wymusza fizyczne przeniesienie uwagi na edytor
-                //         preview: false
-                //     });
-                // }
-            // }, 100);
         }
     });
 
     // Komenda do ręcznego otwarcia panelu
-    const openPanel = vscode.commands.registerCommand('db-client.openPanel', () => {
-        vscode.commands.executeCommand('sqlResultsView.focus');
-    });
+    // const openPanel = vscode.commands.registerCommand('db-client.openPanel', () => {
+    //     vscode.commands.executeCommand('sqlResultsView.focus');
+    // });
 
-    context.subscriptions.push(executeEditorSQL, openPanel);
+    // context.subscriptions.push(executeEditorSQL, openPanel);
 }
 
 export async function deactivate() {
     await ConnectionManager.getInstance().disconnect();
-    console.log('WYWOŁANIE FUNKCJI DEACTIVATE');
+    
     
     stopExtension();
 }

@@ -3,9 +3,7 @@ import * as path from 'path';
 
 export function getHtml(
     webview: vscode.Webview,
-    extensionPath: string,
-    connTime: string,
-    qTime: string
+    extensionPath: string
 ): string {
 
     const toUri = (file: string) =>
@@ -41,7 +39,7 @@ export function getHtml(
 <div class="toolbar">
 
     <div class="stats">
-        🔌 ${connTime}ms | ⚡ ${qTime}ms
+        <strong id="connectionName">-------</strong> 🔌 <strong id="connectionTime">---</strong> ms | ⚡ <strong id="queryTime">---</strong> ms
     </div>
 
     <button onclick="exportToCSV()">
@@ -81,20 +79,22 @@ export function getHtml(
 
 </div>
 
+<div id="loadingOverlay" class="loading-overlay">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading data...</div>
+</div>
+
 <div class="table-container">
 
     <table id="dataTable">
 
         <thead>
             <tr id="headerRow">
-                <th>#</th>
             </tr>
         </thead>
 
         <tbody id="tableBody">
-            <tr>
-                <td>Ładowanie...</td>
-            </tr>
+            
         </tbody>
 
     </table>

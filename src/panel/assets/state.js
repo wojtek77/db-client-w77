@@ -6,4 +6,4 @@ window.state = {
     ROWS_PER_PAGE: 200
 };
 
-console.log('STATE LOADED');
+

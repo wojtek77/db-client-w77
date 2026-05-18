@@ -1,6 +1,6 @@
 window.vscode = acquireVsCodeApi();
 
-renderHeaders();
-renderPage();
+// renderHeaders();
+// renderPage();
 
 initEditor(vscode);

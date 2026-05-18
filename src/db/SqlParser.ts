@@ -16,23 +16,23 @@ export function setGetCachedColumnsFunction(fn: (tableName: string) => Promise<s
 // Główna funkcja parsująca SELECT
 export async function parseSelectQuery(sql: string): Promise<ParsedQuery> {
     const trimmedSql = sql.trim();
-    console.log('parseSelectQuery input:', trimmedSql);
+    
     
     // Sprawdź czy to SELECT
     if (!trimmedSql.toLowerCase().startsWith('select')) {
-        console.log('Not a SELECT query');
+        
         return { columns: [], tables: [], originalSql: sql };
     }
     
     // Wyciągnij część między SELECT a FROM
     const selectMatch = trimmedSql.match(/select\s+(.*?)\s+from\s+/i);
     if (!selectMatch) {
-        console.log('Cannot parse SELECT clause');
+        
         return { columns: [], tables: [], originalSql: sql };
     }
     
     const selectClause = selectMatch[1].trim();
-    console.log('Select clause:', selectClause);
+    
     
     // Wyciągnij nazwy tabel (pomijamy aliasy)
     const fromMatch = trimmedSql.match(/from\s+([^\s]+(?:\s+join\s+[^\s]+)*)/i);
@@ -76,9 +76,9 @@ export async function parseSelectQuery(sql: string): Promise<ParsedQuery> {
         
         if (tableName && getCachedColumnsFn) {
             columns = await getCachedColumnsFn(tableName);
-            console.log(`SELECT *: pobrano ${columns.length} kolumn z cache dla tabeli ${tableName}`);
+            
         } else {
-            console.log('SELECT *: brak getCachedColumnsFn lub tabeli');
+            
         }
     }
     // Przypadek 2: SELECT konkretne kolumny (np. "id, firstname" lub "s.id, s.status")
@@ -100,7 +100,7 @@ export async function parseSelectQuery(sql: string): Promise<ParsedQuery> {
                 }
                 return columnName;
             });
-            console.log(`SELECT kolumny: ${columns.join(', ')}`);
+            
         }
     }
     
