@@ -5,7 +5,8 @@ import { ConnectionManager } from '../db/ConnectionManager';
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    private _connectionTime: string;
+    private _connectionName: string = '';
+    private _connectionTime: string = '0';
     private _extensionPath: string;
     private _allRows: any[][] = [];
     private _headers: string[] = [];
@@ -16,9 +17,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private readonly ROWS_PER_PAGE = 200;
     private _context?: vscode.ExtensionContext;
 
-    constructor(connectionTime: string, extensionPath: string, context: vscode.ExtensionContext) {
-        this._connectionTime = connectionTime;
-        this._extensionPath = extensionPath;
+    constructor(context: vscode.ExtensionContext) {
+        console.log('construct');
+        this._extensionPath = context.extensionPath;
         this._context = context;
     }
 
@@ -27,6 +28,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ) {
+        console.log('start resolveWebviewView');
         this._view = webviewView;
 
         webviewView.webview.options = {
@@ -34,11 +36,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             localResourceRoots: [vscode.Uri.file(this._extensionPath)]
         };
 
-        this.updateHtml();
+        // this.updateHtml();
         
         // ⭐ REWELACYJNE ZABEZPIECZENIE:
         webviewView.onDidDispose(() => {
-            console.log('Czyszczenie zniszczonej referencji Webview');
+            
             this._view = undefined; // Dzięki temu program wie, że stary widok już nie istnieje!
         });
 
@@ -63,15 +65,16 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
 
     private updateHtml() {
-        if (!this._view) return;
+        if (!this._view) throw new Error("brak webview");
         
-        const html = getHtml(
-            this._view.webview,
-            this._extensionPath,
-            this._connectionTime,
-            this._lastQueryTime
-        );
-        this._view.webview.html = html;
+        if (!this._view.webview.html) {
+            const html = getHtml(
+                this._view.webview,
+                this._extensionPath
+            );
+            this._view.webview.html = html;
+            console.log('jest ustawiany od nowa HTML');
+        }
     }
 
     private sendPage(pageNumber: number) {
@@ -81,8 +84,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const end = start + this.ROWS_PER_PAGE;
         const pageRows = this._allRows.slice(start, end);
         const totalPages = Math.ceil(this._allRows.length / this.ROWS_PER_PAGE);
-        
-        console.log('Sending headers to webview:', this._headers);  // ⭐ DODAJ
+        console.log('sendPage', start, end);
         
         this._view.webview.postMessage({
             command: 'appendData',
@@ -91,7 +93,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             totalRows: this._allRows.length,
             isLast: (pageNumber === totalPages),
             currentPage: pageNumber,
-            totalPages: totalPages
+            totalPages: totalPages,
+            connectionName: this._connectionName,
+            connectionTime: this._connectionTime,
+            queryTime: this._lastQueryTime
         });
     }
 
@@ -108,13 +113,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
 
     private async updateCellInDB(rowIndex: number, columnIndex: number, value: any) {
-        console.log('=== updateCellInDB ===');
-        console.log('rowIndex:', rowIndex);
-        console.log('columnIndex:', columnIndex);
-        console.log('value:', value);
-        console.log('this._allRows length:', this._allRows.length);
-        console.log('this._allRows[rowIndex]:', this._allRows[rowIndex]);
-        
         try {
             const db = ConnectionManager.getInstance();
             const conn = db.getConnection();
@@ -133,13 +131,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             
             // Znajdź ID w pierwszej kolumnie
             const id = this._allRows[rowIndex][0];
-            console.log('id:', id);
+            
             
             const columnName = this._headers[columnIndex];
-            console.log('columnName:', columnName);
+            
             
             const updateSQL = `UPDATE ${this._lastTableName} SET ${columnName} = ? WHERE id = ?`;
-            console.log(`Wykonuję: ${updateSQL}`, [value, id]);
+            
             
             await conn.query(updateSQL, [value, id]);
             
@@ -161,45 +159,67 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             vscode.window.showErrorMessage(`❌ Błąd aktualizacji: ${err.message}`);
         }
     }
+    
+    private async waitForView(timeoutMs = 5000): Promise<boolean> {
+        const startTime = Date.now();
+        // Asynchroniczna pętla sprawdzająca
+        while (!this._view) {
+            // Jeśli minęło zbyt dużo czasu (np. 5 sekund), przerwij, aby nie wisieć w nieskończoność
+            if (Date.now() - startTime > timeoutMs) {
+                return false; 
+            }
+            // Uśpij funkcję na 50ms, dając VS Code czas na uruchomienie 'resolveWebviewView'
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        return true;
+    }
 
     public async executeQuery(sql: string) {
+        console.log('executeQuery');
+        
+        // czasami widok może nie istnieć, np. przy pierwszym uruchomieniu SQL lub kiedy plik .sql został zamknięty
+        if (!this._view) {
+            // to tworzy this._view 
+            this.show({ preserveFocus: true });
+            
+            // czekamy asynchronicznie, aż VS Code stworzy widok
+            await this.waitForView();
+            if (!this._view) {
+                vscode.window.showErrorMessage("Nie udało się otworzyć okna wyników SQL.");
+                return;
+            }
+            
+            this.updateHtml();
+        }
+        
+        // wysłanie info o tym że dane się łądują (spinner)
+        this._view.webview.postMessage({ 
+            command: 'loadingData'
+        });
+        
         const { rows, headers, queryTime, success, errorMessage } = await executeQuery(sql);
         
-        // ⭐ BEZPIECZNIK BŁĘDÓW: Jeśli widok jest zniszczony, nie próbuj wysyłać wiadomości o błędzie
         if (!success) {
             vscode.window.showErrorMessage(`Błąd zapytania: ${errorMessage}`);
-            if (this._view) { // To bezpieczne sprawdzenie zapobiegnie crashowi
-                this._view.webview.postMessage({ command: 'error', message: errorMessage });
-            }
+            this._view.webview.postMessage({ command: 'error', message: errorMessage });
             return;
         }
+        
+        const db = ConnectionManager.getInstance();
 
         this._allRows = rows;
         this._headers = headers;
         this._lastSQL = sql;
         this._lastTableName = this.extractTableName(sql);
+        this._connectionName = db.getConnectionName();
+        this._connectionTime = db.getConnectionTime();
         this._lastQueryTime = queryTime;
         this._currentPage = 1;
         
-        console.log(`Wykonano zapytanie. Nagłówki: ${headers.join(', ')}, Liczba wierszy: ${rows.length}`);
-
-        // ⭐ KLUCZOWY BEZPIECZNIK POŁĄCZENIA:
-        // Jeśli użytkownik zamknął plik i otworzył go ponownie, 'this._view' będzie undefined (dzięki krokowi 1).
-        // Wtedy wywołujemy show(), co zmusi VS Code do ponownego odpalenia 'resolveWebviewView' i stworzenia nowego okna.
-        if (!this._view) {
-            this.show({ preserveFocus: true });
-        }
-        
-        this.updateHtml();
-        
-        setTimeout(() => {
-            if (this._view) { // Dodatkowe upewnienie się przed wysłaniem paczki
-                this.sendPage(1);
-            }
-        }, 100);
+        this.sendPage(1);
     }
 
-    public show(options?: { preserveFocus?: boolean }) {
+    private show(options?: { preserveFocus?: boolean }) {
         const preserveFocus = options?.preserveFocus ?? true;
         
         if (this._view) {

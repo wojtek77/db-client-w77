@@ -27,7 +27,7 @@ function initEditor(vscode) {
         const rowIndex = parseInt(cell.getAttribute('data-row'));
         const columnIndex = parseInt(cell.getAttribute('data-col'));
         
-        console.log('Editing cell - rowIndex:', rowIndex, 'columnIndex:', columnIndex);
+        
 
         const input = document.createElement('input');
 

@@ -1,5 +1,5 @@
 function renderHeaders() {
-    console.log('renderHeaders - headers:', window.state.headers);
+    console.log('renderHeaders');
     
     const headerRow = document.getElementById('headerRow');
     headerRow.innerHTML = '<th>#</th>';
@@ -14,7 +14,7 @@ function renderHeaders() {
 }
 
 function renderPage() {
-    console.log('renderPage - rows:', window.state.currentRows);
+    console.log('renderPage');
     
     const pageRows = window.state.currentRows;
     const headers = window.state.headers;
@@ -25,7 +25,7 @@ function renderPage() {
     const tbody = document.getElementById('tableBody');
     
     if (!pageRows || pageRows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="100">Brak danych</td></tr>';
+        // tbody.innerHTML = '<tr><td colspan="100">Brak danych</td></tr>';
         return;
     }
 
@@ -66,5 +66,5 @@ function renderPage() {
 
     tbody.appendChild(fragment);
     
-    console.log('Rendered', pageRows.length, 'rows');
+    
 }

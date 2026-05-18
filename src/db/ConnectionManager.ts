@@ -7,6 +7,7 @@ export class ConnectionManager {
     private pool: mariadb.Pool | null = null;
     private conn: mariadb.PoolConnection | null = null;
     private connected = false;
+    private connectionName = '';
     private connectionTime = '0';
 
     public static getInstance(): ConnectionManager {
@@ -18,9 +19,11 @@ export class ConnectionManager {
     }
 
     public async connect(
+        connectionName: string,
         config: mariadb.PoolConfig
     ): Promise<string> {
-
+        this.connectionName = connectionName;
+        
         if (this.connected) {
             return this.connectionTime;
         }
@@ -33,9 +36,19 @@ export class ConnectionManager {
         });
         const endConn = performance.now();
         this.connectionTime = (endConn - startConn).toFixed(2);
-        console.log('Connection time:', this.connectionTime, 'ms');
+        
         this.connected = true;
         
+        return this.connectionTime;
+    }
+    
+    public getConnectionName(): string {
+
+        return this.connectionName;
+    }
+    
+    public getConnectionTime(): string {
+
         return this.connectionTime;
     }
 
