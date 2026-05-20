@@ -114,7 +114,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
     private async updateCellInDB(rowIndex: number, columnIndex: number, value: any) {
         try {
-            const db = ConnectionManager.getInstance();
+            const db = await ConnectionManager.getInstance().getDb();
             const conn = db.getConnection();
             
             if (!this._lastTableName) {
@@ -205,7 +205,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             return;
         }
         
-        const db = ConnectionManager.getInstance();
+        const db = await ConnectionManager.getInstance().getDb();
 
         this._allRows = rows;
         this._headers = headers;

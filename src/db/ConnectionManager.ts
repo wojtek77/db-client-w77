@@ -1,15 +1,17 @@
-import * as mariadb from 'mariadb';
+import { Connection } from './Connection';
+import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
+import { SqlFile } from './SqlFile';
 
 export class ConnectionManager {
-
+    
     private static instance: ConnectionManager;
-    private constructor() {}
-    private pool: mariadb.Pool | null = null;
-    private conn: mariadb.PoolConnection | null = null;
-    private connected = false;
-    private connectionName = '';
-    private connectionTime = '0';
-
+    
+    private connections: Record<string, Connection> = {};
+    private configs: Record<string, string> = {};
+    
+    
     public static getInstance(): ConnectionManager {
         if (!this.instance) {
             this.instance =
@@ -17,72 +19,59 @@ export class ConnectionManager {
         }
         return this.instance;
     }
+    
+    private constructor() {
+        this.configs = this.loadConfigs();
+    }
 
-    public async connect(
-        connectionName: string,
-        config: mariadb.PoolConfig
-    ): Promise<string> {
-        this.connectionName = connectionName;
-        
-        if (this.connected) {
-            return this.connectionTime;
+    public async getDb() {
+        const connectionName = await SqlFile.getInstance().getConnectionName();
+        if (!this.connections[connectionName]) {
+            const path = this.configs[connectionName];
+            const connection = await Connection.create(path);
+            this.connections[connectionName] = connection;
         }
+        return this.connections[connectionName];
+    }
+    
+    public start() {
         
-        this.pool = mariadb.createPool(config);
-        const startConn = performance.now();
-        this.conn = await this.pool.getConnection();
-        this.conn.on('error', err => {
-            console.error('MariaDB connection error:', err);
+    }
+    
+    public stop() {
+        // usuwanie wszystkich połączeń z bazą
+        Object.values(this.connections).forEach(async (conn) => {
+            await conn.disconnect();
         });
-        const endConn = performance.now();
-        this.connectionTime = (endConn - startConn).toFixed(2);
-        
-        this.connected = true;
-        
-        return this.connectionTime;
+        this.connections = {};
     }
     
-    public getConnectionName(): string {
-
-        return this.connectionName;
+    public getConnectionNames() {
+        return Object.keys(this.configs);
     }
     
-    public getConnectionTime(): string {
+    private loadConfigs(): Record<string, string> {
+        const configDir = path.join(os.homedir(), '.db_configs');
+        const configs: Record<string, string> = {};
 
-        return this.connectionTime;
-    }
-
-    public getConnection() {
-        if (!this.conn) {
-            throw new Error(
-                'Database is not connected'
-            );
-        }
-        return this.conn;
-    }
-
-    public isConnected(): boolean {
-
-        return this.connected;
-    }
-
-    public async disconnect(): Promise<void> {
-
-        try {
-            if (this.conn) await this.conn.end();
-        } catch (err) {
-            console.error('Błąd conn.end():', err);
-        } finally {
-            this.conn = null;
-            this.connected = false;
+        if (!fs.existsSync(configDir)) {
+            throw new Error(`brak katalogu z plikami *.cnf "${configDir}"`);
         }
 
-        try {
-            if (this.pool) await this.pool.end();
-        } catch (err) {
-            console.error('Błąd pool.end():', err);
-        } finally {
-            this.pool = null;
-        }
+        const files = fs.readdirSync(configDir);
+        files.forEach(file => {
+            if (file.endsWith('.cnf')) {
+                const name = path.basename(file, '.cnf');
+                const fullPath = path.join(configDir, file);
+                configs[name] = fullPath;
+            }
+        });
+        
+        const sortedKeys = Object.keys(configs).sort();
+        const sortedConfigs: Record<string, string> = {};
+        sortedKeys.forEach(key => {
+            sortedConfigs[key] = configs[key];
+        });
+        return sortedConfigs;
     }
 }

@@ -1,12 +1,9 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from './db/ConnectionManager';
-import { CnfLoader } from "./db/CnfLoader";
 import { SqlResultsProvider } from './panel/SqlResultsProvider';
-import { getTableNames, getTableColumns, setGetCachedColumnsFunction } from './db/query';
-import path from 'path';
+import { getTableColumns, setGetCachedColumnsFunction } from './db/query';
 
 let sqlResultsProvider: SqlResultsProvider | undefined = undefined;
-let tableNames: string[] = [];
 
 // Cache dla kolumn tabel - przechowuje pełne informacje o kolumnach
 let tableColumnsCache: Map<string, any[]> = new Map();
@@ -92,6 +89,7 @@ class TableCompletionProvider implements vscode.CompletionItemProvider {
                 filterText = afterFromMatch[1];
             }
             
+            const tableNames = (await ConnectionManager.getInstance().getDb()).getTableNames();
             const completions = tableNames.map(tableName => {
                 const item = new vscode.CompletionItem(tableName, vscode.CompletionItemKind.Class);
                 item.insertText = tableName;
@@ -287,29 +285,15 @@ async function startExtension() {
     await vscode.commands.executeCommand('setContext', 'dbClientActive', true);
     extensionRunning = true;
     
+    ConnectionManager.getInstance().start();
 }
 
 async function stopExtension() {
-    
     // ⭐ UKRYJ ZAKŁADKĘ
     await vscode.commands.executeCommand('setContext', 'dbClientActive', false);
-
     extensionRunning = false;
-
-    // await vscode.commands.executeCommand(
-    //     'setContext',
-    //     'dbClient.panelVisible',
-    //     false
-    // );
-
-    // tutaj:
-    // - dispose providerów
-    // - zamknięcie połączeń DB
-    // - cleanup timerów
-    // - cleanup listenerów
-    // - cleanup cache
-
     
+    ConnectionManager.getInstance().stop();
 }
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -327,32 +311,6 @@ export async function activate(context: vscode.ExtensionContext) {
         }),
     );
     
-    const db = ConnectionManager.getInstance();
-    const cnfFile = '~/.db_configs/local-system.cnf';
-    const connectionName = path.basename(cnfFile, '.cnf');
-    const cnfOptions = await CnfLoader.getOptionsFromCnf(cnfFile);
-    
-    const databaseName = cnfOptions.database || '';
-    
-    const connectionTime = await db.connect(connectionName, {
-        ...cnfOptions,
-        connectionLimit: 5,
-        connectTimeout: 10000,
-        acquireTimeout: 10000,
-        supportBigNumbers: true,
-        bigNumberStrings: false,
-        insertIdAsNumber: true,
-        bigIntAsNumber: true
-    });
-
-    // Po połączeniu, pobierz nazwy tabel
-    try {
-        tableNames = await getTableNames(databaseName);
-        
-    } catch (err) {
-        console.error('Nie udało się pobrać tabel:', err);
-    }
-
     // ⭐ Ustaw callback dla parsera SQL
     setGetCachedColumnsFunction(getCachedColumnsAsStrings);
 
@@ -420,8 +378,5 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export async function deactivate() {
-    await ConnectionManager.getInstance().disconnect();
-    
-    
     stopExtension();
 }

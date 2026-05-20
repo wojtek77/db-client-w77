@@ -6,7 +6,7 @@ import { SqlUtil } from './SqlUtil';
 export { setGetCachedColumnsFunction };
 
 export async function executeQuery(sql: string) {
-    const db = ConnectionManager.getInstance();
+    const db = await ConnectionManager.getInstance().getDb();
     let rows: any[] = [];
     let queryTime = '0';
     let success = false;
@@ -14,13 +14,8 @@ export async function executeQuery(sql: string) {
     let headers: string[] = [];
     
     try {
-        
-        
-        
         // 1. Parsuj SQL, aby poznać kolumny
         const parsed = await parseSelectQuery(sql);
-        
-        
         
         sql = SqlUtil.appendLimit(sql);
         
@@ -29,22 +24,18 @@ export async function executeQuery(sql: string) {
         const startQuery = performance.now();
         rows = await conn.query({ sql, rowsAsArray: true });
         const endQuery = performance.now();
-        
         queryTime = (endQuery - startQuery).toFixed(2);
         
         // 3. Ustal nagłówki (z parsera lub z cache)
         if (parsed.columns.length > 0) {
             headers = parsed.columns;
-            
         } else {
             // Fallback: jeśli parser nie dał rady, użyj numerów kolumn
-            
             if (rows.length > 0) {
                 headers = rows[0].map((_: any, index: number) => `col_${index + 1}`);
                 
             }
         }
-        
         
         success = true;
     } catch (err: any) {
@@ -53,42 +44,6 @@ export async function executeQuery(sql: string) {
     }
     
     return { rows, headers, queryTime, success, errorMessage };
-}
-
-export async function getTableNames(database?: string): Promise<string[]> {
-    const db = ConnectionManager.getInstance();
-    let tables: string[] = [];
-    
-    try {
-        const conn = db.getConnection();
-        
-        // SQL dla MariaDB/MySQL - pobiera nazwy tabel z aktywnej bazy
-        let sql = `
-            SELECT TABLE_NAME 
-            FROM INFORMATION_SCHEMA.TABLES 
-            WHERE TABLE_SCHEMA = DATABASE()
-            ORDER BY TABLE_NAME
-        `;
-        
-        // Jeśli podano konkretną bazę danych
-        if (database) {
-            sql = `
-                SELECT TABLE_NAME 
-                FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_SCHEMA = '${database}'
-                ORDER BY TABLE_NAME
-            `;
-        }
-        
-        const rows = await conn.query(sql);
-        tables = rows.map((row: any) => row.TABLE_NAME);
-        
-        
-    } catch (err: any) {
-        console.error('Błąd pobierania tabel:', err);
-    }
-    
-    return tables;
 }
 
 export async function getTableColumns(tableName: string): Promise<{ 
@@ -103,7 +58,7 @@ export async function getTableColumns(tableName: string): Promise<{
     numericPrecision: number | null,        // dla INT, DECIMAL
     numericScale: number | null             // dla DECIMAL (liczba miejsc po przecinku)
 }[]> {
-    const db = ConnectionManager.getInstance();
+    const db = await ConnectionManager.getInstance().getDb();
     let columns: any[] = [];
     
     try {
