@@ -210,7 +210,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const { rows, headers, queryTime, success, errorMessage } = await executeQuery(sql);
         
         if (!success) {
-            vscode.window.showErrorMessage(`Błąd zapytania: ${errorMessage}`);
+            // vscode.window.showErrorMessage(`Błąd zapytania: ${errorMessage}`);
             this._view.webview.postMessage({ command: 'error', message: errorMessage });
             return;
         }

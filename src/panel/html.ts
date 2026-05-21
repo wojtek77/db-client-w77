@@ -89,6 +89,9 @@ export function getHtml(
     <div class="loading-text">Loading data...</div>
 </div>
 
+<!-- komunikatów o błędach -->
+<p id="errorDisplay" class="error-message"></p>
+
 <div class="table-container">
 
     <table id="dataTable">

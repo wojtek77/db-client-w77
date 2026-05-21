@@ -30,6 +30,18 @@ body {
     cursor: pointer;
 }
 
+#errorDisplay {
+    font-size: 125%;
+    display: none;
+    color: var(--vscode-errorForeground);
+    font-weight: bold;
+    padding: 10px;
+    margin: 10px;
+    border: 1px solid var(--vscode-errorForeground);
+    background-color: var(--vscode-editorError-background);
+    border-radius: 4px;
+}
+
 .pagination {
     display: flex;
     gap: 5px;

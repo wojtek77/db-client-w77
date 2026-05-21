@@ -2,14 +2,26 @@ window.addEventListener('message', event => {
 
     const msg = event.data;
     
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    const errorDisplay = document.getElementById('errorDisplay');
+    const dataTable = document.getElementById('dataTable');
+
+    function stopSpinner() {
+        if (loadingOverlay) loadingOverlay.style.display = 'none';
+    }
+    function stopError() {
+        if (errorDisplay) errorDisplay.style.display = 'none';
+    }
+    
     if (msg.command === 'loadingData') {
         // spinner
-        document.getElementById('loadingOverlay').style.display = 'flex';
+        if (loadingOverlay) loadingOverlay.style.display = 'flex';
     }
 
     if (msg.command === 'appendData') {
-        // spinner
-        document.getElementById('loadingOverlay').style.display = 'none';
+        stopError();
+        stopSpinner();
+        dataTable.style.display = 'block';
         
         // ustawienie połączenia z DB i czasów
         document.getElementById('connectionName').textContent = msg.connectionName;
@@ -64,5 +76,15 @@ window.addEventListener('message', event => {
             cell.classList.add('updated-cell');
             setTimeout(() => cell.classList.remove('updated-cell'), 500);
         });
+    }
+    
+    if (msg.command === 'error') {
+        stopSpinner();
+        if (dataTable) dataTable.style.display = 'none';
+        if (errorDisplay) {
+            errorDisplay.style.display = 'block';
+            errorDisplay.textContent = `Error: ${msg.message}`;
+        }
+        return; // Zakończ, bo tylko pokazujemy błąd
     }
 });
