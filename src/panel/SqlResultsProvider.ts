@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { getHtml } from './html';
 import { executeQuery } from '../db/query';
 import { ConnectionManager } from '../db/ConnectionManager';
+import * as path from 'path';
+import * as os from 'os';
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -16,6 +18,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _currentPage = 1;
     private readonly ROWS_PER_PAGE = 200;
     private _context?: vscode.ExtensionContext;
+    private _resolveView?: (value: boolean) => void;
 
     constructor(context: vscode.ExtensionContext) {
         console.log('construct');
@@ -36,6 +39,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             localResourceRoots: [vscode.Uri.file(this._extensionPath)]
         };
 
+        // Sygnał, że widok został zainicjalizowany
+        if (this._resolveView) {
+            this._resolveView(true);
+            this._resolveView = undefined;
+        }
+
         // this.updateHtml();
         
         // ⭐ REWELACYJNE ZABEZPIECZENIE:
@@ -55,11 +64,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
             
             if (msg.command === 'exportCSV') {
-                await this.exportToCSV(msg.rows, msg.headers);
+                await this.exportToCSV();
             }
             
             if (msg.command === 'exportTXT') {
-                await this.exportToTXT(msg.rows, msg.headers);
+                await this.exportToTXT();
             }
         });
     }
@@ -160,18 +169,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
     
-    private async waitForView(timeoutMs = 5000): Promise<boolean> {
-        const startTime = Date.now();
-        // Asynchroniczna pętla sprawdzająca
-        while (!this._view) {
-            // Jeśli minęło zbyt dużo czasu (np. 5 sekund), przerwij, aby nie wisieć w nieskończoność
-            if (Date.now() - startTime > timeoutMs) {
-                return false; 
-            }
-            // Uśpij funkcję na 50ms, dając VS Code czas na uruchomienie 'resolveWebviewView'
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
-        return true;
+    private async waitForView(): Promise<boolean> {
+        if (this._view) return true;
+        
+        return new Promise(resolve => {
+            this._resolveView = resolve;
+            // Timeout dla bezpieczeństwa
+            setTimeout(() => resolve(!!this._view), 5000);
+        });
     }
 
     public async executeQuery(sql: string) {
@@ -231,40 +236,31 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
     
-    private async exportToCSV(rows: any[][], headers: string[]) {
+    private async exportToCSV() {
         try {
+            const rows = this._allRows;
+            const headers = this._headers;
             // Generuj CSV
-            let csv = headers.join(',') + '\n';
-            
+            const csvLines: string[] = [headers.join(',')];
+
             for (const row of rows) {
                 const line = row.map(cell => {
-                    if (cell === null || cell === undefined) return '';
-                    let cellStr = String(cell);
-                    if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
-                        cellStr = '"' + cellStr.replace(/"/g, '""') + '"';
-                    }
-                    return cellStr;
+                    const cellStr = String(cell ?? '');
+                    return (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) 
+                        ? `"${cellStr.replace(/"/g, '""')}"` 
+                        : cellStr;
                 }).join(',');
-                csv += line + '\n';
+                csvLines.push(line);
             }
+            const csv = csvLines.join('\n') + '\n';
             
             const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
             const fileName = `export_${timestamp}.csv`;
             
             // Pobierz ostatnio używany katalog lub użyj pulpitu
             let lastPath = this.getLastExportPath('csv');
-            let defaultUri: vscode.Uri;
-            
-            if (lastPath) {
-                // Użyj ostatniego katalogu
-                const lastDir = require('path').dirname(lastPath);
-                defaultUri = vscode.Uri.file(require('path').join(lastDir, fileName));
-            } else {
-                // Domyślnie pulpit
-                const os = require('os');
-                const path = require('path');
-                defaultUri = vscode.Uri.file(path.join(os.homedir(), 'Desktop', fileName));
-            }
+            const defaultDir = lastPath ? path.dirname(lastPath) : path.join(os.homedir(), 'Desktop');
+            const defaultUri = vscode.Uri.file(path.join(defaultDir, fileName));
             
             const uri = await vscode.window.showSaveDialog({
                 defaultUri: defaultUri,
@@ -282,10 +278,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
     
-    private async exportToTXT(rows: any[][], headers: string[]) {
+    private async exportToTXT() {
         try {
+            const rows = this._allRows;
+            const headers = this._headers;
             // Generuj TXT (format tabelaryczny)
-            let txt = '';
+            const txtLines: string[] = [];
             
             // Oblicz szerokości kolumn
             const colWidths: number[] = [];
@@ -301,45 +299,33 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // Linia oddzielająca
             const separator = '+-' + colWidths.map(w => '-'.repeat(w)).join('-+-') + '-+';
             
-            // Nagłówki
-            txt += separator + '\n';
-            txt += '| ';
-            for (let i = 0; i < headers.length; i++) {
-                txt += headers[i].padEnd(colWidths[i]) + ' | ';
-            }
-            txt += '\n' + separator + '\n';
+            txtLines.push(separator);
+            txtLines.push('| ' + headers.map((h, i) => h.padEnd(colWidths[i])).join(' | ') + ' |');
+            txtLines.push(separator);
             
             // Dane
             for (const row of rows) {
-                txt += '| ';
+                let rowStr = '| ';
                 for (let i = 0; i < headers.length; i++) {
-                    let cellStr = String(row[i] === null || row[i] === undefined ? '' : row[i]);
+                    let cellStr = String(row[i] ?? '');
                     if (cellStr.length > colWidths[i]) {
                         cellStr = cellStr.substring(0, colWidths[i] - 3) + '...';
                     }
-                    txt += cellStr.padEnd(colWidths[i]) + ' | ';
+                    rowStr += cellStr.padEnd(colWidths[i]) + ' | ';
                 }
-                txt += '\n';
+                txtLines.push(rowStr);
             }
-            txt += separator + '\n';
-            txt += `Liczba wierszy: ${rows.length}\n`;
+            txtLines.push(separator);
+            txtLines.push(`Liczba wierszy: ${rows.length}`);
+            const txt = txtLines.join('\n') + '\n';
             
             // Zapamiętanie katalogu
             const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
             const fileName = `export_${timestamp}.txt`;
             
             let lastPath = this.getLastExportPath('txt');
-            let defaultUri: vscode.Uri;
-            
-            if (lastPath) {
-                const path = require('path');
-                const lastDir = path.dirname(lastPath);
-                defaultUri = vscode.Uri.file(path.join(lastDir, fileName));
-            } else {
-                const os = require('os');
-                const path = require('path');
-                defaultUri = vscode.Uri.file(path.join(os.homedir(), 'Desktop', fileName));
-            }
+            const defaultDir = lastPath ? path.dirname(lastPath) : path.join(os.homedir(), 'Desktop');
+            const defaultUri = vscode.Uri.file(path.join(defaultDir, fileName));
             
             const uri = await vscode.window.showSaveDialog({
                 defaultUri: defaultUri,
