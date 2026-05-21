@@ -18,6 +18,7 @@ export function getHtml(
     const tableRendererUri = toUri('tableRenderer.js');
     const paginationUri = toUri('pagination.js');
     const editorUri = toUri('editor.js');
+    const connectionUri = toUri('connection.js');
     const exportUri = toUri('export.js');
     const messageHandlerUri = toUri('messageHandler.js');
     const appUri = toUri('app.js');
@@ -39,7 +40,11 @@ export function getHtml(
 <div class="toolbar">
 
     <div class="stats">
-        <strong id="connectionName">-------</strong> 🔌 <strong id="connectionTime">---</strong> ms | ⚡ <strong id="queryTime">---</strong> ms
+        <span id="connectionName" title="click to change DB connection">-------</span>
+        🔌
+        <span id="connectionTime">---</span> ms
+        | ⚡
+        <span id="queryTime">---</span> ms
     </div>
 
     <button onclick="exportToCSV()">
@@ -105,6 +110,7 @@ export function getHtml(
 <script src="${tableRendererUri}"></script>
 <script src="${paginationUri}"></script>
 <script src="${editorUri}"></script>
+<script src="${connectionUri}"></script>
 <script src="${exportUri}"></script>
 <script src="${messageHandlerUri}"></script>
 <script src="${appUri}"></script>

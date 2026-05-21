@@ -4,6 +4,7 @@ import { executeQuery } from '../db/query';
 import { ConnectionManager } from '../db/ConnectionManager';
 import * as path from 'path';
 import * as os from 'os';
+import { SqlFile } from '../db/SqlFile';
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -61,6 +62,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             
             if (msg.command === 'updateCell') {
                 await this.updateCellInDB(msg.rowIndex, msg.columnIndex, msg.value);
+            }
+            
+            if (msg.command === 'changeConnection') {
+                await this.changeConnection();
             }
             
             if (msg.command === 'exportCSV') {
@@ -233,6 +238,30 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             this._view.show?.(preserveFocus); 
         } else {
             vscode.commands.executeCommand('sqlResultsView.focus', { preserveFocus: preserveFocus });
+        }
+    }
+    
+    private async changeConnection() {
+
+        const connectionName = await SqlFile.getInstance().changeConnectionName();
+
+        // utworzenia nowego połączenia z bozą aby uzyskać czas łaczenia
+        const db = await ConnectionManager.getInstance().getDb();
+
+        this._connectionName = connectionName;
+        this._connectionTime = db.getConnectionTime();
+
+        if (this._view) {
+            this._view.webview.postMessage({
+                command: 'appendData',
+                rows: [],
+                headers: this._headers,
+                totalRows: this._allRows.length,
+                currentPage: this._currentPage,
+                connectionName: this._connectionName,
+                connectionTime: this._connectionTime,
+                queryTime: this._lastQueryTime
+            });
         }
     }
     

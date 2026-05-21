@@ -23,6 +23,12 @@ body {
     font-size: 11px;
     flex: 1;
 }
+.stats span {
+    font-weight: bold;
+}
+.stats span#connectionName {
+    cursor: pointer;
+}
 
 .pagination {
     display: flex;

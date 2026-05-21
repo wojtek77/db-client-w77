@@ -19,7 +19,7 @@ export class SqlFile {
     
     private constructor() {}
     
-    public async getConnectionName() {
+    public async getConnectionName(forceShowQuickPick = false) {
         // ścieżka do pliku SQL, który jest teraz otwarty w edytorze vscode
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
@@ -27,7 +27,7 @@ export class SqlFile {
         }
         const sqlFile = editor.document.fileName;
         let connectionName = this.get(sqlFile);
-        if (connectionName) {
+        if (connectionName && !forceShowQuickPick) {
             if (sqlFile !== this.lastSqlFile) { // trzeba przesunąć plik na koniec listy
                 this.moveToEnd(sqlFile, connectionName);
             }
@@ -48,7 +48,10 @@ export class SqlFile {
         
         return connectionName;
     }
-
+    
+    public async changeConnectionName() {
+        return this.getConnectionName(true);
+    }
     
     private get(sqlFile: string) {
         return this.sqlFiles.get(sqlFile);

@@ -4,3 +4,5 @@ window.vscode = acquireVsCodeApi();
 // renderPage();
 
 initEditor(vscode);
+
+setupConnectionEvents(vscode);
