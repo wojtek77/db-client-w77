@@ -34,7 +34,7 @@ window.addEventListener('message', event => {
         window.state.currentRows = msg.rows;
         
         // Używamy nagłówków z wiadomości
-        if (msg.headers && msg.headers.length > 0) {
+        if (msg.headers) {
             window.state.headers = msg.headers;
             renderHeaders();
         }

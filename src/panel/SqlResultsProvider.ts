@@ -255,7 +255,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             this._view.webview.postMessage({
                 command: 'appendData',
                 rows: [],
-                headers: this._headers,
+                headers: [],
                 totalRows: this._allRows.length,
                 currentPage: this._currentPage,
                 connectionName: this._connectionName,

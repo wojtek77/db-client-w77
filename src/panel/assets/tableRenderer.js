@@ -2,8 +2,13 @@ function renderHeaders() {
     console.log('renderHeaders');
     
     const headerRow = document.getElementById('headerRow');
+    
+    if (window.state.headers.length === 0) {
+        headerRow.innerHTML = '';
+        return;
+    }
+    
     headerRow.innerHTML = '<th>#</th>';
-
     for (let i = 0; i < window.state.headers.length; i++) {
         const header = window.state.headers[i];
         const th = document.createElement('th');

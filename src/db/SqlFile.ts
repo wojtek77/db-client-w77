@@ -19,7 +19,7 @@ export class SqlFile {
     
     private constructor() {}
     
-    public async getConnectionName(forceShowQuickPick = false) {
+    public async getConnectionName(isOnlyUpdate = false) {
         // ścieżka do pliku SQL, który jest teraz otwarty w edytorze vscode
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
@@ -27,12 +27,17 @@ export class SqlFile {
         }
         const sqlFile = editor.document.fileName;
         let connectionName = this.get(sqlFile);
-        if (connectionName && !forceShowQuickPick) {
-            if (sqlFile !== this.lastSqlFile) { // trzeba przesunąć plik na koniec listy
-                this.moveToEnd(sqlFile, connectionName);
-            }
-        } else {
-            const connectionNames = ConnectionManager.getInstance().getConnectionNames();
+        const configs = ConnectionManager.getInstance().getConfigs();
+        
+        // trzeba sprawdzić, czy "connectionName" jest aktualne
+        if (connectionName && !configs[connectionName]) {
+            this.delete(connectionName);
+            vscode.window.showWarningMessage(`Delete "${connectionName}" from list of SQL files`);
+            connectionName = undefined;
+        }
+        
+        if (isOnlyUpdate || !connectionName) { // jest tylko UPDATE lub od nowa jest ustawiane "connectionName"
+            const connectionNames = Object.keys(configs);
             connectionName = await vscode.window.showQuickPick(connectionNames, {
                 placeHolder: 'select DB connection',
                 ignoreFocusOut: true // Zapobiega zamknięciu menu przy kliknięciu obok
@@ -42,6 +47,10 @@ export class SqlFile {
                 throw new Error("No DB connection selected");
             }
             this.set(sqlFile, connectionName);
+        } else {
+            if (sqlFile !== this.lastSqlFile) { // trzeba przesunąć plik na koniec listy
+                this.moveToEnd(sqlFile, connectionName);
+            }
         }
         // aby poprawić wydajność i za każdym razem nie przesuwać pozycji na koniec listy
         this.lastSqlFile = sqlFile;

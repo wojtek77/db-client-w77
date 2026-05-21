@@ -46,8 +46,8 @@ export class ConnectionManager {
         this.connections = {};
     }
     
-    public getConnectionNames() {
-        return Object.keys(this.configs);
+    public getConfigs() {
+        return this.configs;
     }
     
     private loadConfigs(): Record<string, string> {
