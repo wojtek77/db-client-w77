@@ -24,11 +24,6 @@ function renderPage() {
 
     const tbody = document.getElementById('tableBody');
     
-    if (!pageRows || pageRows.length === 0) {
-        // tbody.innerHTML = '<tr><td colspan="100">Brak danych</td></tr>';
-        return;
-    }
-
     tbody.innerHTML = '';
     const fragment = document.createDocumentFragment();
 
