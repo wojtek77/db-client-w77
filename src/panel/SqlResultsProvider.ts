@@ -100,18 +100,48 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const totalPages = Math.ceil(this._allRows.length / this.ROWS_PER_PAGE);
         console.log('sendPage', start, end);
         
-        this._view.webview.postMessage({
-            command: 'appendData',
-            rows: pageRows,
-            headers: this._headers,
-            totalRows: this._allRows.length,
-            isLast: (pageNumber === totalPages),
-            currentPage: pageNumber,
-            totalPages: totalPages,
-            connectionName: this._connectionName,
-            connectionTime: this._connectionTime,
-            queryTime: this._lastQueryTime
+        // 1. Konwertujemy wiersze na string JSON
+        const rowsJsonString = JSON.stringify(pageRows);
+        // 2. Zamieniamy na binarny Uint8Array
+        const encoder = new TextEncoder();
+        const rowsBuffer = encoder.encode(rowsJsonString); // Zwraca Uint8Array
+        
+        console.time("⏱️ Całkowity czas Backend");
+        setImmediate(() => {
+            // 3. Wysyłamy
+            this._view?.webview.postMessage({
+                command: 'appendData',
+                rows: rowsBuffer, // VS Code automatycznie obsłuży to jako transfer binarny
+                headers: this._headers,
+                totalRows: this._allRows.length,
+                isLast: (pageNumber === totalPages),
+                currentPage: pageNumber,
+                totalPages: totalPages,
+                connectionName: this._connectionName,
+                connectionTime: this._connectionTime,
+                queryTime: this._lastQueryTime,
+                isEncoded: true,
+                sentAt: Date.now() // znacznik czasu w ms
+            });
         });
+        console.timeEnd("⏱️ Całkowity czas Backend");
+
+
+        // console.time("⏱️ Całkowity czas Backend");
+        // this._view.webview.postMessage({
+        //     command: 'appendData',
+        //     rows: pageRows,
+        //     headers: this._headers,
+        //     totalRows: this._allRows.length,
+        //     isLast: (pageNumber === totalPages),
+        //     currentPage: pageNumber,
+        //     totalPages: totalPages,
+        //     connectionName: this._connectionName,
+        //     connectionTime: this._connectionTime,
+        //     queryTime: this._lastQueryTime,
+        //     sentAt: Date.now()
+        // });
+        // console.timeEnd("⏱️ Całkowity czas Backend");
     }
 
     private extractTableName(sql: string): string {
@@ -202,11 +232,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             this.updateHtml();
         }
         
-        // wysłanie info o tym że dane się łądują (spinner)
-        this._view.webview.postMessage({ 
-            command: 'loadingData'
-        });
-        
         const { rows, headers, queryTime, success, errorMessage } = await executeQuery(sql);
         
         if (!success) {
@@ -216,7 +241,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
         
         const db = await ConnectionManager.getInstance().getDb();
-
+        
+        // wysłanie info o tym że dane się łądują (spinner)
+        this._view.webview.postMessage({ 
+            command: 'loadingData'
+        });
+        
         this._allRows = rows;
         this._headers = headers;
         this._lastSQL = sql;

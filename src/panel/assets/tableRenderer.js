@@ -1,21 +1,65 @@
 function renderHeaders() {
     console.log('renderHeaders');
+    const headerContainer = document.getElementById('gridHeader');
+    const headers = window.state.headers;
+    const pageRows = window.state.currentRows;
     
-    const headerRow = document.getElementById('headerRow');
-    
-    if (window.state.headers.length === 0) {
-        headerRow.innerHTML = '';
+    if (!headers || headers.length === 0) {
+        headerContainer.innerHTML = '';
         return;
     }
+
+    // 🚀 INTELIGENTNE OBLICZANIE SZEROKOŚCI KOLUMN
+    const columnWidths = [];
     
-    headerRow.innerHTML = '<th>#</th>';
-    for (let i = 0; i < window.state.headers.length; i++) {
-        const header = window.state.headers[i];
-        const th = document.createElement('th');
-        th.textContent = header;
-        th.dataset.columnIndex = i;
-        headerRow.appendChild(th);
+    for (let j = 0; j < headers.length; j++) {
+        // Zaczynamy od długości samej nazwy nagłówka
+        let maxCharCount = headers[j] ? headers[j].length : 5;
+
+        // Skanujemy 200 wierszy dla tej konkretnej kolumny, aby znaleźć najdłuższy tekst
+        if (pageRows) {
+            for (let i = 0; i < pageRows.length; i++) {
+                const val = pageRows[i][j];
+                if (val !== null && val !== undefined) {
+                    const len = String(val).length;
+                    if (len > maxCharCount) {
+                        maxCharCount = len;
+                    }
+                }
+            }
+        }
+
+        // Zamieniamy liczbę znaków na piksele (średnio 8-9px na znak + padding komórki)
+        // Ograniczamy szerokość: minimum 80px, maksimum 350px (żeby bardzo długie teksty nie rozjechały tabeli)
+        let calculatedWidth = Math.max(80, Math.min(350, maxCharCount * 8.5 + 24));
+        columnWidths.push(`${calculatedWidth}px`);
     }
+
+    // Składamy finalny szablon: 50px dla LP + unikalna szerokość dla każdej kolumny
+    const gridTemplate = `50px ${columnWidths.join(' ')}`;
+    
+    const gridContainer = document.querySelector('.grid-container');
+    if (gridContainer) {
+        gridContainer.style.setProperty('--grid-columns', gridTemplate);
+    }
+    
+    // Budujemy nagłówki HTML
+    const fragment = document.createDocumentFragment();
+    const lpHeader = document.createElement('div');
+    lpHeader.className = 'grid-cell header-cell lp-cell';
+    lpHeader.style.fontWeight = 'bold';
+    lpHeader.textContent = '#';
+    fragment.appendChild(lpHeader);
+
+    for (let i = 0; i < headers.length; i++) {
+        const th = document.createElement('div');
+        th.className = 'grid-cell header-cell';
+        th.dataset.columnIndex = i;
+        th.textContent = headers[i];
+        fragment.appendChild(th);
+    }
+    
+    headerContainer.replaceChildren(fragment);
 }
 
 function renderPage() {
@@ -25,46 +69,49 @@ function renderPage() {
     const headers = window.state.headers;
     const currentPage = window.state.currentPage;
     const ROWS_PER_PAGE = window.state.ROWS_PER_PAGE;
-    const extraRows = (currentPage - 1) * ROWS_PER_PAGE;
-
-    const tbody = document.getElementById('tableBody');
     
-    tbody.innerHTML = '';
+    const gridBody = document.getElementById('gridBody');
+    
+    if (!pageRows || pageRows.length === 0) {
+        gridBody.innerHTML = '';
+        return;
+    }
+
+    const baseIndex = (currentPage - 1) * ROWS_PER_PAGE;
     const fragment = document.createDocumentFragment();
 
     for (let i = 0; i < pageRows.length; i++) {
         const row = pageRows[i];
-        const rowNum = extraRows + i + 1;
-        const globalRowIndex = (currentPage - 1) * ROWS_PER_PAGE + i;
+        const globalRowIndex = baseIndex + i;
+        const rowNum = globalRowIndex + 1;
 
-        const tr = document.createElement('tr');
-        tr.dataset.rowIndex = globalRowIndex;
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'grid-row';
+        rowDiv.dataset.rowIndex = globalRowIndex;
 
-        // Numer wiersza
-        const rowCell = document.createElement('td');
-        rowCell.style.fontWeight = 'bold';
-        rowCell.textContent = String(rowNum);
-        tr.appendChild(rowCell);
+        // Komórka LP
+        const lpCell = document.createElement('div');
+        lpCell.className = 'grid-cell lp-cell';
+        lpCell.style.fontWeight = 'bold';
+        lpCell.textContent = String(rowNum);
+        rowDiv.appendChild(lpCell);
 
-        // Kolumny
+        // Komórki z danymi
         for (let j = 0; j < headers.length; j++) {
-            const td = document.createElement('td');
             const value = row[j];
-            
-            td.dataset.value = (value === null || value === undefined) ? '' : String(value);
-            td.dataset.row = globalRowIndex;
-            td.dataset.col = j;
-            td.dataset.column = headers[j];
-            
-            td.textContent = (value === null || value === undefined) ? '' : String(value);
-            
-            tr.appendChild(td);
+            const displayValue = (value === null || value === undefined) ? '' : String(value);
+
+            const cellDiv = document.createElement('div');
+            cellDiv.className = 'grid-cell';
+            cellDiv.dataset.row = globalRowIndex;
+            cellDiv.dataset.col = j;
+            cellDiv.dataset.column = headers[j];
+            cellDiv.textContent = displayValue;
+            rowDiv.appendChild(cellDiv);
         }
 
-        fragment.appendChild(tr);
+        fragment.appendChild(rowDiv);
     }
 
-    tbody.appendChild(fragment);
-    
-    
+    gridBody.replaceChildren(fragment);
 }

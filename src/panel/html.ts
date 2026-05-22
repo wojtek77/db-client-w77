@@ -18,7 +18,6 @@ export function getHtml(
     const tableRendererUri = toUri('tableRenderer.js');
     const paginationUri = toUri('pagination.js');
     const editorUri = toUri('editor.js');
-    const connectionUri = toUri('connection.js');
     const exportUri = toUri('export.js');
     const messageHandlerUri = toUri('messageHandler.js');
     const appUri = toUri('app.js');
@@ -89,31 +88,21 @@ export function getHtml(
     <div class="loading-text">Loading data...</div>
 </div>
 
-<!-- komunikatów o błędach -->
+<!-- komunikat o błędach -->
 <p id="errorDisplay" class="error-message"></p>
 
-<div class="table-container">
-
-    <table id="dataTable">
-
-        <thead>
-            <tr id="headerRow">
-            </tr>
-        </thead>
-
-        <tbody id="tableBody">
-            
-        </tbody>
-
-    </table>
-
+<div id="gridContainer" class="grid-container">
+    <!-- nagłówki -->
+    <div id="gridHeader" class="grid-header"></div>
+    
+    <!-- 200 wierszy danych -->
+    <div id="gridBody" class="grid-body"></div>
 </div>
 
 <script src="${stateUri}"></script>
 <script src="${tableRendererUri}"></script>
 <script src="${paginationUri}"></script>
 <script src="${editorUri}"></script>
-<script src="${connectionUri}"></script>
 <script src="${exportUri}"></script>
 <script src="${messageHandlerUri}"></script>
 <script src="${appUri}"></script>

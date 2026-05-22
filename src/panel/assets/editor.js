@@ -1,95 +1,113 @@
 function initEditor(vscode) {
 
-    const rowsLayer = document.getElementById('tableBody');
+    registerEvents(vscode);
+}
 
-    rowsLayer.addEventListener('dblclick', e => {
+function registerEvents(vscode) {
+    /* edycja komórki */
+    document.addEventListener('DOMContentLoaded', () => {
+        const gridBody = document.getElementById('gridBody');
+        if (!gridBody) return;
 
-        const target = e.target;
+        gridBody.addEventListener('dblclick', (event) => {
+            const cell = event.target.closest('.grid-cell');
+            
+            // Blokujemy nagłówki, LP oraz sytuację gdy input już istnieje
+            if (!cell || cell.classList.contains('lp-cell') || cell.querySelector('input')) return;
 
-        if (!(target instanceof HTMLElement)) {
-            return;
-        }
+            const rowIndex = cell.dataset.row;
+            const colIndex = cell.dataset.col;
+            const oldValue = cell.textContent;
 
-        const cell = target.closest('td');
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = oldValue;
+            input.className = 'grid-edit-input';
 
-        // Pomijamy komórkę z numerem wiersza (pierwsza kolumna)
-        if (!cell.dataset.column) {
-            return;
-        }
+            cell.textContent = '';
+            cell.appendChild(input);
+            input.focus();
+            input.select();
 
-        if (cell.querySelector('input')) {
-            return;
-        }
+            function saveEdit() {
+                const newValue = input.value;
+                
+                if (newValue === oldValue) {
+                    cell.textContent = oldValue;
+                    return;
+                }
 
-        const oldValue = cell.dataset.value || '';
-        
-        // ⭐ Pobierz indeksy wiersza i kolumny z atrybutów data-row i data-col
-        const rowIndex = parseInt(cell.getAttribute('data-row'));
-        const columnIndex = parseInt(cell.getAttribute('data-col'));
-        
-        
+                // Tekst zmieniamy tymczasowo, pełne potwierdzenie (zielony błysk) przyjdzie z bazy danych
+                cell.textContent = newValue;
 
-        const input = document.createElement('input');
-
-        input.value = oldValue;
-
-        input.style.width = '100%';
-        input.style.border = 'none';
-        input.style.padding = '3px';
-        input.style.margin = '0';
-        input.style.background = 'transparent';
-        input.style.color = 'inherit';
-        input.style.font = 'inherit';
-        input.style.fontWeight = 'bold';
-        input.style.fontSize = '133%';
-
-        cell.innerHTML = '';
-
-        cell.appendChild(input);
-
-        input.focus();
-
-        input.select();
-
-        function save() {
-
-            const newValue = input.value;
-
-            if (oldValue === newValue) {
-                cell.dataset.value = oldValue;
-                cell.textContent = oldValue;
-                return;
+                // Wysyłamy dokładnie to, co odbiera: msg.rowIndex, msg.columnIndex, msg.value
+                vscode.postMessage({
+                    command: 'updateCell',
+                    rowIndex: parseInt(rowIndex),
+                    columnIndex: parseInt(colIndex),
+                    value: newValue
+                });
             }
 
-            cell.dataset.value = newValue;
-            cell.textContent = newValue;
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    input.blur();
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cell.textContent = oldValue;
+                }
+            });
 
-            // ⭐ WYŚLIJ NOWY FORMAT (rowIndex, columnIndex)
-            vscode.postMessage({
-                command: 'updateCell',
-                rowIndex: rowIndex,
-                columnIndex: columnIndex,
-                value: newValue
+            input.addEventListener('blur', () => {
+                saveEdit();
+            });
+        });
+    });
+    
+    /* zaznaczenie wiersza */
+    document.addEventListener('DOMContentLoaded', () => {
+        const gridBody = document.getElementById('gridBody');
+        
+        if (gridBody) {
+            gridBody.addEventListener('click', (event) => {
+                // Szukamy najbliższej komórki (div z klasą .grid-cell)
+                const cell = event.target.closest('.grid-cell');
+                if (!cell) return;
+                
+                // Ignorujemy kliknięcia w komórkę LP (numer wiersza), jeśli nie chcesz jej zaznaczać
+                // if (cell.classList.contains('lp-cell')) return;
+
+                // Znajdujemy cały wiersz, w którym znajduje się kliknięta komórka
+                const targetRow = cell.closest('.grid-row');
+                if (!targetRow) return;
+
+                // 🚀 WYDAJNOŚĆ: Usuwamy klasę 'selected-row' z poprzednio zaznaczonego wiersza
+                const previousSelected = gridBody.querySelector('.selected-row');
+                if (previousSelected) {
+                    previousSelected.classList.remove('selected-row');
+                }
+
+                // Dodajemy klasę podświetlenia do nowego wiersza
+                targetRow.classList.add('selected-row');
+                
+                // Log pomocniczy (możesz go usunąć)
+                console.log(`Zaznaczono wiersz o indeksie globalnym: ${targetRow.dataset.rowIndex}`);
             });
         }
+    });
+    
+    /* zmiana połączenia z DB */
+    document.addEventListener('DOMContentLoaded', () => {
 
-        input.addEventListener('blur', save);
-
-        input.addEventListener('keydown', ev => {
-
-            if (ev.key === 'Enter') {
-                input.blur();
-            }
-
-            if (ev.key === 'Escape') {
-
-                input.removeEventListener('blur', save);
-
-                input.blur();
-
-                cell.dataset.value = oldValue;
-                cell.textContent = oldValue;
-            }
-        });
+        const btn = document.getElementById('connectionName');
+        if (btn) {
+            btn.addEventListener('click', () => {
+                vscode.postMessage({
+                    command: 'changeConnection'
+                });
+            });
+        }
     });
 }

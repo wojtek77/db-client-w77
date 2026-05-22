@@ -1,11 +1,136 @@
-body {
+/* Zabezpieczenie całego okna Webview */
+html, body {
     font-size: 12px;
     background: var(--vscode-editor-background);
     margin: 0;
+    padding: 0;
     height: 100vh;
-    overflow: hidden;
+    overflow: hidden; /* Usuwa pierwszy, zewnętrzny suwak pionowy */
     display: flex;
     flex-direction: column;
+}
+
+/* Twój istniejący pasek narzędzi (załóżmy, że ma określoną wysokość) */
+.toolbar {
+    flex-shrink: 0; /* Blokuje kurczenie się toolbara */
+    padding: 8px;
+    background: var(--vscode-merge-editor-header-background, #252526);
+}
+
+/* 🚀 POPRAWIONY GŁÓWNY KONTENER TABELI */
+.grid-container {
+    margin-top: 1em;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;       /* Zmusza tabelę do zajęcia 100% pozostałej wysokości ekranu */
+    width: 100%;
+    overflow: auto;     /* To będzie JEDYNY suwak pionowy i poziomy w aplikacji */
+    position: relative;
+    border: 0px solid var(--vscode-panel-border);
+}
+
+
+/* Sekcja nagłówków oraz pojedyncze wiersze danych */
+.grid-header, .grid-row {
+    display: grid;
+    /* 🚀 Dziedziczenie zmiennej z .grid-container, która definiuje liczbę i szerokość kolumn */
+    grid-template-columns: var(--grid-columns);
+    
+    /* 🚀 KLUCZOWE ROZWIĄZANIE: Zmusza wiersz do przyjęcia pełnej szerokości */
+    /* wyliczonej z sumy wszystkich 100 kolumn (np. 15000px), a nie szerokości ekranu */
+    width: max-content;
+}
+
+/* Nagłówek przyklejony na górze podczas przewijania w pionie */
+.grid-header {
+    position: sticky;
+    top: 0;
+    background: var(--vscode-editor-background);
+    z-index: 10;
+    /* border-bottom: 2px solid var(--vscode-panel-border); */
+}
+
+/* Każda pojedyncza komórka (zastępuje dawne td / th) */
+.grid-cell {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    border-right: 1px solid var(--vscode-panel-border);
+    white-space: nowrap;        /* Blokuje zawijanie linii */
+    overflow: hidden;           /* Ukrywa nadmiar tekstu */
+    text-overflow: ellipsis;    /* Wstawia wielokropek (...) dla długich tekstów */
+    box-sizing: border-box;
+}
+
+/* Wyróżnienie komórek nagłówka i LP */
+.header-cell {
+    /* background: var(--vscode-sideBar-background); */
+    font-weight: bold;
+}
+.lp-cell {
+    background: var(--vscode-editor-background);
+    text-align: center;
+}
+
+/* Płynność przewijania Chromium */
+.grid-row {
+    display: grid;
+    grid-template-columns: var(--grid-columns);
+    width: max-content;
+    height: 30px;
+    
+    /* 🚀 Klucz do powrotu do < 50ms */
+    content-visibility: auto; 
+}
+
+/* Styl dla zaznaczonego wiersza */
+.grid-row.selected-row {
+    /* Używa koloru tła zaznaczenia z aktualnego motywu VS Code */
+    background-color: var(--vscode-list-activeSelectionBackground) !important;
+    
+    /* Zmienia kolor tekstu wewnątrz wiersza, aby był czytelny (kontrastowy) */
+    color: var(--vscode-list-activeSelectionForeground) !important;
+}
+
+/* 🚀 Dodatkowy bonus wizualny: Podświetlenie wiersza po najechaniu myszką (Hover) */
+.grid-row:hover:not(.selected-row) {
+    background-color: var(--vscode-list-hoverBackground);
+    cursor: pointer;
+}
+
+/* Zmusza pierwszą kolumnę (LP) do zmiany tła, gdy wiersz jest zaznaczony */
+.grid-row.selected-row .lp-cell {
+    background-color: var(--vscode-list-activeSelectionBackground) !important;
+    color: var(--vscode-list-activeSelectionForeground) !important;
+}
+
+/* 🚀 Dodatkowo: Podświetlenie pierwszej kolumny podczas najechania myszką (Hover) */
+.grid-row:hover:not(.selected-row) .lp-cell {
+    background-color: var(--vscode-list-hoverBackground) !important;
+}
+
+/* Styl dla pola edycji komórki */
+.grid-edit-input {
+    width: 100%;
+    height: 100%;
+    /* box-sizing: border-box; */
+    /* border: 1px solid var(--vscode-focusBorder); */
+    border: none;
+    background-color: var(--vscode-input-foreground);
+    color: var(--vscode-input-background);
+    /* background-color: transparent; */
+    /* color: inherit; */
+    /* outline: none; */
+    font-family: inherit;
+    font-size: 133%;
+    font-weight: bold;
+    padding: 3px;
+    margin: 0;
+}
+
+/* Zielona animacja potwierdzenia aktualizacji (juw masz ją w messageHandler.js) */
+.updated-cell {
+    background-color: var(--vscode-testing-iconPassedColor, #388a34) !important;
+    color: #ffffff !important;
 }
 
 .toolbar {
@@ -20,7 +145,7 @@ body {
 
 .stats {
     color: gray;
-    font-size: 11px;
+    font-size: 13px;
     flex: 1;
 }
 .stats span {
@@ -48,10 +173,28 @@ body {
     align-items: center;
 }
 
-.table-container {
-    flex: 1;
-    overflow: auto;
-    margin-top: 10px;
+button {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 4px 12px;
+    cursor: pointer;
+    border-radius: 2px;
+    font-size: 11px;
+}
+
+button:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.page-info {
+    font-size: 11px;
+    margin: 0 10px;
 }
 
 /* spinner */
@@ -100,75 +243,4 @@ body {
     100% {
         transform: rotate(360deg);
     }
-}
-
-table {
-    border-collapse: collapse;
-    font-family: var(--vscode-editor-font-family);
-    font-size: 12px;
-    width: 1%;
-}
-
-th,
-td {
-    border: 1px solid var(--vscode-panel-border);
-    padding: 4px 8px;
-    text-align: left;
-    white-space: nowrap;
-}
-
-th {
-    background-color: var(--vscode-editor-background);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    font-weight: bold;
-}
-
-td:first-child {
-    background-color: var(--vscode-sideBar-background);
-    color: #888;
-    text-align: right;
-    font-weight: bold;
-}
-
-tr:hover td {
-    background-color: var(--vscode-list-hoverBackground);
-}
-
-button {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-    border: none;
-    padding: 4px 12px;
-    cursor: pointer;
-    border-radius: 2px;
-    font-size: 11px;
-}
-
-button:hover {
-    background: var(--vscode-button-hoverBackground);
-}
-
-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.page-info {
-    font-size: 11px;
-    margin: 0 10px;
-}
-
-select {
-    background: var(--vscode-dropdown-background);
-    color: var(--vscode-dropdown-foreground);
-    border: 1px solid var(--vscode-dropdown-border);
-    padding: 4px;
-    border-radius: 2px;
-    font-size: 11px;
-}
-
-.updated-cell {
-    background: #90EE90 !important;
 }

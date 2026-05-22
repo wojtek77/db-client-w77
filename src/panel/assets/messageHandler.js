@@ -1,10 +1,13 @@
 window.addEventListener('message', event => {
 
+    // Stworzenie dekodera raz zapobiega ciągłemu tworzeniu nowych obiektów w pamięci
+    const decoder = new TextDecoder('utf-8');
+    
     const msg = event.data;
     
     const loadingOverlay = document.getElementById('loadingOverlay');
     const errorDisplay = document.getElementById('errorDisplay');
-    const dataTable = document.getElementById('dataTable');
+    const gridContainer = document.getElementById('gridContainer');
 
     function stopSpinner() {
         if (loadingOverlay) loadingOverlay.style.display = 'none';
@@ -19,26 +22,31 @@ window.addEventListener('message', event => {
     }
 
     if (msg.command === 'appendData') {
+        console.log("--- START PRZETWARZANIA WEBVIEW ---");
+        
+        console.log(msg.sentAt);
+        const duration = Date.now() - msg.sentAt;
+        console.log(`🚀 Czas podróży przez postMessage: ${duration} ms`);
+        
         stopError();
         stopSpinner();
-        dataTable.style.display = 'block';
+        if (gridContainer) gridContainer.style.display = 'flex';
         
         // ustawienie połączenia z DB i czasów
         document.getElementById('connectionName').textContent = msg.connectionName;
         document.getElementById('connectionTime').textContent = msg.connectionTime;
         document.getElementById('queryTime').textContent = msg.queryTime;
 
-        const start = performance.now();
-
-        // Zapisz dane i nagłówki
-        window.state.currentRows = msg.rows;
-        
-        // Używamy nagłówków z wiadomości
+        // 🚀 KROK 1: Zapisujemy nagłówki na samym początku (potrzebne do obliczeń w renderHeaders)
         if (msg.headers) {
             window.state.headers = msg.headers;
-            renderHeaders();
         }
 
+        // 🚀 KROK 2: Prawidłowe parsowanie danych.
+        // Jeśli w backendzie wysyłasz surową macierz, użyj: window.state.currentRows = msg.rows;
+        // Jeśli w backendzie zostawiłeś rowsBuffer (Uint8Array), użyj poniższej linii z decoderem:
+        window.state.currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
+        
         // Oblicz całkowitą liczbę stron
         window.state.totalPages = Math.ceil(
             msg.totalRows / window.state.ROWS_PER_PAGE
@@ -51,22 +59,31 @@ window.addEventListener('message', event => {
 
         document.getElementById('totalPages').textContent = window.state.totalPages;
         document.getElementById('currentPage').textContent = window.state.currentPage;
-
-        // ⭐ ZAWSZE RENDERUJ STRONĘ (to było pominięte)
+        
+        console.time("⏱️ Czas renderHeaders");
+        if (window.state.headers) {
+            renderHeaders(); // Ta funkcja teraz przeskanuje window.state.currentRows
+        }
+        console.timeEnd("⏱️ Czas renderHeaders");
+        
+        // 🚀 KROK 3: Renderowanie (Najpierw wiersze, potem inteligentne nagłówki)
+        console.time("⏱️ Czas renderPage");
         renderPage();
-
+        console.timeEnd("⏱️ Czas renderPage");
+        
         // Aktualizuj przyciski paginacji
         document.getElementById('prevBtn').disabled = (window.state.currentPage === 1);
         document.getElementById('firstBtn').disabled = (window.state.currentPage === 1);
         document.getElementById('nextBtn').disabled = (window.state.currentPage === window.state.totalPages);
         document.getElementById('lastBtn').disabled = (window.state.currentPage === window.state.totalPages);
 
-        const end = performance.now();
-
         if (msg.isLast) {
-            
+            // ew. logika na koniec
         }
+        
+        console.log("--- KONIEC PRZETWARZANIA WEBVIEW ---");
     }
+
 
     if (msg.command === 'updateConfirmed') {
         const cells = document.querySelectorAll(
@@ -80,7 +97,7 @@ window.addEventListener('message', event => {
     
     if (msg.command === 'error') {
         stopSpinner();
-        if (dataTable) dataTable.style.display = 'none';
+        if (gridContainer) gridContainer.style.display = 'none';
         if (errorDisplay) {
             errorDisplay.style.display = 'block';
             errorDisplay.textContent = `Error: ${msg.message}`;
