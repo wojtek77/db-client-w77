@@ -4,20 +4,50 @@ import { ConnectionManager } from './ConnectionManager';
 export class SqlFile {
     
     private static instance: SqlFile;
+    private static readonly STORAGE_KEY = 'sqlFiles';
     
-    private sqlFiles: Map<string, string> = new Map(); // klucz *.sql, wartość nazwa połączenia
+    private sqlFiles = new Map<string, string>(); // klucz *.sql, wartość nazwa połączenia
     private lastSqlFile: string = ''; // poprawa wydajności, jeśli SQL jest uruchamiany wiele razy z tego samego pliku, nie ma przesunięcia na koniec listy w "sqlFiles"
+    private persistPromise: Promise<void> | null = null;
     
     
-    public static getInstance(): SqlFile {
+    public static getInstance(context?: vscode.ExtensionContext): SqlFile {
         if (!this.instance) {
-            this.instance =
-                new SqlFile();
+            if (!context) {
+                throw new Error('SqlFile not initialized');
+            }
+            this.instance = new SqlFile(context);
         }
         return this.instance;
     }
     
-    private constructor() {}
+    private constructor(private context: vscode.ExtensionContext) {}
+    
+    public sqlFilesRestore(): void {
+        const saved = this.context.workspaceState.get<[string, string][]>(
+            SqlFile.STORAGE_KEY,
+            []
+        );
+        this.sqlFiles = new Map(saved);
+    }
+    
+    public async sqlFilesPersist(): Promise<void> {
+
+        if (this.persistPromise) {
+            return this.persistPromise;
+        }
+
+        this.persistPromise = (async () => {
+            await this.context.workspaceState.update(
+                SqlFile.STORAGE_KEY,
+                Array.from(this.sqlFiles.entries())
+            );
+        })().finally((): void => {
+            this.persistPromise = null;
+        });
+
+        return this.persistPromise;
+    }
     
     public async getConnectionName(isOnlyUpdate = false) {
         // ścieżka do pliku SQL, który jest teraz otwarty w edytorze vscode
@@ -31,7 +61,8 @@ export class SqlFile {
         
         // trzeba sprawdzić, czy "connectionName" jest aktualne
         if (connectionName && !configs[connectionName]) {
-            this.delete(connectionName);
+            this.delete(sqlFile);
+            void this.sqlFilesPersist();
             vscode.window.showWarningMessage(`Delete "${connectionName}" from list of SQL files`);
             connectionName = undefined;
         }
@@ -47,6 +78,7 @@ export class SqlFile {
                 throw new Error("No DB connection selected");
             }
             this.set(sqlFile, connectionName);
+            void this.sqlFilesPersist();
         } else {
             if (sqlFile !== this.lastSqlFile) { // trzeba przesunąć plik na koniec listy
                 this.moveToEnd(sqlFile, connectionName);

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from './db/ConnectionManager';
 import { SqlResultsProvider } from './panel/SqlResultsProvider';
 import { getTableColumns, setGetCachedColumnsFunction } from './db/query';
+import { SqlFile } from './db/SqlFile';
 
 let sqlResultsProvider: SqlResultsProvider | undefined = undefined;
 
@@ -265,14 +266,14 @@ function findCurrentQuery(text: string, cursorOffset: number): string {
     return query;
 }
 
-async function checkSqlEditors() {
+async function checkSqlEditors(context: vscode.ExtensionContext) {
 
     const hasSqlDocuments = vscode.workspace.textDocuments.some(doc =>
         doc.languageId === 'sql'
     );
 
     if (hasSqlDocuments && !extensionRunning) {
-        await startExtension();
+        await startExtension(context);
     }
 
     if (!hasSqlDocuments && extensionRunning) {
@@ -280,7 +281,7 @@ async function checkSqlEditors() {
     }
 }
 
-async function startExtension() {
+async function startExtension(context: vscode.ExtensionContext) {
     // ⭐ USTAW KONTEKST – zakładka stanie się widoczna
     await vscode.commands.executeCommand('setContext', 'dbClientActive', true);
     extensionRunning = true;
@@ -294,20 +295,26 @@ async function stopExtension() {
     extensionRunning = false;
     
     ConnectionManager.getInstance().stop();
+    
+    // zapisanie listy plików SQL na dysk
+    await SqlFile.getInstance().sqlFilesPersist();
 }
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log(new Date().toLocaleTimeString('pl-PL', { hour12: false }));
     
-    await startExtension();
+    // wczytanie listy plików SQL z dysku
+    SqlFile.getInstance(context).sqlFilesRestore();
+    
+    await startExtension(context);
 
     context.subscriptions.push(
         vscode.workspace.onDidOpenTextDocument(() => {
-            checkSqlEditors();
+            checkSqlEditors(context);
         }),
 
         vscode.workspace.onDidCloseTextDocument(() => {
-            checkSqlEditors();
+            checkSqlEditors(context);
         }),
     );
     
@@ -378,5 +385,7 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export async function deactivate() {
-    stopExtension();
+    if (extensionRunning) {
+        await stopExtension();
+    }
 }
