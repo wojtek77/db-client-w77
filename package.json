@@ -36,19 +36,23 @@
     },
     "commands": [
       {
-        "command": "db-client.executeSQL",
-        "title": "Wykonaj SQL z edytora"
+        "command": "db-client.runSQL",
+        "title": "DB client: Run SQL"
       },
       {
-        "command": "db-client.openPanel",
-        "title": "Otwórz panel wyników SQL"
+        "command": "db-client.openRecentFiles",
+        "title": "DB client: Open Recent SQL Files"
       }
     ],
     "keybindings": [
       {
-        "command": "db-client.executeSQL",
+        "command": "db-client.runSQL",
         "key": "ctrl+enter",
         "when": "editorTextFocus && !editorReadonly && resourceExtname == '.sql'"
+      },
+      {
+        "command": "db-client.openRecentFiles",
+        "key": "F3"
       }
     ]
   },

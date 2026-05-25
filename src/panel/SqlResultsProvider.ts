@@ -68,6 +68,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 await this.changeConnection();
             }
             
+            if (msg.command === 'openRecentFiles') {
+                await this.openRecentFiles();
+            }
+            
             if (msg.command === 'exportCSV') {
                 await this.exportToCSV();
             }
@@ -293,6 +297,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 queryTime: this._lastQueryTime
             });
         }
+    }
+    
+    private async openRecentFiles() {
+
+        await SqlFile.getInstance().openRecentFiles();
     }
     
     private async exportToCSV() {

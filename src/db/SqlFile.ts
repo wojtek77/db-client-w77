@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from './ConnectionManager';
+import * as path from 'path';
 
 export class SqlFile {
     
@@ -24,7 +25,7 @@ export class SqlFile {
     private constructor(private context: vscode.ExtensionContext) {}
     
     public sqlFilesRestore(): void {
-        const saved = this.context.workspaceState.get<[string, string][]>(
+        const saved = this.context.globalState.get<[string, string][]>(
             SqlFile.STORAGE_KEY,
             []
         );
@@ -38,7 +39,7 @@ export class SqlFile {
         }
 
         this.persistPromise = (async () => {
-            await this.context.workspaceState.update(
+            await this.context.globalState.update(
                 SqlFile.STORAGE_KEY,
                 Array.from(this.sqlFiles.entries())
             );
@@ -88,6 +89,79 @@ export class SqlFile {
         this.lastSqlFile = sqlFile;
         
         return connectionName;
+    }
+    
+    // zwraca kopię sqlFiles
+    private getSqlFiles() {
+        return new Map(this.sqlFiles);
+    }
+    
+    public async openRecentFiles() {
+    
+        const sqlFiles = SqlFile.getInstance().getSqlFiles();
+        
+        // zbierz ścieżki wszystkich otwartych dokumentów w edytorze
+        const openFilePaths = new Set<string>();
+        for (const group of vscode.window.tabGroups.all) {
+            for (const tab of group.tabs) {
+                // Sprawdzamy, czy karta to plik tekstowy
+                if (tab.input instanceof vscode.TabInputText) {
+                    const filePath = tab.input.uri.fsPath;
+                    
+                    // Warunek: interesują nas tylko pliki z rozszerzeniem .sql
+                    if (filePath.toLowerCase().endsWith('.sql')) {
+                        openFilePaths.add(filePath);
+                    }
+                }
+            }
+        }
+        
+        // usuń z kopii listy otwarte pliki SQL
+        for (const filePath of openFilePaths) {
+            sqlFiles.delete(filePath);
+        }
+        
+        // 2. Mapowanie na elementy QuickPickItem w odwróconej kolejności (od końca)
+        // Zamieniamy wpisy mapy na tablicę i odwracamy ją za pomocą .reverse()
+        const quickPickItems = Array.from(sqlFiles.entries())
+            .reverse() 
+            .map(([filePath, connectionName], index) => {
+                // Pobieramy samą nazwę pliku (np. "query.sql")
+                const fileName = path.basename(filePath);
+                
+                const orderNumber = index + 1; 
+                
+                return {
+                    // label: `${orderNumber}. ${fileName} (${connectionName})`, // To co widzi użytkownik
+                    label: `${fileName} (${orderNumber})`, // To co widzi użytkownik
+                    // description: filePath,                     // Opcjonalnie: podgląd pełnej ścieżki na dole
+                    value: filePath                      // Ukryta wartość, którą chcemy wyciągnąć
+                };
+            });
+
+        // 3. Wyświetlenie menu użytkownikowi
+        const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
+            placeHolder: 'select SQL file',
+            ignoreFocusOut: true
+        });
+        
+        // 4. OTWARCIE PLIKU W EDYTORZE
+        if (selectedItem) {
+            const sqlFile = selectedItem.value;
+            // const connectionName = sqlFiles.get(sqlFile);
+            
+            try {
+                // Zamiana ścieżki tekstowej na obiekt Uri wymagany przez VS Code
+                const fileUri = vscode.Uri.file(sqlFile);
+                
+                await vscode.window.showTextDocument(fileUri, {
+                    preview: false,       // pełne otwarcie, nie preview
+                    preserveFocus: false  // opcjonalnie: od razu aktywuje edytor
+                });
+            } catch (error) {
+                vscode.window.showErrorMessage(`Nie można otworzyć pliku: ${error instanceof Error ? error.message : error}`);
+            }
+        }
     }
     
     public async changeConnectionName() {

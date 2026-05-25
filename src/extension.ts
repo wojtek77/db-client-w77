@@ -5,6 +5,8 @@ import { getTableColumns, setGetCachedColumnsFunction } from './db/query';
 import { SqlFile } from './db/SqlFile';
 
 let sqlResultsProvider: SqlResultsProvider | undefined = undefined;
+let previousSqlEditors = 0;
+let stopTimeout: NodeJS.Timeout | undefined;
 
 // Cache dla kolumn tabel - przechowuje pełne informacje o kolumnach
 let tableColumnsCache: Map<string, any[]> = new Map();
@@ -268,20 +270,24 @@ function findCurrentQuery(text: string, cursorOffset: number): string {
 
 async function checkSqlEditors(context: vscode.ExtensionContext) {
 
-    const hasSqlDocuments = vscode.workspace.textDocuments.some(doc =>
-        doc.languageId === 'sql'
+    const hasSqlEditors = vscode.window.visibleTextEditors.some(
+        editor => editor.document.languageId === 'sql'
     );
 
-    if (hasSqlDocuments && !extensionRunning) {
-        await startExtension(context);
+    if (hasSqlEditors === extensionRunning) {
+        return;
     }
 
-    if (!hasSqlDocuments && extensionRunning) {
+    if (hasSqlEditors) {
+        await startExtension(context);
+    } else {
         await stopExtension();
     }
 }
 
 async function startExtension(context: vscode.ExtensionContext) {
+    console.log('START_EXTENSION');
+    
     // ⭐ USTAW KONTEKST – zakładka stanie się widoczna
     await vscode.commands.executeCommand('setContext', 'dbClientActive', true);
     extensionRunning = true;
@@ -290,6 +296,8 @@ async function startExtension(context: vscode.ExtensionContext) {
 }
 
 async function stopExtension() {
+    console.log('STOP_EXTENSION');
+    
     // ⭐ UKRYJ ZAKŁADKĘ
     await vscode.commands.executeCommand('setContext', 'dbClientActive', false);
     extensionRunning = false;
@@ -306,17 +314,60 @@ export async function activate(context: vscode.ExtensionContext) {
     // wczytanie listy plików SQL z dysku
     SqlFile.getInstance(context).sqlFilesRestore();
     
-    await startExtension(context);
+    previousSqlEditors = vscode.window.visibleTextEditors.filter(
+        e => e.document.languageId === 'sql'
+    ).length;
 
-    context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(() => {
-            checkSqlEditors(context);
-        }),
+    if (previousSqlEditors > 0) {
+        await startExtension(context);
+    }
 
-        vscode.workspace.onDidCloseTextDocument(() => {
-            checkSqlEditors(context);
-        }),
-    );
+    vscode.window.onDidChangeVisibleTextEditors((editors) => {
+
+    const currentSqlEditors = editors.filter(e =>
+        e.document.languageId === 'sql'
+    ).length;
+
+    // anuluj pending STOP
+    if (stopTimeout) {
+        clearTimeout(stopTimeout);
+        stopTimeout = undefined;
+    }
+
+    // otwarto pierwszy SQL editor
+    if (previousSqlEditors === 0 && currentSqlEditors > 0) {
+
+        console.log('First SQL editor opened');
+
+        if (!extensionRunning) {
+            startExtension(context);
+        }
+    }
+
+    // zamknięto ostatni SQL editor
+    if (previousSqlEditors > 0 && currentSqlEditors === 0) {
+
+            stopTimeout = setTimeout(() => {
+
+                const stillNoEditors =
+                    vscode.window.visibleTextEditors.filter(
+                        e => e.document.languageId === 'sql'
+                    ).length === 0;
+
+                if (stillNoEditors) {
+
+                    console.log('All SQL editors closed');
+
+                    if (extensionRunning) {
+                        stopExtension();
+                    }
+                }
+
+            }, 150);
+        }
+
+        previousSqlEditors = currentSqlEditors;
+    })
     
     // ⭐ Ustaw callback dla parsera SQL
     setGetCachedColumnsFunction(getCachedColumnsAsStrings);
@@ -347,7 +398,7 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     // Komenda do wykonania SQL
-    const executeEditorSQL = vscode.commands.registerCommand('db-client.executeSQL', async () => {
+    const runSQL = vscode.commands.registerCommand('db-client.runSQL', async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showErrorMessage('Nie masz otwartego edytora z kodem SQL');
@@ -375,13 +426,12 @@ export async function activate(context: vscode.ExtensionContext) {
             await sqlResultsProvider.executeQuery(sql);
         }
     });
-
-    // Komenda do ręcznego otwarcia panelu
-    // const openPanel = vscode.commands.registerCommand('db-client.openPanel', () => {
-    //     vscode.commands.executeCommand('sqlResultsView.focus');
-    // });
-
-    // context.subscriptions.push(executeEditorSQL, openPanel);
+    
+    const openRecentFiles = vscode.commands.registerCommand('db-client.openRecentFiles', async () => {
+        await SqlFile.getInstance().openRecentFiles();
+    });
+    
+    context.subscriptions.push(runSQL, openRecentFiles);
 }
 
 export async function deactivate() {

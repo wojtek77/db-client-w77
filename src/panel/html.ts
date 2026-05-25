@@ -46,6 +46,10 @@ export function getHtml(
         <span id="queryTime">---</span> ms
     </div>
 
+    <button onclick="openRecentFiles()">
+        Recent files
+    </button>
+    
     <button onclick="exportToCSV()">
         💾 Eksportuj CSV
     </button>

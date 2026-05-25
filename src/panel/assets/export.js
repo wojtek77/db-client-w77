@@ -1,3 +1,10 @@
+// otwiera ostatnio użyte pliki SQL
+function openRecentFiles() {
+    window.vscode.postMessage({
+        command: 'openRecentFiles'
+    });
+}
+
 // Export do CSV
 function exportToCSV() {
     const rows = window.state.currentRows;
