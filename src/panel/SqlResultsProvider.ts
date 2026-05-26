@@ -258,6 +258,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
             
             this.updateHtml();
+        } else { // rozwiązuje brak przełączenia na zakładkę SQL, jeśli wcześniej było przełączone np. na zakładkę "terminal"
+            this.show({ preserveFocus: true });
         }
         
         const { rows, headers, queryTime, success, errorMessage } = await executeQuery(sql);
