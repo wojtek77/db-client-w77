@@ -21,6 +21,9 @@ export async function startExtension(context: vscode.ExtensionContext) {
 export async function stopExtension() {
     console.log('STOP_EXTENSION');
     
+    // zamknięcie panelu na dole
+    await vscode.commands.executeCommand('workbench.action.closePanel');
+    
     // ⭐ UKRYJ ZAKŁADKĘ
     await vscode.commands.executeCommand('setContext', 'dbClientActive', false);
     extensionRunning = false;
