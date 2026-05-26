@@ -133,8 +133,8 @@ export class RecentSqlFiles {
                 
                 return {
                     // label: `${orderNumber}. ${fileName} (${connectionName})`, // To co widzi użytkownik
-                    label: `${fileName} (${orderNumber})`, // To co widzi użytkownik
-                    // description: filePath,                     // Opcjonalnie: podgląd pełnej ścieżki na dole
+                    label: `${fileName}`, // To co widzi użytkownik
+                    description: `(${connectionName}) ${orderNumber}.`,                     // Opcjonalnie: podgląd pełnej ścieżki na dole
                     value: filePath                      // Ukryta wartość, którą chcemy wyciągnąć
                 };
             });
