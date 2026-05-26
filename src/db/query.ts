@@ -1,6 +1,6 @@
 import { ConnectionManager } from './ConnectionManager';
-import { parseSelectQuery, setGetCachedColumnsFunction } from './SqlParser';
-import { SqlUtil } from './SqlUtil';
+import { parseSelectQuery, setGetCachedColumnsFunction } from '../sql/sqlParser';
+import { SqlUtil } from '../sql/SqlUtil';
 
 // Eksportuj funkcję do ustawienia callbacku
 export { setGetCachedColumnsFunction };

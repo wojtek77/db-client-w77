@@ -1,5 +1,3 @@
-import { getCachedColumns } from '../extension';
-
 export interface ParsedQuery {
     columns: string[];      // Lista kolumn do wyświetlenia
     tables: string[];       // Lista użytych tabel

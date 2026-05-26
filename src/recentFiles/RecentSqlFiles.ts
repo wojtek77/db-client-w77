@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
-import { ConnectionManager } from './ConnectionManager';
+import { ConnectionManager } from '../db/ConnectionManager';
 import * as path from 'path';
 
-export class SqlFile {
+export class RecentSqlFiles {
     
-    private static instance: SqlFile;
+    private static instance: RecentSqlFiles;
     private static readonly STORAGE_KEY = 'sqlFiles';
     
     private sqlFiles = new Map<string, string>(); // klucz *.sql, wartość nazwa połączenia
@@ -12,27 +12,27 @@ export class SqlFile {
     private persistPromise: Promise<void> | null = null;
     
     
-    public static getInstance(context?: vscode.ExtensionContext): SqlFile {
+    public static getInstance(context?: vscode.ExtensionContext): RecentSqlFiles {
         if (!this.instance) {
             if (!context) {
                 throw new Error('SqlFile not initialized');
             }
-            this.instance = new SqlFile(context);
+            this.instance = new RecentSqlFiles(context);
         }
         return this.instance;
     }
     
     private constructor(private context: vscode.ExtensionContext) {}
     
-    public sqlFilesRestore(): void {
+    public restore(): void {
         const saved = this.context.globalState.get<[string, string][]>(
-            SqlFile.STORAGE_KEY,
+            RecentSqlFiles.STORAGE_KEY,
             []
         );
         this.sqlFiles = new Map(saved);
     }
     
-    public async sqlFilesPersist(): Promise<void> {
+    public async persist(): Promise<void> {
 
         if (this.persistPromise) {
             return this.persistPromise;
@@ -40,7 +40,7 @@ export class SqlFile {
 
         this.persistPromise = (async () => {
             await this.context.globalState.update(
-                SqlFile.STORAGE_KEY,
+                RecentSqlFiles.STORAGE_KEY,
                 Array.from(this.sqlFiles.entries())
             );
         })().finally((): void => {
@@ -63,7 +63,7 @@ export class SqlFile {
         // trzeba sprawdzić, czy "connectionName" jest aktualne
         if (connectionName && !configs[connectionName]) {
             this.delete(sqlFile);
-            void this.sqlFilesPersist();
+            void this.persist();
             vscode.window.showWarningMessage(`Delete "${connectionName}" from list of SQL files`);
             connectionName = undefined;
         }
@@ -79,7 +79,7 @@ export class SqlFile {
                 throw new Error("No DB connection selected");
             }
             this.set(sqlFile, connectionName);
-            void this.sqlFilesPersist();
+            void this.persist();
         } else {
             if (sqlFile !== this.lastSqlFile) { // trzeba przesunąć plik na koniec listy
                 this.moveToEnd(sqlFile, connectionName);
@@ -98,7 +98,7 @@ export class SqlFile {
     
     public async openRecentFiles() {
     
-        const sqlFiles = SqlFile.getInstance().getSqlFiles();
+        const sqlFiles = RecentSqlFiles.getInstance().getSqlFiles();
         
         // zbierz ścieżki wszystkich otwartych dokumentów w edytorze
         const openFilePaths = new Set<string>();

@@ -2,7 +2,7 @@ import { Connection } from './Connection';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { SqlFile } from './SqlFile';
+import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles';
 
 export class ConnectionManager {
     
@@ -25,7 +25,7 @@ export class ConnectionManager {
     }
 
     public async getDb() {
-        const connectionName = await SqlFile.getInstance().getConnectionName();
+        const connectionName = await RecentSqlFiles.getInstance().getConnectionName();
         if (!this.connections[connectionName]) {
             const path = this.configs[connectionName];
             const connection = await Connection.create(path);

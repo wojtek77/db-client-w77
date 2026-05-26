@@ -4,9 +4,33 @@ import { executeQuery } from '../db/query';
 import { ConnectionManager } from '../db/ConnectionManager';
 import * as path from 'path';
 import * as os from 'os';
-import { SqlFile } from '../db/SqlFile';
+import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles';
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
+    private static instance: SqlResultsProvider;
+    
+    static initialize(
+        context: vscode.ExtensionContext
+    ) {
+        if (!SqlResultsProvider.instance) {
+            SqlResultsProvider.instance =
+                new SqlResultsProvider(context);
+        }
+
+        return SqlResultsProvider.instance;
+    }
+
+    static getInstance() {
+        if (!SqlResultsProvider.instance) {
+            throw new Error(
+                "SqlResultsProvider not initialized"
+            );
+        }
+
+        return SqlResultsProvider.instance;
+    }
+    
+    
     private _view?: vscode.WebviewView;
     private _connectionName: string = '';
     private _connectionTime: string = '0';
@@ -21,7 +45,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _context?: vscode.ExtensionContext;
     private _resolveView?: (value: boolean) => void;
 
-    constructor(context: vscode.ExtensionContext) {
+    private constructor(context: vscode.ExtensionContext) {
         console.log('construct');
         this._extensionPath = context.extensionPath;
         this._context = context;
@@ -277,7 +301,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     
     private async changeConnection() {
 
-        const connectionName = await SqlFile.getInstance().changeConnectionName();
+        const connectionName = await RecentSqlFiles.getInstance().changeConnectionName();
 
         // utworzenia nowego połączenia z bozą aby uzyskać czas łaczenia
         const db = await ConnectionManager.getInstance().getDb();
@@ -301,7 +325,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     
     private async openRecentFiles() {
 
-        await SqlFile.getInstance().openRecentFiles();
+        await RecentSqlFiles.getInstance().openRecentFiles();
     }
     
     private async exportToCSV() {
