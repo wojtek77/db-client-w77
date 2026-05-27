@@ -262,6 +262,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             this.show({ preserveFocus: true });
         }
         
+        // wysłanie info o tym że dane się łądują (blur)
+        this._view.webview.postMessage({ 
+            command: 'loadingDB'
+        });
+        
         const { rows, headers, queryTime, success, errorMessage } = await executeQuery(sql);
         
         if (!success) {
@@ -272,11 +277,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         
         const db = await ConnectionManager.getInstance().getDb();
         
-        // wysłanie info o tym że dane się łądują (spinner)
-        this._view.webview.postMessage({ 
-            command: 'loadingData'
-        });
-        
         this._allRows = rows;
         this._headers = headers;
         this._lastSQL = sql;
@@ -285,6 +285,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._connectionTime = db.getConnectionTime();
         this._lastQueryTime = queryTime;
         this._currentPage = 1;
+        
+        // wysłanie info o tym że dane się łądują (blur)
+        this._view.webview.postMessage({ 
+            command: 'loadingWebview'
+        });
         
         this.sendPage(1);
     }

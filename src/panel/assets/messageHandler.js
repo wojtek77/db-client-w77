@@ -9,16 +9,27 @@ window.addEventListener('message', event => {
     const errorDisplay = document.getElementById('errorDisplay');
     const gridContainer = document.getElementById('gridContainer');
 
-    function stopSpinner() {
-        if (loadingOverlay) loadingOverlay.style.display = 'none';
-    }
     function stopError() {
         if (errorDisplay) errorDisplay.style.display = 'none';
     }
-    
-    if (msg.command === 'loadingData') {
-        // spinner
+    function startBlur() {
+        if (gridContainer) gridContainer.classList.add('loading-blur');
+    }
+    function stopBlur() {
+        if (gridContainer) gridContainer.classList.remove('loading-blur');
+    }
+    function startSpinner() {
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
+    }
+    function stopSpinner() {
+        if (loadingOverlay) loadingOverlay.style.display = 'none';
+    }
+    
+    if (msg.command === 'loadingDB') {
+        startBlur();
+    }
+    if (msg.command === 'loadingWebview') {
+        startSpinner();
     }
 
     if (msg.command === 'appendData') {
@@ -29,7 +40,6 @@ window.addEventListener('message', event => {
         console.log(`🚀 Czas podróży przez postMessage: ${duration} ms`);
         
         stopError();
-        stopSpinner();
         if (gridContainer) gridContainer.style.display = 'flex';
         
         // ustawienie połączenia z DB i czasów
@@ -90,6 +100,9 @@ window.addEventListener('message', event => {
         if (msg.isLast) {
             // ew. logika na koniec
         }
+        
+        stopSpinner();
+        stopBlur();
         
         console.log("--- KONIEC PRZETWARZANIA WEBVIEW ---");
     }
