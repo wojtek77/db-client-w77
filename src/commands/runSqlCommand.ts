@@ -16,10 +16,9 @@ export async function runSQLCommand() {
     // }
     
     const fullText = editor.document.getText();
-    const cursorPosition = editor.selection.active;
-    const offset = editor.document.offsetAt(cursorPosition);
-    
-    let sql = findCurrentQuery(fullText, offset);
+    const currentLine = editor.selection.active.line; // Bezpośredni numer linii z VS Code
+
+    let sql = findCurrentQuery(fullText, currentLine);
     
     if (!sql || sql.trim() === '') {
         vscode.window.showWarningMessage('Nie znaleziono zapytania SQL pod kursorem');
