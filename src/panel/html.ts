@@ -40,22 +40,22 @@ export function getHtml(
 
     <div class="stats">
         <span id="connectionName" title="click to change DB connection">-------</span>
-        🔌
+        ⏱
         <span id="connectionTime">---</span> ms
-        | ⚡
+        | ⏱
         <span id="queryTime">---</span> ms
     </div>
 
     <button onclick="openRecentFiles()">
-        Recent files
+        📚 Recent files
     </button>
     
     <button onclick="exportToCSV()">
-        💾 Eksportuj CSV
+        📊 Export CSV
     </button>
     
     <button onclick="exportToTXT()">
-        📄 Eksportuj TXT
+        📊 Export TXT
     </button>
 
     <div class="pagination">
