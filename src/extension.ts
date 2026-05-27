@@ -25,9 +25,9 @@ export async function activate(context: vscode.ExtensionContext) {
         e => e.document.languageId === 'sql'
     ).length;
 
-    if (previousSqlEditors > 0) {
+    // if (previousSqlEditors > 0) {
         await startExtension(context);
-    }
+    // }
 
     context.subscriptions.push(
         vscode.window.onDidChangeVisibleTextEditors(async (editors) => {
