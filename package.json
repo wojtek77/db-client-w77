@@ -3,7 +3,7 @@
   "displayName": "db-client-w77",
   "description": "DB client",
   "version": "0.0.1",
-  "icon": "git.png",
+  "icon": "DB-client.png",
   "engines": {
     "vscode": "^1.118.0"
   },
@@ -26,7 +26,7 @@
     "views": {
       "sqlResults": [
         {
-          "icon": "git.png",
+          "icon": "DB-client.png",
           "type": "webview",
           "id": "sqlResultsView",
           "name": "Wyniki SQL",
