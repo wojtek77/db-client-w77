@@ -62,56 +62,70 @@ function renderHeaders() {
     headerContainer.replaceChildren(fragment);
 }
 
-function renderPage() {
-    console.log('renderPage');
-    
-    const pageRows = window.state.currentRows;
-    const headers = window.state.headers;
-    const currentPage = window.state.currentPage;
-    const ROWS_PER_PAGE = window.state.ROWS_PER_PAGE;
-    
+window.cachedGrid = null;
+
+function initializeGrid() {
     const gridBody = document.getElementById('gridBody');
+
+    // 🚀 usuń stare wiersze
+    gridBody.replaceChildren();
+
+    const headers = window.state.headers;
+    const rowCount = window.state.currentRows.length;
+    const headerCount = headers.length;
+
+    const rows = [];
     
-    if (!pageRows || pageRows.length === 0) {
-        gridBody.innerHTML = '';
-        return;
-    }
-
-    const baseIndex = (currentPage - 1) * ROWS_PER_PAGE;
-    const fragment = document.createDocumentFragment();
-
-    for (let i = 0; i < pageRows.length; i++) {
-        const row = pageRows[i];
-        const globalRowIndex = baseIndex + i;
-        const rowNum = globalRowIndex + 1;
-
+    // const fragment = document.createDocumentFragment();
+    for (let i = 0; i < rowCount; ++i) {
         const rowDiv = document.createElement('div');
         rowDiv.className = 'grid-row';
-        rowDiv.dataset.rowIndex = globalRowIndex;
 
-        // Komórka LP
-        const lpCell = document.createElement('div');
-        lpCell.className = 'grid-cell lp-cell';
-        lpCell.style.fontWeight = 'bold';
-        lpCell.textContent = String(rowNum);
-        rowDiv.appendChild(lpCell);
+        const cells = [];
 
-        // Komórki z danymi
-        for (let j = 0; j < headers.length; j++) {
-            const value = row[j];
-            const displayValue = (value === null || value === undefined) ? '' : String(value);
-
-            const cellDiv = document.createElement('div');
-            cellDiv.className = 'grid-cell';
-            cellDiv.dataset.row = globalRowIndex;
-            cellDiv.dataset.col = j;
-            cellDiv.dataset.column = headers[j];
-            cellDiv.textContent = displayValue;
-            rowDiv.appendChild(cellDiv);
+        // pierwsza komórka LP (inne style)
+        const cell = document.createElement('div');
+        cell.className = 'grid-cell lp-cell';
+        cell.textContent = i + 1;
+        rowDiv.appendChild(cell);
+        cells.push(cell);
+        // pozostałe komórki z danymi
+        for (let j = 0; j < headerCount; ++j) {
+            const cell = document.createElement('div');
+            cell.className = 'grid-cell';
+            cell._index = {row: i, col: j};
+            // cell._row = i;
+            // cell._col = j;
+            rowDiv.appendChild(cell);
+            cells.push(cell);
         }
 
-        fragment.appendChild(rowDiv);
+        // fragment.appendChild(rowDiv);
+        gridBody.appendChild(rowDiv)
+        rows.push(cells);
     }
+    // gridBody.appendChild(fragment);
 
-    gridBody.replaceChildren(fragment);
+    window.cachedGrid = rows;
+}
+
+function renderPage(data) {
+    const headers = window.state.headers;
+    const rows = window.cachedGrid;
+    const dataCount = data.length;
+    const headerCount = headers.length;
+
+    for (let i = 0; i < dataCount; ++i) {
+        const rowData = data[i];
+        const rowCells = rows[i];
+
+        for (let j = 0; j < headerCount; ++j) {
+            const value = rowData[j] ?? '';
+            const cell = rowCells[j + 1];
+
+            if (cell.textContent !== value) {
+                cell.textContent = value;
+            }
+        }
+    }
 }

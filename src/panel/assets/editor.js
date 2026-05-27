@@ -15,8 +15,8 @@ function registerEvents(vscode) {
             // Blokujemy nagłówki, LP oraz sytuację gdy input już istnieje
             if (!cell || cell.classList.contains('lp-cell') || cell.querySelector('input')) return;
 
-            const rowIndex = cell.dataset.row;
-            const colIndex = cell.dataset.col;
+            const rowIndex = cell._index.row;
+            const colIndex = cell._index.col;
             const oldValue = cell.textContent;
 
             const input = document.createElement('input');
@@ -43,8 +43,8 @@ function registerEvents(vscode) {
                 // Wysyłamy dokładnie to, co odbiera: msg.rowIndex, msg.columnIndex, msg.value
                 vscode.postMessage({
                     command: 'updateCell',
-                    rowIndex: parseInt(rowIndex),
-                    columnIndex: parseInt(colIndex),
+                    rowIndex: rowIndex,
+                    columnIndex: colIndex,
                     value: newValue
                 });
             }
@@ -93,7 +93,7 @@ function registerEvents(vscode) {
                 targetRow.classList.add('selected-row');
                 
                 // Log pomocniczy (możesz go usunąć)
-                console.log(`Zaznaczono wiersz o indeksie globalnym: ${targetRow.dataset.rowIndex}`);
+                // console.log(`Zaznaczono wiersz o indeksie globalnym: ${targetRow.dataset.rowIndex}`);
             });
         }
     });

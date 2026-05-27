@@ -66,9 +66,19 @@ window.addEventListener('message', event => {
         }
         console.timeEnd("⏱️ Czas renderHeaders");
         
+        const shape = `${window.state.currentRows.length}x${window.state.headers.length}`;
+        
+        if (window.gridShape !== shape) {
+            console.time("⏱️ Czas initializeGrid");
+            initializeGrid();
+            console.timeEnd("⏱️ Czas initializeGrid");
+            
+            window.gridShape = shape;
+        }
+        
         // 🚀 KROK 3: Renderowanie (Najpierw wiersze, potem inteligentne nagłówki)
         console.time("⏱️ Czas renderPage");
-        renderPage();
+        renderPage(window.state.currentRows);
         console.timeEnd("⏱️ Czas renderPage");
         
         // Aktualizuj przyciski paginacji
