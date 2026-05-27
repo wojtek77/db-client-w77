@@ -248,7 +248,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         // czasami widok może nie istnieć, np. przy pierwszym uruchomieniu SQL lub kiedy plik .sql został zamknięty
         if (!this._view) {
             // to tworzy this._view 
-            this.show({ preserveFocus: true });
+            await this.show({ preserveFocus: true });
             
             // czekamy asynchronicznie, aż VS Code stworzy widok
             await this.waitForView();
@@ -259,7 +259,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             
             this.updateHtml();
         } else { // rozwiązuje brak przełączenia na zakładkę SQL, jeśli wcześniej było przełączone np. na zakładkę "terminal"
-            this.show({ preserveFocus: true });
+            await this.show({ preserveFocus: true });
         }
         
         // wysłanie info o tym że dane się łądują (blur)
@@ -294,7 +294,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this.sendPage(1);
     }
 
-    private show(options?: { preserveFocus?: boolean }) {
+    private async show(options?: { preserveFocus?: boolean }) {
         const preserveFocus = options?.preserveFocus ?? true;
         
         if (this._view) {
@@ -302,7 +302,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // Przekazanie true oznacza: ZACHOWAJ FOKUS W EDYTORZE (nie kradnij go).
             this._view.show?.(preserveFocus); 
         } else {
-            vscode.commands.executeCommand('sqlResultsView.focus', { preserveFocus: preserveFocus });
+            await vscode.commands.executeCommand('sqlResultsView.focus', { preserveFocus: preserveFocus });
         }
     }
     
