@@ -14,12 +14,6 @@ window.addEventListener('message', event => {
     function stopError() {
         if (errorDisplay) errorDisplay.style.display = 'none';
     }
-    function startBlur() {
-        if (gridContainer) gridContainer.classList.add('loading-blur');
-    }
-    function stopBlur() {
-        if (gridContainer) gridContainer.classList.remove('loading-blur');
-    }
     function startSpinner() {
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
     }
@@ -28,16 +22,11 @@ window.addEventListener('message', event => {
     }
     
     if (msg.command === 'loadingDB') {
-        // startBlur();
         startSpinner();
         spinner.style.borderTopColor = '#ffb937';
     }
     if (msg.command === 'loadingWebview') {
-        // startBlur();
-        // startSpinner();
         spinner.style.borderTopColor = '#3794ff';
-        // spinner.style.borderTopColor = 'blue';
-        // loadingText.innerText = 'renderowanie tabeli';
     }
 
     if (msg.command === 'appendData') {
@@ -110,7 +99,6 @@ window.addEventListener('message', event => {
         }
         
         stopSpinner();
-        stopBlur();
         
         console.log("--- KONIEC PRZETWARZANIA WEBVIEW ---");
     }

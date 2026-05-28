@@ -87,15 +87,15 @@ export function getHtml(
 
 </div>
 
-<div id="loadingOverlay" class="loading-overlay">
-    <div class="spinner"></div>
-    <div class="loading-text">Loading data...</div>
-</div>
-
 <!-- komunikat o błędach -->
 <p id="errorDisplay" class="error-message"></p>
 
 <div id="gridContainer" class="grid-container">
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading data...</div>
+    </div>
+
     <!-- nagłówki -->
     <div id="gridHeader" class="grid-header"></div>
     
