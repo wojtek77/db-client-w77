@@ -1,87 +1,109 @@
 import * as fs from 'fs';
-import * as ini from 'ini';
 import * as os from 'os';
+import * as path from 'path';
 
 export class CnfLoader {
 
     public static async getOptionsFromCnf(filePath: string): Promise<any> {
-
-        const absolutePath = filePath.replace(/^~($|\/|\\)/, `${os.homedir()}$1`);
-        
-        if (!fs.existsSync(absolutePath)) return null;
-    
-        const fileContent = fs.readFileSync(absolutePath, 'utf-8');
-        const lines = fileContent.split(/\r?\n/);
-    
-        let rawConfig: any = { client: {}, mysql: {}, mariadb: {} };
-    
-        for (const line of lines) {
-            const trimmed = line.trim();
-    
-            if (trimmed.startsWith('!include ')) {
-                const includePath = trimmed.replace('!include ', '').trim();
-    
-                const includedRaw = await this.getRawSections(includePath);
-    
-                if (includedRaw) {
-                    rawConfig.client = { ...rawConfig.client, ...includedRaw.client };
-                    rawConfig.mysql = { ...rawConfig.mysql, ...includedRaw.mysql };
-                    rawConfig.mariadb = { ...rawConfig.mariadb, ...includedRaw.mariadb };
-                }
-            }
-        }
-    
-        const parsedIni = ini.parse(fileContent);
-    
-        const mergedClient = {
-            ...rawConfig.mysql,
-            ...rawConfig.mariadb,
-            ...rawConfig.client,
-            ...(parsedIni.mysql || {}),
-            ...(parsedIni.mariadb || {}),
-            ...(parsedIni.client || {})
-        };
-    
-        const options: any = {};
-    
-        if (mergedClient.socket) options.socketPath = mergedClient.socket;
-        if (mergedClient.host) options.host = mergedClient.host;
-        if (mergedClient.user) options.user = mergedClient.user;
-        if (mergedClient.password) options.password = mergedClient.password;
-        if (mergedClient.database) options.database = mergedClient.database;
-        if (mergedClient.port) options.port = parseInt(mergedClient.port);
-    
-        if (mergedClient.hasOwnProperty('skip-ssl')) {
-            options.ssl = !(mergedClient['skip-ssl'] === true || mergedClient['skip-ssl'] === 'true');
-        }
-    
-        if (mergedClient.hasOwnProperty('compress')) {
-            options.compress = (mergedClient.compress === true || mergedClient.compress === 'true');
-        }
-    
-        if (mergedClient.hasOwnProperty('reconnect')) {
-            options.reconnect = (mergedClient.reconnect === true || mergedClient.reconnect === 'true');
-        }
-    
-        return options;
+        const cnfArr = await this._optionsFromCnfRef(filePath);
+        const cnf = Object.fromEntries(cnfArr);
+        return cnf;
     }
 
-    private static async getRawSections(filePath: string): Promise<any> {
-
+    private static async _optionsFromCnfRef(filePath: string): Promise<[string, string | boolean][]> {
+        // 1. Rozwinięcie ścieżki tyldy (~) do katalogu domowego użytkownika
         const absolutePath = filePath.replace(/^~($|\/|\\)/, `${os.homedir()}$1`);
         
         if (!fs.existsSync(absolutePath)) {
-            return null;
+            return [];
         }
-    
-        const parsed = ini.parse(
-            fs.readFileSync(absolutePath, 'utf-8')
-        );
-    
-        return {
-            client: parsed.client || {},
-            mysql: parsed.mysql || {},
-            mariadb: parsed.mariadb || {}
-        };
+
+        const fileContent = fs.readFileSync(absolutePath, 'utf-8');
+        const lines = fileContent.split(/\r?\n/);
+        
+        const options: [string, any][] = [];
+        let inClientSection = false;
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+
+            // Pomijanie pustych linii i komentarzy
+            if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';')) {
+                continue;
+            }
+
+            // 4. Obsługa rekurencyjnego !include (działa niezależnie od sekcji)
+            if (trimmed.startsWith('!include ')) {
+                let includePath = trimmed.replace('!include ', '').trim();
+                
+                // Jeśli ścieżka w !include jest względna, liczona jest od katalogu bieżącego pliku cnf
+                if (!includePath.startsWith('~') && !path.isAbsolute(includePath)) {
+                    includePath = path.join(path.dirname(absolutePath), includePath);
+                }
+
+                // Rekurencyjne wywołanie tej samej funkcji i scalenie wyników do listy
+                const includedOptions = await this._optionsFromCnfRef(includePath);
+                options.push(...includedOptions);
+                continue;
+            }
+
+            // 2. Wykrywanie sekcji - interesuje nas tylko [client]
+            if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+                const sectionName = trimmed.slice(1, -1).trim();
+                inClientSection = (sectionName === 'client');
+                continue;
+            }
+
+            // 3. Przetwarzanie parametrów wewnątrz sekcji [client]
+            if (inClientSection) {
+                // Podział na klucz i wartość przy pierwszym znaku "="
+                const eqIndex = trimmed.indexOf('=');
+                let key, value;
+                if (eqIndex !== -1) { // to co ma znak równości w linii
+                    key = trimmed.substring(0, eqIndex).trim();
+                    value = trimmed.substring(eqIndex + 1).trim();
+                    // Usuwanie cudzysłowów otaczających wartość, jeśli istnieją
+                    value = value.replace(/^["']|["']$/g, '');
+                    
+                    // zmiana wartości
+                    const valueLower = value.toLowerCase();
+                    if (valueLower === 'true') {
+                        value = true;
+                    } else if (valueLower === 'false') {
+                        value = false;
+                    } else if (!isNaN(Number(value)) && value !== '') {
+                        // Automatyczna konwersja portów i limitów na typ number
+                        value = Number(value);
+                    }
+                } else {
+                    // obsługa jeśli nie ma znaku "="
+                    key = trimmed;
+                    value = '';
+                }
+                
+                // zamiana kluczy
+                switch (key) {
+                    case 'skip-ssl':
+                        key = 'ssl';
+                        value = (value === true || value === '') ? false : true;
+                        break;
+                    
+                    case 'compress':
+                    case 'reconnect':
+                        if (value === '') {
+                            value = false;
+                        }
+                        break;
+                    
+                    case 'socket':
+                        key = 'socketPath';
+                        break;
+                }
+                
+                options.push([key, value]);
+            }
+        }
+
+        return options;
     }
 }
