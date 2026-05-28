@@ -8,6 +8,8 @@ window.addEventListener('message', event => {
     const loadingOverlay = document.getElementById('loadingOverlay');
     const errorDisplay = document.getElementById('errorDisplay');
     const gridContainer = document.getElementById('gridContainer');
+    const spinner = document.querySelector('.spinner');
+    const loadingText = document.querySelector('.loading-text');
 
     function stopError() {
         if (errorDisplay) errorDisplay.style.display = 'none';
@@ -26,10 +28,16 @@ window.addEventListener('message', event => {
     }
     
     if (msg.command === 'loadingDB') {
-        startBlur();
+        // startBlur();
+        startSpinner();
+        spinner.style.borderTopColor = '#ffb937';
     }
     if (msg.command === 'loadingWebview') {
-        startSpinner();
+        // startBlur();
+        // startSpinner();
+        spinner.style.borderTopColor = '#3794ff';
+        // spinner.style.borderTopColor = 'blue';
+        // loadingText.innerText = 'renderowanie tabeli';
     }
 
     if (msg.command === 'appendData') {
