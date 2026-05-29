@@ -14,28 +14,39 @@ export async function executeQuery(sql: string) {
     let headers: string[] = [];
     
     try {
-        // 1. Parsuj SQL, aby poznać kolumny
-        const parsed = await parseSelectQuery(sql);
-        
+        // wcześniej SQL był TRIM
         sql = SqlUtil.appendLimit(sql);
-        
-        // 2. Wykonaj zapytanie (rowsAsArray = true)
         const conn = db.getConnection();
-        const startQuery = performance.now();
-        rows = await conn.query({ sql, rowsAsArray: true });
-        const endQuery = performance.now();
-        queryTime = (endQuery - startQuery).toFixed(2);
         
-        // 3. Ustal nagłówki (z parsera lub z cache)
-        if (parsed.columns.length > 0) {
-            headers = parsed.columns;
-        } else {
-            // Fallback: jeśli parser nie dał rady, użyj numerów kolumn
-            if (rows.length > 0) {
-                headers = rows[0].map((_: any, index: number) => `col_${index + 1}`);
-                
+        const startQuery = performance.now();
+        
+        if (SqlUtil.isSelect(sql)) { // zapytanie SELECT, tu nie są pobierane nagłówki z DB
+            rows = await conn.query({ sql, rowsAsArray: true });
+            const parsed = await parseSelectQuery(sql);
+            if (parsed.columns.length > 0) {
+                headers = parsed.columns;
+            } else {
+                // Fallback: jeśli parser nie dał rady, użyj numerów kolumn
+                if (rows.length > 0) {
+                    headers = rows[0].map((_: any, index: number) => `col_${index + 1}`);
+                    
+                }
+            }    
+        } else { // inne niż SELECT, tu są pobierane nagłówki z DB
+            const result = await conn.query(sql);
+            if (Array.isArray(result) && result.length > 0) {
+                // headers
+                headers = Object.keys(result[0]);
+                // rows bez nagłówków
+                rows = result.map((row: any) => Object.values(row));
+            } else {
+                headers = [];
+                rows = [];
             }
         }
+        
+        const endQuery = performance.now();
+        queryTime = (endQuery - startQuery).toFixed(2);
         
         success = true;
     } catch (err: any) {
