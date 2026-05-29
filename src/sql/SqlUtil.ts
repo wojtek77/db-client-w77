@@ -6,13 +6,7 @@ export class SqlUtil {
     ): string {
         const needsLimit = this.hasNoLimit(sql);
         if (needsLimit) {
-            let cleanSql = sql
-                .replace(/--[^--]*$/, '')           // końcowy -- komentarz
-                .replace(/\/\*[\s\S]*?\*\/$/, '')   // końcowy /* */ komentarz (wielolinijkowy)
-                .replace(/;$/, '')                  // usuń średnik
-                .trimEnd();
-            
-            return cleanSql + ` LIMIT ${limit}`;
+            return sql + `\nLIMIT ${limit}`;
         }
         return sql;
     }
