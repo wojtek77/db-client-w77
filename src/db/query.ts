@@ -1,5 +1,5 @@
 import { ConnectionManager } from './ConnectionManager';
-import { parseSelectQuery, setGetCachedColumnsFunction } from '../sql/sqlParser';
+import { setGetCachedColumnsFunction } from '../sql/sqlParser';
 import { SqlUtil } from '../sql/SqlUtil';
 
 // Eksportuj funkcję do ustawienia callbacku
@@ -12,38 +12,17 @@ export async function executeQuery(sql: string) {
     let success = false;
     let errorMessage = '';
     let headers: string[] = [];
+    let meta: any;
     
     try {
-        // wcześniej SQL był TRIM
+        // wcześniej na SQL był TRIM
         sql = SqlUtil.appendLimit(sql);
         const conn = db.getConnection();
         
         const startQuery = performance.now();
         
-        if (SqlUtil.isSelect(sql)) { // zapytanie SELECT, tu nie są pobierane nagłówki z DB
-            rows = await conn.query({ sql, rowsAsArray: true });
-            const parsed = await parseSelectQuery(sql);
-            if (parsed.columns.length > 0) {
-                headers = parsed.columns;
-            } else {
-                // Fallback: jeśli parser nie dał rady, użyj numerów kolumn
-                if (rows.length > 0) {
-                    headers = rows[0].map((_: any, index: number) => `col_${index + 1}`);
-                    
-                }
-            }    
-        } else { // inne niż SELECT, tu są pobierane nagłówki z DB
-            const result = await conn.query(sql);
-            if (Array.isArray(result) && result.length > 0) {
-                // headers
-                headers = Object.keys(result[0]);
-                // rows bez nagłówków
-                rows = result.map((row: any) => Object.values(row));
-            } else {
-                headers = [];
-                rows = [];
-            }
-        }
+        [rows, meta] = await conn.query({ sql, rowsAsArray: true, metaAsArray: true });
+        headers = meta.map((field: any) => field.name());
         
         const endQuery = performance.now();
         queryTime = (endQuery - startQuery).toFixed(2);
