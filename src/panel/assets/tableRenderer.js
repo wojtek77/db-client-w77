@@ -120,7 +120,7 @@ function renderPage(data) {
         const rowCells = rows[i];
 
         for (let j = 0; j < headerCount; ++j) {
-            const value = rowData[j] ?? '';
+            const value = rowData[j] ?? 'NULL';
             const cell = rowCells[j + 1];
 
             if (cell.textContent !== value) {

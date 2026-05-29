@@ -26,10 +26,6 @@ function formatDateTime(date: Date): string {
 }
 
 function formatValueByMeta(value: any, field: any): any {
-    if (value == null) {
-        return value;
-    }
-
     if (!(value instanceof Date)) {
         return value;
     }

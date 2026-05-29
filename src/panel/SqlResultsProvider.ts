@@ -237,6 +237,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 WHERE ${whereParts.join(' AND ')}
             `;
 
+            // obsługa NULL (można wpisywać tak: null, NULL)
+            if (typeof value === 'string' && value.trim().toUpperCase() === 'NULL') {
+                value = null;
+            }
+            
             await conn.query(updateSQL, [value, ...whereValues]);
 
             this._allRows[rowIndex][columnIndex] = value;
