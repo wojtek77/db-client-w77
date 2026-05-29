@@ -33,7 +33,7 @@ export async function executeQuery(sql: string) {
         errorMessage = err.message;
     }
     
-    return { rows, headers, queryTime, success, errorMessage };
+    return { rows, headers, meta, queryTime, success, errorMessage };
 }
 
 export async function getTableColumns(tableName: string): Promise<{ 

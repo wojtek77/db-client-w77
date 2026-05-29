@@ -5,6 +5,7 @@ import { ConnectionManager } from '../db/ConnectionManager';
 import * as path from 'path';
 import * as os from 'os';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles';
+import { getCachedColumns } from '../cache/tableColumnsCache';
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private static instance: SqlResultsProvider;
@@ -38,7 +39,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _allRows: any[][] = [];
     private _headers: string[] = [];
     private _lastQueryTime = '0';
-    private _lastTableName = '';
+    private _meta: any[] = [];
     private _lastSQL = '';
     private _currentPage = 1;
     private readonly ROWS_PER_PAGE = 200;
@@ -172,60 +173,86 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         // console.timeEnd("⏱️ Całkowity czas Backend");
     }
 
-    private extractTableName(sql: string): string {
-        const match = sql.match(/from\s+[`"]?(\w+)[`"]?/i);
-        if (match && match[1]) {
-            return match[1];
-        }
-        const match2 = sql.match(/from\s+[`"]?\w+[`"]?\.([`"]?\w+[`"]?)/i);
-        if (match2 && match2[1]) {
-            return match2[1].replace(/[`"]/g, '');
-        }
-        return '';
-    }
-
     private async updateCellInDB(rowIndex: number, columnIndex: number, value: any) {
         try {
             const db = await ConnectionManager.getInstance().getDb();
             const conn = db.getConnection();
-            
-            if (!this._lastTableName) {
-                vscode.window.showErrorMessage('Nie można określić nazwy tabeli z zapytania SQL');
+
+            const row = this._allRows[rowIndex];
+
+            if (!row) {
+                vscode.window.showErrorMessage(`Nie znaleziono wiersza ${rowIndex}`);
                 return;
             }
-            
-            // Sprawdź czy rowIndex jest prawidłowy
-            if (!this._allRows[rowIndex]) {
-                console.error(`Nie znaleziono wiersza o indeksie ${rowIndex}`);
-                vscode.window.showErrorMessage(`Nie znaleziono wiersza o indeksie ${rowIndex}`);
+
+            const field = this._meta[columnIndex];
+
+            if (!field) {
+                vscode.window.showErrorMessage(`Nie znaleziono metadanych kolumny ${columnIndex}`);
                 return;
             }
-            
-            // Znajdź ID w pierwszej kolumnie
-            const id = this._allRows[rowIndex][0];
-            
-            
-            const columnName = this._headers[columnIndex];
-            
-            
-            const updateSQL = `UPDATE ${this._lastTableName} SET ${columnName} = ? WHERE id = ?`;
-            
-            
-            await conn.query(updateSQL, [value, id]);
-            
-            // Aktualizuj dane w pamięci
+
+            const tableName = field.orgTable?.();
+            const columnName = field.orgName?.();
+
+            if (!tableName || !columnName) {
+                vscode.window.showErrorMessage('Nie można określić źródłowej tabeli lub kolumny');
+                return;
+            }
+
+            const tableColumns = await getCachedColumns(tableName);
+
+            const primaryKeys = tableColumns.filter((c: any) => c.columnKey === 'PRI');
+
+            if (primaryKeys.length === 0) {
+                vscode.window.showErrorMessage(`Tabela ${tableName} nie posiada PRIMARY KEY`);
+                return;
+            }
+
+            const whereParts: string[] = [];
+            const whereValues: any[] = [];
+
+            for (const pk of primaryKeys) {
+                const pkIndex = this._meta.findIndex((m: any) => {
+                    return (
+                        m.orgTable?.() === tableName &&
+                        m.orgName?.() === pk.name
+                    );
+                });
+
+                if (pkIndex === -1) {
+                    vscode.window.showErrorMessage(
+                        `Brak PRIMARY KEY '${pk.name}' w wynikach SELECT`
+                    );
+                    return;
+                }
+
+                whereParts.push(`\`${pk.name}\` = ?`);
+                whereValues.push(row[pkIndex]);
+            }
+
+            const updateSQL = `
+                UPDATE \`${tableName}\`
+                SET \`${columnName}\` = ?
+                WHERE ${whereParts.join(' AND ')}
+            `;
+
+            await conn.query(updateSQL, [value, ...whereValues]);
+
             this._allRows[rowIndex][columnIndex] = value;
-            
+
             if (this._view) {
                 this._view.webview.postMessage({
                     command: 'updateConfirmed',
-                    rowIndex: rowIndex,
-                    columnIndex: columnIndex,
-                    value: value
+                    rowIndex,
+                    columnIndex,
+                    value
                 });
             }
-            
-            vscode.window.showInformationMessage(`✅ Zaktualizowano ${columnName}=${value} dla ID ${id}`);
+
+            vscode.window.showInformationMessage(
+                `✅ Zaktualizowano ${tableName}.${columnName}`
+            );
         } catch (err: any) {
             console.error('Błąd update:', err);
             vscode.window.showErrorMessage(`❌ Błąd aktualizacji: ${err.message}`);
@@ -267,7 +294,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             command: 'loadingDB'
         });
         
-        const { rows, headers, queryTime, success, errorMessage } = await executeQuery(sql);
+        const { rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(sql);
         
         if (!success) {
             // vscode.window.showErrorMessage(`Błąd zapytania: ${errorMessage}`);
@@ -280,7 +307,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._allRows = rows;
         this._headers = headers;
         this._lastSQL = sql;
-        this._lastTableName = this.extractTableName(sql);
+        this._meta = meta;
         this._connectionName = db.getConnectionName();
         this._connectionTime = db.getConnectionTime();
         this._lastQueryTime = queryTime;
