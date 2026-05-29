@@ -5,12 +5,12 @@ import * as path from 'path';
 export class CnfLoader {
 
     public static async getOptionsFromCnf(filePath: string): Promise<any> {
-        const cnfArr = await this._optionsFromCnfRef(filePath);
+        const cnfArr = await this._optionsFromCnfRec(filePath);
         const cnf = Object.fromEntries(cnfArr);
         return cnf;
     }
 
-    private static async _optionsFromCnfRef(filePath: string): Promise<[string, string | boolean][]> {
+    private static async _optionsFromCnfRec(filePath: string): Promise<[string, string | boolean][]> {
         // 1. Rozwinięcie ścieżki tyldy (~) do katalogu domowego użytkownika
         const absolutePath = filePath.replace(/^~($|\/|\\)/, `${os.homedir()}$1`);
         
@@ -42,7 +42,7 @@ export class CnfLoader {
                 }
 
                 // Rekurencyjne wywołanie tej samej funkcji i scalenie wyników do listy
-                const includedOptions = await this._optionsFromCnfRef(includePath);
+                const includedOptions = await this._optionsFromCnfRec(includePath);
                 options.push(...includedOptions);
                 continue;
             }

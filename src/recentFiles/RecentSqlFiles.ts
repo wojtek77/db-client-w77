@@ -165,7 +165,7 @@ export class RecentSqlFiles {
     }
     
     public async changeConnectionName() {
-        return this.getConnectionName(true);
+        return await this.getConnectionName(true);
     }
     
     private get(sqlFile: string) {
