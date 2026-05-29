@@ -10,7 +10,8 @@ export class SqlUtil {
     ): string {
         const needsLimit = this.hasNoLimit(sql);
         if (needsLimit) {
-            return sql + `\nLIMIT ${limit}`;
+            return sql
+                .replace(/;$/, '') + `\nLIMIT ${limit}`;
         }
         return sql;
     }
