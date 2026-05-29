@@ -5,6 +5,48 @@ import { SqlUtil } from '../sql/SqlUtil';
 // Eksportuj funkcję do ustawienia callbacku
 export { setGetCachedColumnsFunction };
 
+function pad(v: number): string {
+    return v.toString().padStart(2, '0');
+}
+
+function formatDate(date: Date): string {
+    return [
+        date.getFullYear(),
+        pad(date.getMonth() + 1),
+        pad(date.getDate())
+    ].join('-');
+}
+
+function formatDateTime(date: Date): string {
+    return `${formatDate(date)} ${[
+        pad(date.getHours()),
+        pad(date.getMinutes()),
+        pad(date.getSeconds())
+    ].join(':')}`;
+}
+
+function formatValueByMeta(value: any, field: any): any {
+    if (value == null) {
+        return value;
+    }
+
+    if (!(value instanceof Date)) {
+        return value;
+    }
+
+    switch (field?.type) {
+        case 'DATE':
+            return formatDate(value);
+
+        case 'DATETIME':
+        case 'TIMESTAMP':
+            return formatDateTime(value);
+
+        default:
+            return value;
+    }
+}
+
 export async function executeQuery(sql: string) {
     const db = await ConnectionManager.getInstance().getDb();
     let rows: any[] = [];
@@ -26,6 +68,13 @@ export async function executeQuery(sql: string) {
         
         const endQuery = performance.now();
         queryTime = (endQuery - startQuery).toFixed(2);
+        
+        // formatowanie pól
+        rows = rows.map((row: any[]) =>
+            row.map((value: any, index: number) =>
+                formatValueByMeta(value, meta[index])
+            )
+        );
         
         success = true;
     } catch (err: any) {
