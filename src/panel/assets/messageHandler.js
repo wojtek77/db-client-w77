@@ -52,7 +52,7 @@ window.addEventListener('message', event => {
         // 🚀 KROK 2: Prawidłowe parsowanie danych.
         // Jeśli w backendzie wysyłasz surową macierz, użyj: window.state.currentRows = msg.rows;
         // Jeśli w backendzie zostawiłeś rowsBuffer (Uint8Array), użyj poniższej linii z decoderem:
-        window.state.currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
+        const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
         
         // Oblicz całkowitą liczbę stron
         window.state.totalPages = Math.ceil(
@@ -69,15 +69,15 @@ window.addEventListener('message', event => {
         
         console.time("⏱️ Czas renderHeaders");
         if (window.state.headers) {
-            renderHeaders(); // Ta funkcja teraz przeskanuje window.state.currentRows
+            renderHeaders(currentRows); // Ta funkcja teraz przeskanuje window.state.currentRows
         }
         console.timeEnd("⏱️ Czas renderHeaders");
         
-        const shape = `${window.state.currentRows.length}x${window.state.headers.length}`;
+        const shape = `${currentRows.length}x${window.state.headers.length}`;
         
         if (window.gridShape !== shape) {
             console.time("⏱️ Czas initializeGrid");
-            initializeGrid();
+            initializeGrid(currentRows);
             console.timeEnd("⏱️ Czas initializeGrid");
             
             window.gridShape = shape;
@@ -85,7 +85,7 @@ window.addEventListener('message', event => {
         
         // 🚀 KROK 3: Renderowanie (Najpierw wiersze, potem inteligentne nagłówki)
         console.time("⏱️ Czas renderPage");
-        renderPage(window.state.currentRows);
+        renderPage(currentRows);
         console.timeEnd("⏱️ Czas renderPage");
         
         // Aktualizuj przyciski paginacji

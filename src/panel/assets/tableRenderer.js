@@ -1,8 +1,7 @@
-function renderHeaders() {
+function renderHeaders(pageRows) {
     console.log('renderHeaders');
     const headerContainer = document.getElementById('gridHeader');
     const headers = window.state.headers;
-    const pageRows = window.state.currentRows;
     
     if (!headers || headers.length === 0) {
         headerContainer.innerHTML = '';
@@ -64,14 +63,14 @@ function renderHeaders() {
 
 window.cachedGrid = null;
 
-function initializeGrid() {
+function initializeGrid(currentRows) {
     const gridBody = document.getElementById('gridBody');
 
     // 🚀 usuń stare wiersze
     gridBody.replaceChildren();
 
     const headers = window.state.headers;
-    const rowCount = window.state.currentRows.length;
+    const rowCount = currentRows.length;
     const headerCount = headers.length;
 
     const rows = [];
@@ -114,18 +113,27 @@ function renderPage(data) {
     const rows = window.cachedGrid;
     const dataCount = data.length;
     const headerCount = headers.length;
+    const lastData = window.state.currentRows;
 
     for (let i = 0; i < dataCount; ++i) {
+        if (lastData && JSON.stringify(lastData[i]) === JSON.stringify(data[i])) {
+            continue;
+        }
+        
         const rowData = data[i];
         const rowCells = rows[i];
 
         for (let j = 0; j < headerCount; ++j) {
+            
             const value = rowData[j] ?? 'NULL';
             const cell = rowCells[j + 1];
 
-            if (cell.textContent !== value) {
-                cell.textContent = value;
-            }
+            // if (cell.textContent !== value) {
+            //     cell.textContent = value;
+            // }
+            cell.textContent = value;
         }
     }
+    
+    window.state.currentRows = data;
 }
