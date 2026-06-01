@@ -38,7 +38,8 @@ export class Connection {
             supportBigNumbers: true,
             bigNumberStrings: false,
             insertIdAsNumber: true,
-            bigIntAsNumber: true
+            bigIntAsNumber: true,
+            dateStrings: true
         });
         const startConn = performance.now();
         this.conn = await this.pool.getConnection();
