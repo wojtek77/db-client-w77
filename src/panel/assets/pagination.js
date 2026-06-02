@@ -1,32 +1,32 @@
 function nextPage() {
 
-    if (window.state.currentPage < window.state.totalPages) {
+    if (State.getInstance().currentPage < State.getInstance().totalPages) {
 
-        window.state.currentPage++;
+        State.getInstance().currentPage++;
 
         window.vscode.postMessage({
             command: 'loadPage',
-            page: window.state.currentPage
+            page: State.getInstance().currentPage
         });
     }
 }
 
 function prevPage() {
 
-    if (window.state.currentPage > 1) {
+    if (State.getInstance().currentPage > 1) {
 
-        window.state.currentPage--;
+        State.getInstance().currentPage--;
 
         window.vscode.postMessage({
             command: 'loadPage',
-            page: window.state.currentPage
+            page: State.getInstance().currentPage
         });
     }
 }
 
 function firstPage() {
 
-    window.state.currentPage = 1;
+    State.getInstance().currentPage = 1;
 
     window.vscode.postMessage({
         command: 'loadPage',
@@ -36,11 +36,11 @@ function firstPage() {
 
 function lastPage() {
 
-    window.state.currentPage = window.state.totalPages;
+    State.getInstance().currentPage = State.getInstance().totalPages;
 
     window.vscode.postMessage({
         command: 'loadPage',
-        page: window.state.currentPage
+        page: State.getInstance().currentPage
     });
 }
 

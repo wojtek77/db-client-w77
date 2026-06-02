@@ -46,34 +46,34 @@ window.addEventListener('message', event => {
 
         // 🚀 KROK 1: Zapisujemy nagłówki na samym początku (potrzebne do obliczeń w renderHeaders)
         if (msg.headers) {
-            window.state.headers = msg.headers;
+            State.getInstance().headers = msg.headers;
         }
 
         // 🚀 KROK 2: Prawidłowe parsowanie danych.
-        // Jeśli w backendzie wysyłasz surową macierz, użyj: window.state.currentRows = msg.rows;
+        // Jeśli w backendzie wysyłasz surową macierz, użyj: State.getInstance().currentRows = msg.rows;
         // Jeśli w backendzie zostawiłeś rowsBuffer (Uint8Array), użyj poniższej linii z decoderem:
         const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
         
         // Oblicz całkowitą liczbę stron
-        window.state.totalPages = Math.ceil(
-            msg.totalRows / window.state.ROWS_PER_PAGE
+        State.getInstance().totalPages = Math.ceil(
+            msg.totalRows / State.getInstance().ROWS_PER_PAGE
         );
 
         // Ustaw bieżącą stronę jeśli przyszła z wiadomości
         if (msg.currentPage !== undefined) {
-            window.state.currentPage = msg.currentPage;
+            State.getInstance().currentPage = msg.currentPage;
         }
 
-        document.getElementById('totalPages').textContent = window.state.totalPages;
-        document.getElementById('currentPage').textContent = window.state.currentPage;
+        document.getElementById('totalPages').textContent = State.getInstance().totalPages;
+        document.getElementById('currentPage').textContent = State.getInstance().currentPage;
         
         console.time("⏱️ Czas renderHeaders");
-        if (window.state.headers) {
-            renderHeaders(currentRows); // Ta funkcja teraz przeskanuje window.state.currentRows
+        if (State.getInstance().headers) {
+            renderHeaders(currentRows); // Ta funkcja teraz przeskanuje State.getInstance().currentRows
         }
         console.timeEnd("⏱️ Czas renderHeaders");
         
-        const shape = `${currentRows.length}x${window.state.headers.length}`;
+        const shape = `${currentRows.length}x${State.getInstance().headers.length}`;
         
         if (window.gridShape !== shape) {
             console.time("⏱️ Czas initializeGrid");
@@ -89,10 +89,10 @@ window.addEventListener('message', event => {
         console.timeEnd("⏱️ Czas renderPage");
         
         // Aktualizuj przyciski paginacji
-        document.getElementById('prevBtn').disabled = (window.state.currentPage === 1);
-        document.getElementById('firstBtn').disabled = (window.state.currentPage === 1);
-        document.getElementById('nextBtn').disabled = (window.state.currentPage === window.state.totalPages);
-        document.getElementById('lastBtn').disabled = (window.state.currentPage === window.state.totalPages);
+        document.getElementById('prevBtn').disabled = (State.getInstance().currentPage === 1);
+        document.getElementById('firstBtn').disabled = (State.getInstance().currentPage === 1);
+        document.getElementById('nextBtn').disabled = (State.getInstance().currentPage === State.getInstance().totalPages);
+        document.getElementById('lastBtn').disabled = (State.getInstance().currentPage === State.getInstance().totalPages);
 
         if (msg.isLast) {
             // ew. logika na koniec

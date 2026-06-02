@@ -7,8 +7,8 @@ function openRecentFiles() {
 
 // Export do CSV
 function exportToCSV() {
-    const rows = window.state.currentRows;
-    const headers = window.state.headers;
+    const rows = State.getInstance().currentRows;
+    const headers = State.getInstance().headers;
     
     if (!rows || rows.length === 0) return;
     if (!headers || headers.length === 0) return;
@@ -23,8 +23,8 @@ function exportToCSV() {
 
 // Export do TXT (format tabelaryczny)
 function exportToTXT() {
-    const rows = window.state.currentRows;
-    const headers = window.state.headers;
+    const rows = State.getInstance().currentRows;
+    const headers = State.getInstance().headers;
     
     if (!rows || rows.length === 0) return;
     if (!headers || headers.length === 0) return;

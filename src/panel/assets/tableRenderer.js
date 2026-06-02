@@ -1,7 +1,7 @@
 function renderHeaders(pageRows) {
     console.log('renderHeaders');
     const headerContainer = document.getElementById('gridHeader');
-    const headers = window.state.headers;
+    const headers = State.getInstance().headers;
     
     if (!headers || headers.length === 0) {
         headerContainer.innerHTML = '';
@@ -69,7 +69,7 @@ function initializeGrid(currentRows) {
     // 🚀 usuń stare wiersze
     gridBody.replaceChildren();
 
-    const headers = window.state.headers;
+    const headers = State.getInstance().headers;
     const rowCount = currentRows.length;
     const headerCount = headers.length;
 
@@ -109,11 +109,11 @@ function initializeGrid(currentRows) {
 }
 
 function renderPage(data) {
-    const headers = window.state.headers;
+    const headers = State.getInstance().headers;
     const rows = window.cachedGrid;
     const dataCount = data.length;
     const headerCount = headers.length;
-    const lastData = window.state.currentRows;
+    const lastData = State.getInstance().currentRows;
 
     for (let i = 0; i < dataCount; ++i) {
         if (lastData && JSON.stringify(lastData[i]) === JSON.stringify(data[i])) {
@@ -135,5 +135,5 @@ function renderPage(data) {
         }
     }
     
-    window.state.currentRows = data;
+    State.getInstance().currentRows = data;
 }
