@@ -61,8 +61,6 @@ function renderHeaders(pageRows) {
     headerContainer.replaceChildren(fragment);
 }
 
-window.cachedGrid = null;
-
 function initializeGrid(currentRows) {
     const gridBody = document.getElementById('gridBody');
 
@@ -74,6 +72,7 @@ function initializeGrid(currentRows) {
     const headerCount = headers.length;
 
     const rows = [];
+    const rowsHtml = [];
     
     // const fragment = document.createDocumentFragment();
     for (let i = 0; i < rowCount; ++i) {
@@ -102,15 +101,24 @@ function initializeGrid(currentRows) {
         // fragment.appendChild(rowDiv);
         gridBody.appendChild(rowDiv)
         rows.push(cells);
+        rowsHtml.push(rowDiv);
     }
     // gridBody.appendChild(fragment);
 
-    window.cachedGrid = rows;
+    State.getInstance().cachedGrid = rows;
+    State.getInstance().cachedGridHtml = rowsHtml;
+}
+
+function restoreGridFromCache() {
+    const gridBody = document.getElementById('gridBody');
+    gridBody.replaceChildren(
+        ...State.getInstance().cachedGridHtml
+    );
 }
 
 function renderPage(data) {
     const headers = State.getInstance().headers;
-    const rows = window.cachedGrid;
+    const rows = State.getInstance().cachedGrid;
     const dataCount = data.length;
     const headerCount = headers.length;
     const lastData = State.getInstance().currentRows;

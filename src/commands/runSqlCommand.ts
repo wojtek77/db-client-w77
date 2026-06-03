@@ -27,6 +27,9 @@ export async function runSQLCommand() {
     
     const sqlResultsProvider = SqlResultsProvider.getInstance();
     if (sqlResultsProvider) {
-        await sqlResultsProvider.executeQuery(sql);
+        await sqlResultsProvider.executeQuery(
+            sql,
+            editor.document.fileName
+        );
     }
 }

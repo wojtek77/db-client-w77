@@ -1,3 +1,5 @@
+let sqlFile;
+
 window.addEventListener('message', event => {
 
     // Stworzenie dekodera raz zapobiega ciągłemu tworzeniu nowych obiektów w pamięci
@@ -31,6 +33,10 @@ window.addEventListener('message', event => {
 
     if (msg.command === 'appendData') {
         console.log("--- START PRZETWARZANIA WEBVIEW ---");
+        
+        if (msg.sqlFile) {
+            State.init(msg.sqlFile);
+        }
         
         console.log(msg.sentAt);
         const duration = Date.now() - msg.sentAt;
@@ -74,13 +80,26 @@ window.addEventListener('message', event => {
         console.timeEnd("⏱️ Czas renderHeaders");
         
         const shape = `${currentRows.length}x${State.getInstance().headers.length}`;
-        
-        if (window.gridShape !== shape) {
-            console.time("⏱️ Czas initializeGrid");
-            initializeGrid(currentRows);
-            console.timeEnd("⏱️ Czas initializeGrid");
-            
-            window.gridShape = shape;
+        if (sqlFile && sqlFile === msg.sqlFile) { // kiedy jest powtórne uruchomienie SQL w tym samym pliku
+            if (State.getInstance().gridShape !== shape) {
+                console.time("⏱️ Czas initializeGrid");
+                initializeGrid(currentRows);
+                console.timeEnd("⏱️ Czas initializeGrid");
+                State.getInstance().gridShape = shape;
+            }
+        } else { // kiedy jest nowe uruchomienie pliku lub zmiana pliku
+            if (State.getInstance().gridShape === shape) {
+                console.time("⏱️ Czas restoreGridFromCache");
+                restoreGridFromCache();
+                console.timeEnd("⏱️ Czas restoreGridFromCache");
+            } else {
+                console.time("⏱️ Czas initializeGrid");
+                initializeGrid(currentRows);    
+                console.timeEnd("⏱️ Czas initializeGrid");
+                State.getInstance().gridShape = shape;
+            }
+            // State.getInstance().currentRows = undefined;
+            sqlFile = msg.sqlFile;
         }
         
         // 🚀 KROK 3: Renderowanie (Najpierw wiersze, potem inteligentne nagłówki)

@@ -45,6 +45,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private readonly ROWS_PER_PAGE = 200;
     private _context?: vscode.ExtensionContext;
     private _resolveView?: (value: boolean) => void;
+    private _currentSqlFile = '';
 
     private constructor(context: vscode.ExtensionContext) {
         console.log('construct');
@@ -140,6 +141,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // 3. Wysyłamy
             this._view?.webview.postMessage({
                 command: 'appendData',
+                sqlFile: this._currentSqlFile,
                 rows: rowsBuffer, // VS Code automatycznie obsłuży to jako transfer binarny
                 headers: this._headers,
                 totalRows: this._allRows.length,
@@ -274,8 +276,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    public async executeQuery(sql: string) {
+    public async executeQuery(sql: string, sqlFile: string) {
         console.log('executeQuery');
+        this._currentSqlFile = sqlFile;
         
         // czasami widok może nie istnieć, np. przy pierwszym uruchomieniu SQL lub kiedy plik .sql został zamknięty
         if (!this._view) {
