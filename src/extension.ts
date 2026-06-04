@@ -102,6 +102,14 @@ export async function activate(context: vscode.ExtensionContext) {
             ' ', '.'
         )
     );
+    
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(editor => {
+            if (editor && editor.document.languageId === 'sql') {
+                sqlResultsProvider.showResultsForFile(editor.document.fileName);
+            }
+        })
+    );
 
     // komendy
     const runSQL = vscode.commands.registerCommand('db-client.runSQL', async () => {

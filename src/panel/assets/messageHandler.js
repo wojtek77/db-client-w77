@@ -1,27 +1,48 @@
 let sqlFile;
 
+// Stworzenie dekodera raz zapobiega ciągłemu tworzeniu nowych obiektów w pamięci
+const decoder = new TextDecoder('utf-8');
+
+const loadingOverlay = document.getElementById('loadingOverlay');
+const errorDisplay = document.getElementById('errorDisplay');
+const gridContainer = document.getElementById('gridContainer');
+const spinner = document.querySelector('.spinner');
+const loadingText = document.querySelector('.loading-text');
+
+function updatePagination(currentPage = 0, totalPages = 0) {
+    document.getElementById('totalPages').textContent = totalPages;
+    document.getElementById('currentPage').textContent = currentPage;
+    
+    // Aktualizuj przyciski paginacji
+    document.getElementById('prevBtn').disabled = (currentPage === 1);
+    document.getElementById('firstBtn').disabled = (currentPage === 1);
+    document.getElementById('nextBtn').disabled = (currentPage === totalPages);
+    document.getElementById('lastBtn').disabled = (currentPage === totalPages);
+}
+function updateDbAndTimes(connectionName = '-------', connectionTime = '---', queryTime = '---') {
+    // ustawienie połączenia z DB i czasów
+    document.getElementById('connectionName').textContent = connectionName;
+    document.getElementById('connectionTime').textContent = connectionTime;
+    document.getElementById('queryTime').textContent = queryTime;
+}
+function stopError() {
+    if (errorDisplay) errorDisplay.style.display = 'none';
+}
+function startSpinner() {
+    if (loadingOverlay) loadingOverlay.style.display = 'flex';
+}
+function stopSpinner() {
+    if (loadingOverlay) loadingOverlay.style.display = 'none';
+}
+function startGridContainer() {
+    if (gridContainer) gridContainer.style.display = 'flex';
+}
+function stopGridContainer() {
+    if (gridContainer) gridContainer.style.display = 'none';
+}
+
 window.addEventListener('message', event => {
-
-    // Stworzenie dekodera raz zapobiega ciągłemu tworzeniu nowych obiektów w pamięci
-    const decoder = new TextDecoder('utf-8');
-    
     const msg = event.data;
-    
-    const loadingOverlay = document.getElementById('loadingOverlay');
-    const errorDisplay = document.getElementById('errorDisplay');
-    const gridContainer = document.getElementById('gridContainer');
-    const spinner = document.querySelector('.spinner');
-    const loadingText = document.querySelector('.loading-text');
-
-    function stopError() {
-        if (errorDisplay) errorDisplay.style.display = 'none';
-    }
-    function startSpinner() {
-        if (loadingOverlay) loadingOverlay.style.display = 'flex';
-    }
-    function stopSpinner() {
-        if (loadingOverlay) loadingOverlay.style.display = 'none';
-    }
     
     if (msg.command === 'loadingDB') {
         startSpinner();
@@ -34,44 +55,31 @@ window.addEventListener('message', event => {
     if (msg.command === 'appendData') {
         console.log("--- START PRZETWARZANIA WEBVIEW ---");
         
-        if (msg.sqlFile) {
-            State.init(msg.sqlFile);
-        }
-        
         console.log(msg.sentAt);
         const duration = Date.now() - msg.sentAt;
         console.log(`🚀 Czas podróży przez postMessage: ${duration} ms`);
         
-        stopError();
-        if (gridContainer) gridContainer.style.display = 'flex';
-        
-        // ustawienie połączenia z DB i czasów
-        document.getElementById('connectionName').textContent = msg.connectionName;
-        document.getElementById('connectionTime').textContent = msg.connectionTime;
-        document.getElementById('queryTime').textContent = msg.queryTime;
-
-        // 🚀 KROK 1: Zapisujemy nagłówki na samym początku (potrzebne do obliczeń w renderHeaders)
-        if (msg.headers) {
-            State.getInstance().headers = msg.headers;
+        if (!msg.sqlFile) {
+            throw new Error("Missing: msg.sqlFile");
         }
-
-        // 🚀 KROK 2: Prawidłowe parsowanie danych.
-        // Jeśli w backendzie wysyłasz surową macierz, użyj: State.getInstance().currentRows = msg.rows;
-        // Jeśli w backendzie zostawiłeś rowsBuffer (Uint8Array), użyj poniższej linii z decoderem:
-        const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
-        
+        State.init(msg.sqlFile);
         // Oblicz całkowitą liczbę stron
         State.getInstance().totalPages = Math.ceil(
             msg.totalRows / State.getInstance().ROWS_PER_PAGE
         );
-
-        // Ustaw bieżącą stronę jeśli przyszła z wiadomości
-        if (msg.currentPage !== undefined) {
-            State.getInstance().currentPage = msg.currentPage;
+        if (msg.headers) {
+            State.getInstance().headers = msg.headers;
         }
-
-        document.getElementById('totalPages').textContent = State.getInstance().totalPages;
-        document.getElementById('currentPage').textContent = State.getInstance().currentPage;
+        State.getInstance().connectionName = msg.connectionName
+        State.getInstance().connectionTime = msg.connectionTime
+        State.getInstance().queryTime = msg.queryTime
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime);
+        updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
+        
+        stopError();
+        startGridContainer();
+        
+        const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
         
         console.time("⏱️ Czas renderHeaders");
         if (State.getInstance().headers) {
@@ -102,17 +110,10 @@ window.addEventListener('message', event => {
             sqlFile = msg.sqlFile;
         }
         
-        // 🚀 KROK 3: Renderowanie (Najpierw wiersze, potem inteligentne nagłówki)
         console.time("⏱️ Czas renderPage");
         renderPage(currentRows);
         console.timeEnd("⏱️ Czas renderPage");
         
-        // Aktualizuj przyciski paginacji
-        document.getElementById('prevBtn').disabled = (State.getInstance().currentPage === 1);
-        document.getElementById('firstBtn').disabled = (State.getInstance().currentPage === 1);
-        document.getElementById('nextBtn').disabled = (State.getInstance().currentPage === State.getInstance().totalPages);
-        document.getElementById('lastBtn').disabled = (State.getInstance().currentPage === State.getInstance().totalPages);
-
         if (msg.isLast) {
             // ew. logika na koniec
         }
@@ -122,7 +123,44 @@ window.addEventListener('message', event => {
         console.log("--- KONIEC PRZETWARZANIA WEBVIEW ---");
     }
 
-
+    if (msg.command === 'showResultsForFile') {
+        const duration = Date.now() - msg.sentAt;
+        console.log(`🚀 Czas podróży przez postMessage: ${duration} ms`);
+        
+        if (!msg.sqlFile) {
+            throw new Error("Missing: msg.sqlFile");
+        }
+        State.init(msg.sqlFile);
+        sqlFile = msg.sqlFile;
+        
+        startGridContainer();
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime);
+        updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
+        
+        // renderowanie HTML
+        console.time("⏱️ Czas renderHeaders");
+        renderHeaders(State.getInstance().currentRows)
+        console.timeEnd("⏱️ Czas renderHeaders");
+        console.time("⏱️ Czas restoreGridFromCache");
+        restoreGridFromCache();
+        console.timeEnd("⏱️ Czas restoreGridFromCache");
+    }
+    
+    if (msg.command === 'showEmpty') {
+        const duration = Date.now() - msg.sentAt;
+        console.log(`🚀 Czas podróży przez postMessage: ${duration} ms`);
+        
+        stopGridContainer();
+        updateDbAndTimes();
+        updatePagination();
+    }
+    
+    if (msg.command === 'changeConnection') {
+        State.getInstance().connectionName = msg.connectionName
+        State.getInstance().connectionTime = msg.connectionTime
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, '---');
+    }
+    
     if (msg.command === 'updateConfirmed') {
         const cells = document.querySelectorAll(
             `[data-row="${msg.rowIndex}"][data-col="${msg.columnIndex}"]`
@@ -135,7 +173,7 @@ window.addEventListener('message', event => {
     
     if (msg.command === 'error') {
         stopSpinner();
-        if (gridContainer) gridContainer.style.display = 'none';
+        stopGridContainer();
         if (errorDisplay) {
             errorDisplay.style.display = 'block';
             errorDisplay.textContent = `Error: ${msg.message}`;

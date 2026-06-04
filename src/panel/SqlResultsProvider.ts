@@ -7,6 +7,16 @@ import * as os from 'os';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles';
 import { getCachedColumns } from '../cache/tableColumnsCache';
 
+interface FileResultState {
+    rows: any[][];
+    headers: string[];
+    sql: string;
+    meta: any[];
+    connectionName: string;
+    connectionTime: string;
+    queryTime: string;
+}
+
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private static instance: SqlResultsProvider;
     
@@ -33,6 +43,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     
     
     private _view?: vscode.WebviewView;
+    
+    private _fileStates = new Map<string, FileResultState>();
+    
     private _connectionName: string = '';
     private _connectionTime: string = '0';
     private _extensionPath: string;
@@ -321,12 +334,51 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._lastQueryTime = queryTime;
         this._currentPage = 1;
         
+        this._fileStates.set(sqlFile, {
+            rows: this._allRows,
+            headers: this._headers,
+            sql: this._lastSQL,
+            meta: this._meta,
+            connectionName: this._connectionName,
+            connectionTime: this._connectionTime,
+            queryTime: this._lastQueryTime,
+        });
+        
         // wysłanie info o tym że dane się łądują (blur)
         this._view.webview.postMessage({ 
             command: 'loadingWebview'
         });
         
         this.sendPage(1);
+    }
+    
+    public showResultsForFile(sqlFile: string) {
+        if (!this._view) {
+            return;
+        }
+        
+        const state = this._fileStates.get(sqlFile);
+        if (!state) {
+            this._view.webview.postMessage({
+                command: 'showEmpty',
+                sentAt: Date.now() // znacznik czasu w ms
+            });
+            return;
+        }
+
+        this._currentSqlFile = sqlFile;
+        this._allRows = state.rows;
+        this._headers = state.headers;
+        this._meta = state.meta;
+        this._lastQueryTime = state.queryTime;
+        this._connectionName = state.connectionName;
+        this._connectionTime = state.connectionTime;
+
+        this._view.webview.postMessage({
+            command: 'showResultsForFile',
+            sqlFile: sqlFile,
+            sentAt: Date.now() // znacznik czasu w ms
+        });
     }
 
     private async show(options?: { preserveFocus?: boolean }) {
@@ -353,14 +405,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         if (this._view) {
             this._view.webview.postMessage({
-                command: 'appendData',
-                rows: [],
-                headers: [],
-                totalRows: this._allRows.length,
-                currentPage: this._currentPage,
+                command: 'changeConnection',
                 connectionName: this._connectionName,
                 connectionTime: this._connectionTime,
-                queryTime: this._lastQueryTime
             });
         }
     }

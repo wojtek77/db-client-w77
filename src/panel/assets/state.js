@@ -1,5 +1,6 @@
 /**
  * @typedef {Object} FileState
+ * @property {string} filename - Nazwa aktualnie załadowanego pliku.
  * @property {Array} currentRows - Tablica z aktualnymi wierszami danych.
  * @property {Array<string>} headers - Tablica z nagłówkami kolumn.
  * @property {number} currentPage - Numer aktualnej strony.
@@ -7,7 +8,10 @@
  * @property {number} ROWS_PER_PAGE - Maksymalna liczba wierszy na stronę.
  * @property {Array} cachedGrid - Tablica węzłów DIV jako array
  * @property {Array} cachedGridHtml - Tablica węzłów DIV jako HTML
- * @property {string} filename - Nazwa aktualnie załadowanego pliku.
+ * @property {string} gridShape - Ilość wierszy i ilość kolumn np. "2x1".
+ * @property {string} connectionName - Nazwa połączenia z DB.
+ * @property {string} connectionTime - Czas połączenia z DB.
+ * @property {string} queryTime - Czas wykonania ostatniego SQL-a.
  */
 
 class State {
@@ -27,6 +31,9 @@ class State {
                 cachedGrid: [],
                 cachedGridHtml: [],
                 gridShape: '',
+                connectionName: '-------',
+                connectionTime: '---',
+                queryTime: '---',
             });
         }
 
