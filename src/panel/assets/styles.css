@@ -144,7 +144,7 @@ html, body {
 }
 
 .stats {
-    flex: 1;
+    /* flex: 1; */
     color: gray;
     font-size: 13px;
 }
@@ -155,13 +155,28 @@ html, body {
     cursor: pointer;
 }
 
-#flashMessage {
+.others {
     flex: 1;
+}
+.cancel-query-btn {
+    background: #c62828;
+    color: white;
+    font-weight: bold;
+    display:none;
+    padding: 1px 7px;
+    margin-left: 1em;
+}
+.cancel-query-btn:hover {
+    background: #e53935;
+}
+
+#flashMessage {
     color: orange;
     font-weight: bold;
-    display: flex;
+    /* display: flex; */
     opacity: 0; /* Domyślnie niewidoczny */
     transition: opacity 0.3s;
+    margin-left: 3em;
 }
 
 #errorDisplay {

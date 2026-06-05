@@ -45,8 +45,14 @@ export function getHtml(
         | ⏱
         <span id="queryTime" title="SQL execution time">---</span> ms
     </div>
-    
-    <div id="flashMessage"></div>
+        
+    <div class="others">
+        <button id="cancelQuery" class="cancel-query-btn">
+            ⛔ Stop SQL
+        </button>
+        
+        <span id="flashMessage"></span>
+    </div>
 
     <button onclick="openRecentFiles()">
         📚 Recent files

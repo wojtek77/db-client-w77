@@ -110,4 +110,17 @@ function registerEvents(vscode) {
             });
         }
     });
+    
+    /* przerwanie działania SQL-a */
+    document.addEventListener('DOMContentLoaded', () => {
+
+        const btn = document.getElementById('cancelQuery');
+        if (btn) {
+            btn.addEventListener('click', () => {
+                vscode.postMessage({
+                    command: 'cancelQuery'
+                });
+            });
+        }
+    });
 }

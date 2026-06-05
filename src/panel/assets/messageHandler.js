@@ -8,6 +8,7 @@ const errorDisplay = document.getElementById('errorDisplay');
 const gridContainer = document.getElementById('gridContainer');
 const spinner = document.querySelector('.spinner');
 const loadingText = document.querySelector('.loading-text');
+const cancelBtn = document.getElementById('cancelQuery');
 
 function showFlashMessage(text, seconds) {
     const flash = document.getElementById('flashMessage');
@@ -53,10 +54,20 @@ function stopGridContainer() {
 window.addEventListener('message', event => {
     const msg = event.data;
     
-    if (msg.command === 'loadingDB') {
+    if (msg.command === 'queryStarted') {
+        cancelBtn.style.display = 'inline-block';
+        
+        stopError();
+        startGridContainer();
+        
         startSpinner();
         spinner.style.borderTopColor = '#ffb937';
     }
+
+    if (msg.command === 'queryFinished') {
+        cancelBtn.style.display = 'none';
+    }
+    
     if (msg.command === 'loadingWebview') {
         spinner.style.borderTopColor = '#3794ff';
     }
@@ -84,9 +95,6 @@ window.addEventListener('message', event => {
         State.getInstance().queryTime = msg.queryTime
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
-        
-        stopError();
-        startGridContainer();
         
         const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
         
@@ -169,7 +177,7 @@ window.addEventListener('message', event => {
         State.getInstance().connectionName = msg.connectionName
         State.getInstance().connectionTime = msg.connectionTime
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, '---');
-        showFlashMessage('Connection DB was changed', 5);
+        showFlashMessage('Connection DB was changed', 3);
     }
     
     if (msg.command === 'updateConfirmed') {

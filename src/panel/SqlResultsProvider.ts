@@ -59,6 +59,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _context?: vscode.ExtensionContext;
     private _resolveView?: (value: boolean) => void;
     private _currentSqlFile = '';
+    private _queryRunning = false;
 
     private constructor(context: vscode.ExtensionContext) {
         console.log('construct');
@@ -118,7 +119,34 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (msg.command === 'exportTXT') {
                 await this.exportToTXT();
             }
+            
+            if (msg.command === 'cancelQuery') {
+                await this.cancelCurrentQuery();
+            }
         });
+    }
+    
+    public isQueryRunning(): boolean {
+        return this._queryRunning;
+    }
+    
+    private async cancelCurrentQuery() {
+        try {
+            const db =
+                await ConnectionManager
+                    .getInstance()
+                    .getDb();
+
+            await db.cancelCurrentQuery();
+
+            // vscode.window.showInformationMessage(
+            //     'SQL query cancelled'
+            // );
+        } catch (err: any) {
+            vscode.window.showErrorMessage(
+                err.message
+            );
+        }
     }
 
     private updateHtml() {
@@ -310,12 +338,17 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             await this.show({ preserveFocus: true });
         }
         
-        // wysłanie info o tym że dane się łądują (blur)
-        this._view.webview.postMessage({ 
-            command: 'loadingDB'
+        this._queryRunning = true;
+        this._view.webview.postMessage({
+            command: 'queryStarted'
         });
         
         const { rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(sql);
+        
+        this._queryRunning = false;
+        this._view?.webview.postMessage({
+            command: 'queryFinished'
+        });
         
         if (!success) {
             // vscode.window.showErrorMessage(`Błąd zapytania: ${errorMessage}`);

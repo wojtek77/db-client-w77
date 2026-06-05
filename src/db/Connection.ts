@@ -9,6 +9,7 @@ export class Connection {
     private connectionName = '';
     private connectionTime = '0';
     private tableNames: string[] = [];
+    private threadId: number | null = null;
     
     public static async create(cnfFile: string): Promise<Connection> {
         const db = new this();
@@ -43,6 +44,7 @@ export class Connection {
         });
         const startConn = performance.now();
         this.conn = await this.pool.getConnection();
+        this.threadId = this.conn.threadId;
         this.conn.on('error', err => {
             console.error('MariaDB connection error:', err);
         });
@@ -70,6 +72,26 @@ export class Connection {
     public getConnectionTime(): string {
 
         return this.connectionTime;
+    }
+    
+    public getThreadId(): number | null {
+        return this.threadId;
+    }
+    
+    public async cancelCurrentQuery(): Promise<void> {
+        if (!this.pool || !this.threadId) {
+            return;
+        }
+
+        const killConn = await this.pool.getConnection();
+
+        try {
+            await killConn.query(
+                `KILL QUERY ${this.threadId}`
+            );
+        } finally {
+            await killConn.end();
+        }
     }
     
     public getTableNames(): string[] {

@@ -30,7 +30,11 @@ export async function executeQuery(sql: string) {
         success = true;
     } catch (err: any) {
         console.error(err);
-        errorMessage = err.message;
+        if (err.message?.includes('Query execution was interrupted')) {
+            errorMessage = 'Query cancelled by user';
+        } else {
+            errorMessage = err.message;
+        }
     }
     
     return { rows, headers, meta, queryTime, success, errorMessage };
