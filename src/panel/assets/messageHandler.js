@@ -102,6 +102,7 @@ window.addEventListener('message', event => {
                 console.time("⏱️ Czas initializeGrid");
                 initializeGrid(currentRows);
                 console.timeEnd("⏱️ Czas initializeGrid");
+                State.getInstance().currentRows = undefined;
                 State.getInstance().gridShape = shape;
             }
         } else { // kiedy jest nowe uruchomienie pliku lub zmiana pliku
@@ -111,11 +112,11 @@ window.addEventListener('message', event => {
                 console.timeEnd("⏱️ Czas restoreGridFromCache");
             } else {
                 console.time("⏱️ Czas initializeGrid");
-                initializeGrid(currentRows);    
+                initializeGrid(currentRows);
+                State.getInstance().currentRows = undefined;
                 console.timeEnd("⏱️ Czas initializeGrid");
                 State.getInstance().gridShape = shape;
             }
-            // State.getInstance().currentRows = undefined;
             sqlFile = msg.sqlFile;
         }
         
