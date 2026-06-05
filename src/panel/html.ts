@@ -45,6 +45,8 @@ export function getHtml(
         | ⏱
         <span id="queryTime">---</span> ms
     </div>
+    
+    <div id="flashMessage"></div>
 
     <button onclick="openRecentFiles()">
         📚 Recent files

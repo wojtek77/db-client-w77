@@ -9,6 +9,15 @@ const gridContainer = document.getElementById('gridContainer');
 const spinner = document.querySelector('.spinner');
 const loadingText = document.querySelector('.loading-text');
 
+function showFlashMessage(text, seconds) {
+    const flash = document.getElementById('flashMessage');
+    if (!flash) return;
+    flash.innerText = text;
+    flash.style.opacity = '1';
+    flashTimeout = setTimeout(() => {
+        flash.style.opacity = '0';
+    }, seconds * 1000);
+}
 function updatePagination(currentPage = 0, totalPages = 0) {
     document.getElementById('totalPages').textContent = totalPages;
     document.getElementById('currentPage').textContent = currentPage;
@@ -159,6 +168,7 @@ window.addEventListener('message', event => {
         State.getInstance().connectionName = msg.connectionName
         State.getInstance().connectionTime = msg.connectionTime
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, '---');
+        showFlashMessage('Connection DB was changed', 5);
     }
     
     if (msg.command === 'updateConfirmed') {

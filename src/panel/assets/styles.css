@@ -144,15 +144,24 @@ html, body {
 }
 
 .stats {
+    flex: 1;
     color: gray;
     font-size: 13px;
-    flex: 1;
 }
 .stats span {
     font-weight: bold;
 }
 .stats span#connectionName {
     cursor: pointer;
+}
+
+#flashMessage {
+    flex: 1;
+    color: orange;
+    font-weight: bold;
+    display: flex;
+    opacity: 0; /* Domyślnie niewidoczny */
+    transition: opacity 0.3s;
 }
 
 #errorDisplay {
