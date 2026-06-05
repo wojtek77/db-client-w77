@@ -39,11 +39,11 @@ export function getHtml(
 <div class="toolbar">
 
     <div class="stats">
-        <span id="connectionName" title="click to change DB connection">-------</span>
+        <span id="connectionName" title="Click to change DB connection">-------</span>
         ⏱
-        <span id="connectionTime">---</span> ms
+        <span id="connectionTime" title="DB connection time">---</span> ms
         | ⏱
-        <span id="queryTime">---</span> ms
+        <span id="queryTime" title="SQL execution time">---</span> ms
     </div>
     
     <div id="flashMessage"></div>
