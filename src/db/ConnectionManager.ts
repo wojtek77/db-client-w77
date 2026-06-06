@@ -3,8 +3,9 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles';
+import { Disposable } from 'vscode';
 
-export class ConnectionManager {
+export class ConnectionManager implements Disposable {
     
     private static instance: ConnectionManager;
     
@@ -22,6 +23,10 @@ export class ConnectionManager {
     
     private constructor() {
         this.configs = this.loadConfigs();
+    }
+    
+    public dispose() {
+        this.stop();
     }
 
     public async getDb() {
