@@ -33,7 +33,7 @@ export class Connection {
         
         this.pool = mariadb.createPool({
             ...config,
-            connectionLimit: 5,
+            connectionLimit: 2,
             connectTimeout: 10000,
             acquireTimeout: 10000,
             supportBigNumbers: true,
