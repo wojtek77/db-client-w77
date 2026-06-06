@@ -43,8 +43,7 @@ export function getHtml(
         ⏱
         <span id="connectionTime" title="DB connection time">---</span> ms
         | ⏱
-        <span id="queryTime" title="SQL execution time">---</span>
-        <span id="queryTimeUnit">ms</span>
+        <span id="queryTime" title="SQL execution time">---</span> ms
     </div>
         
     <div class="others">

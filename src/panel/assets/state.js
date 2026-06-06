@@ -33,8 +33,7 @@ class State {
                 gridShape: '',
                 connectionName: '-------',
                 connectionTime: '---',
-                queryTime: '0',
-                queryTimeUnit: '',
+                queryTime: '---',
             });
         }
 

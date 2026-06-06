@@ -15,7 +15,6 @@ interface FileResultState {
     connectionName: string;
     connectionTime: string;
     queryTime: string;
-    queryTimeUnit: string,
 }
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
@@ -53,7 +52,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _allRows: any[][] = [];
     private _headers: string[] = [];
     private _lastQueryTime = '0';
-    private _lastQueryTimeUnit = 'ms';
     private _meta: any[] = [];
     private _lastSQL = '';
     private _currentPage = 1;
@@ -194,7 +192,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 connectionName: this._connectionName,
                 connectionTime: this._connectionTime,
                 queryTime: this._lastQueryTime,
-                queryTimeUnit: this._lastQueryTimeUnit,
                 isEncoded: true,
                 sentAt: Date.now() // znacznik czasu w ms
             });
@@ -343,11 +340,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         
         this._queryRunning = true;
         this._view.webview.postMessage({
-            command: 'queryStarted',
-            startedAt: Date.now()
+            command: 'queryStarted'
         });
         
-        const { rows, headers, meta, queryTime, queryTimeUnit, success, errorMessage } = await executeQuery(sql);
+        const { rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(sql);
         
         this._queryRunning = false;
         this._view?.webview.postMessage({
@@ -369,7 +365,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._connectionName = db.getConnectionName();
         this._connectionTime = db.getConnectionTime();
         this._lastQueryTime = queryTime;
-        this._lastQueryTimeUnit = queryTimeUnit;
         this._currentPage = 1;
         
         this._fileStates.set(sqlFile, {
@@ -380,7 +375,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             connectionName: this._connectionName,
             connectionTime: this._connectionTime,
             queryTime: this._lastQueryTime,
-            queryTimeUnit: this._lastQueryTimeUnit,
         });
         
         // wysłanie info o tym że dane się łądują (blur)
@@ -410,7 +404,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._headers = state.headers;
         this._meta = state.meta;
         this._lastQueryTime = state.queryTime;
-        this._lastQueryTimeUnit = state.queryTimeUnit;
         this._connectionName = state.connectionName;
         this._connectionTime = state.connectionTime;
 

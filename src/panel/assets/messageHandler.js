@@ -1,6 +1,4 @@
 let sqlFile;
-let queryTimer = null;
-let queryStartTime = null;
 
 // Stworzenie dekodera raz zapobiega ciągłemu tworzeniu nowych obiektów w pamięci
 const decoder = new TextDecoder('utf-8');
@@ -12,12 +10,6 @@ const spinner = document.querySelector('.spinner');
 const loadingText = document.querySelector('.loading-text');
 const cancelBtn = document.getElementById('cancelQuery');
 
-function stopQueryTimer() {
-    if (queryTimer) {
-        clearInterval(queryTimer);
-        queryTimer = null;
-    }
-}
 function showFlashMessage(text, seconds) {
     const flash = document.getElementById('flashMessage');
     if (!flash) return;
@@ -37,12 +29,11 @@ function updatePagination(currentPage = 0, totalPages = 0) {
     document.getElementById('nextBtn').disabled = (currentPage === totalPages);
     document.getElementById('lastBtn').disabled = (currentPage === totalPages);
 }
-function updateDbAndTimes(connectionName = '-------', connectionTime = '---', queryTime = '---', queryTimeUnit = 'ms') {
+function updateDbAndTimes(connectionName = '-------', connectionTime = '---', queryTime = '---') {
     // ustawienie połączenia z DB i czasów
     document.getElementById('connectionName').textContent = connectionName;
     document.getElementById('connectionTime').textContent = connectionTime;
     document.getElementById('queryTime').textContent = queryTime;
-    document.getElementById('queryTimeUnit').textContent = queryTimeUnit;
 }
 function stopError() {
     if (errorDisplay) errorDisplay.style.display = 'none';
@@ -66,15 +57,6 @@ window.addEventListener('message', event => {
     if (msg.command === 'queryStarted') {
         cancelBtn.style.display = 'inline-block';
         
-        // postęp czasu w czasie wykonywania SQL-a
-        stopQueryTimer();
-        queryStartTime = msg.startedAt;
-        queryTimer = setInterval(() => {
-            const elapsed = (Date.now() - queryStartTime) / 1000;
-            document.getElementById('queryTime').textContent = elapsed.toFixed(1);
-            document.getElementById('queryTimeUnit').textContent = 's';
-        }, 100);
-        
         stopError();
         startGridContainer();
         
@@ -84,7 +66,6 @@ window.addEventListener('message', event => {
 
     if (msg.command === 'queryFinished') {
         cancelBtn.style.display = 'none';
-        stopQueryTimer();
     }
     
     if (msg.command === 'loadingWebview') {
@@ -109,11 +90,10 @@ window.addEventListener('message', event => {
         if (msg.headers) {
             State.getInstance().headers = msg.headers;
         }
-        State.getInstance().connectionName = msg.connectionName;
-        State.getInstance().connectionTime = msg.connectionTime;
-        State.getInstance().queryTime = msg.queryTime;
-        State.getInstance().queryTimeUnit = msg.queryTimeUnit;
-        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().queryTimeUnit);
+        State.getInstance().connectionName = msg.connectionName
+        State.getInstance().connectionTime = msg.connectionTime
+        State.getInstance().queryTime = msg.queryTime
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         
         const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
@@ -172,7 +152,7 @@ window.addEventListener('message', event => {
         sqlFile = msg.sqlFile;
         
         startGridContainer();
-        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().queryTimeUnit);
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         
         // renderowanie HTML
@@ -196,7 +176,7 @@ window.addEventListener('message', event => {
     if (msg.command === 'changeConnection') {
         State.getInstance().connectionName = msg.connectionName
         State.getInstance().connectionTime = msg.connectionTime
-        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime);
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, '---');
         showFlashMessage('Connection DB was changed', 3);
     }
     

@@ -9,7 +9,6 @@ export async function executeQuery(sql: string) {
     const db = await ConnectionManager.getInstance().getDb();
     let rows: any[] = [];
     let queryTime = '0';
-    let queryTimeUnit = '';
     let success = false;
     let errorMessage = '';
     let headers: string[] = [];
@@ -26,13 +25,7 @@ export async function executeQuery(sql: string) {
         headers = meta.map((field: any) => field.name());
         
         const endQuery = performance.now();
-        const duration = endQuery - startQuery;
-        if (duration < 1000) {
-            queryTime = duration.toFixed(2);
-        } else {
-            queryTime = (duration / 1000).toFixed(3);
-        }
-        queryTimeUnit = duration < 1000 ? 'ms' : 's',
+        queryTime = (endQuery - startQuery).toFixed(2);
         
         success = true;
     } catch (err: any) {
@@ -44,7 +37,7 @@ export async function executeQuery(sql: string) {
         }
     }
     
-    return { rows, headers, meta, queryTime, queryTimeUnit, success, errorMessage };
+    return { rows, headers, meta, queryTime, success, errorMessage };
 }
 
 export async function getTableColumns(tableName: string): Promise<{ 
