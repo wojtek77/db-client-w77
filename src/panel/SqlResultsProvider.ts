@@ -14,7 +14,7 @@ interface FileResultState {
     meta: any[];
     connectionName: string;
     connectionTime: string;
-    queryTime: string;
+    queryTime: number;
 }
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
@@ -51,7 +51,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _extensionPath: string;
     private _allRows: any[][] = [];
     private _headers: string[] = [];
-    private _lastQueryTime = '0';
+    private _lastQueryTime = 0;
     private _meta: any[] = [];
     private _lastSQL = '';
     private _currentPage = 1;
@@ -340,7 +340,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         
         this._queryRunning = true;
         this._view.webview.postMessage({
-            command: 'queryStarted'
+            command: 'queryStarted',
+            startedAt: Date.now()
         });
         
         const { rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(sql);

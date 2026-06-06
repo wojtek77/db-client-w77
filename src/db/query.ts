@@ -8,7 +8,7 @@ export { setGetCachedColumnsFunction };
 export async function executeQuery(sql: string) {
     const db = await ConnectionManager.getInstance().getDb();
     let rows: any[] = [];
-    let queryTime = '0';
+    let queryTime = 0;
     let success = false;
     let errorMessage = '';
     let headers: string[] = [];
@@ -25,7 +25,7 @@ export async function executeQuery(sql: string) {
         headers = meta.map((field: any) => field.name());
         
         const endQuery = performance.now();
-        queryTime = (endQuery - startQuery).toFixed(2);
+        queryTime = endQuery - startQuery;
         
         success = true;
     } catch (err: any) {
