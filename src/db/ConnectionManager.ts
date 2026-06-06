@@ -40,8 +40,8 @@ export class ConnectionManager {
     
     public stop() {
         // usuwanie wszystkich połączeń z bazą
-        Object.values(this.connections).forEach(async (conn) => {
-            await conn.disconnect();
+        Object.values(this.connections).forEach((conn) => {
+            conn.disconnect();
         });
         this.connections = {};
     }

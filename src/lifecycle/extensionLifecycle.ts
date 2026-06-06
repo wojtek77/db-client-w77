@@ -18,18 +18,20 @@ export async function startExtension(context: vscode.ExtensionContext) {
     ConnectionManager.getInstance().start();
 }
 
-export async function stopExtension() {
+export async function stopExtension(all = false) {
     console.log('STOP_EXTENSION');
-    
-    // zamknięcie panelu na dole
-    await vscode.commands.executeCommand('workbench.action.closePanel');
-    
-    // ⭐ UKRYJ ZAKŁADKĘ
-    await vscode.commands.executeCommand('setContext', 'dbClientActive', false);
-    extensionRunning = false;
     
     ConnectionManager.getInstance().stop();
     
-    // zapisanie listy plików SQL na dysk
-    await RecentSqlFiles.getInstance().persist();
+    if (all) {
+        // zamknięcie panelu na dole
+        await vscode.commands.executeCommand('workbench.action.closePanel');
+        
+        // ⭐ UKRYJ ZAKŁADKĘ
+        await vscode.commands.executeCommand('setContext', 'dbClientActive', false);
+        extensionRunning = false;
+        
+        // zapisanie listy plików SQL na dysk
+        await RecentSqlFiles.getInstance().persist();
+    }
 }

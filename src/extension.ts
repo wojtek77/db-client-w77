@@ -67,7 +67,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         console.log('All SQL editors closed');
 
                         if (isExtensionRunning()) {
-                            stopExtension();
+                            stopExtension(true);
                         }
                     }
 
@@ -121,9 +121,9 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(runSQL, openRecentFiles);
 }
 
-export async function deactivate() {
+export function deactivate() {
     if (isExtensionRunning()) {
-        await stopExtension();
+        stopExtension(false);
     }
 }
 
