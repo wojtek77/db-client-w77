@@ -37,10 +37,11 @@ function updatePagination(currentPage = 0, totalPages = 0) {
     document.getElementById('nextBtn').disabled = (currentPage === totalPages);
     document.getElementById('lastBtn').disabled = (currentPage === totalPages);
 }
-function updateDbAndTimes(connectionName = '-------', connectionTime = '---', queryTime = null) {
+function updateDbAndTimes(connectionName = '-------', connectionTime = null, queryTime = null) {
     // ustawienie połączenia z DB i czasów
     document.getElementById('connectionName').textContent = connectionName;
-    document.getElementById('connectionTime').textContent = connectionTime;
+    // ustawienie czasu połączenia
+    document.getElementById('connectionTime').textContent = (connectionTime === null) ? '---' : connectionTime.toFixed(2);
     // ustawienie czasu query
     let qt, qtu;
     if (queryTime === null) {

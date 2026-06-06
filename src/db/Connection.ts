@@ -7,7 +7,7 @@ export class Connection {
     private conn: mariadb.PoolConnection | null = null;
     private connected = false;
     private connectionName = '';
-    private connectionTime = '0';
+    private connectionTime = 0;
     private tableNames: string[] = [];
     private threadId: number | null = null;
     
@@ -24,7 +24,7 @@ export class Connection {
     public async connect(
         connectionName: string,
         config: mariadb.PoolConfig
-    ): Promise<string> {
+    ): Promise<number> {
         this.connectionName = connectionName;
         
         if (this.connected) {
@@ -49,7 +49,7 @@ export class Connection {
             console.error('MariaDB connection error:', err);
         });
         const endConn = performance.now();
-        this.connectionTime = (endConn - startConn).toFixed(2);
+        this.connectionTime = endConn - startConn;
         
         this.connected = true;
         
@@ -69,7 +69,7 @@ export class Connection {
         return this.connectionName;
     }
     
-    public getConnectionTime(): string {
+    public getConnectionTime(): number {
 
         return this.connectionTime;
     }

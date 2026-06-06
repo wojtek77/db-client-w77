@@ -13,7 +13,7 @@ interface FileResultState {
     sql: string;
     meta: any[];
     connectionName: string;
-    connectionTime: string;
+    connectionTime: number;
     queryTime: number;
 }
 
@@ -47,7 +47,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _fileStates = new Map<string, FileResultState>();
     
     private _connectionName: string = '';
-    private _connectionTime: string = '0';
+    private _connectionTime: number = 0;
     private _extensionPath: string;
     private _allRows: any[][] = [];
     private _headers: string[] = [];
