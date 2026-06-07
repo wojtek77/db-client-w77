@@ -1,12 +1,12 @@
 import { ConnectionManager } from './ConnectionManager';
+import { Connection } from './Connection';
 import { setGetCachedColumnsFunction } from '../sql/sqlParser';
 import { SqlUtil } from '../sql/SqlUtil';
 
 // Eksportuj funkcję do ustawienia callbacku
 export { setGetCachedColumnsFunction };
 
-export async function executeQuery(sql: string) {
-    const db = await ConnectionManager.getInstance().getDb();
+export async function executeQuery(db: Connection, sql: string) {
     let rows: any[] = [];
     let queryTime = 0;
     let success = false;

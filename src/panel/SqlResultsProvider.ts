@@ -338,13 +338,16 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             await this.show({ preserveFocus: true });
         }
         
+        // dzięki temu jeśli nie jest przypisane połączenie do pliku SQL nie wystaruje webview
+        const db = await ConnectionManager.getInstance().getDb();
+        
         this._queryRunning = true;
         this._view.webview.postMessage({
             command: 'queryStarted',
             startedAt: Date.now()
         });
         
-        const { rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(sql);
+        const { rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(db, sql);
         
         this._queryRunning = false;
         this._view?.webview.postMessage({
@@ -356,8 +359,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             this._view.webview.postMessage({ command: 'error', message: errorMessage });
             return;
         }
-        
-        const db = await ConnectionManager.getInstance().getDb();
         
         this._allRows = rows;
         this._headers = headers;
