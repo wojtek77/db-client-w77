@@ -86,11 +86,11 @@ export class Connection {
         const killConn = await this.pool.getConnection();
 
         try {
-            await killConn.query(
+            killConn.query(
                 `KILL QUERY ${this.threadId}`
             );
         } finally {
-            await killConn.end();
+            killConn.release();
         }
     }
     
