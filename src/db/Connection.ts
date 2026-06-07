@@ -86,9 +86,12 @@ export class Connection {
         const killConn = await this.pool.getConnection();
 
         try {
-            killConn.query(
+            await killConn.query(
                 `KILL QUERY ${this.threadId}`
             );
+        } catch (err: any) {
+            // Expected when cancelling a running query
+            console.debug('Cancel query:', err.message);
         } finally {
             killConn.release();
         }
