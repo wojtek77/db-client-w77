@@ -21,7 +21,11 @@ export async function startExtension(context: vscode.ExtensionContext) {
 export async function stopExtension(all = false) {
     console.log('STOP_EXTENSION');
     
+    // rozłączenie DB
     ConnectionManager.getInstance().stop();
+    
+    // zapisanie listy plików SQL na dysk
+    RecentSqlFiles.getInstance().persist();
     
     if (all) {
         // zamknięcie panelu na dole
@@ -30,8 +34,5 @@ export async function stopExtension(all = false) {
         // ⭐ UKRYJ ZAKŁADKĘ
         await vscode.commands.executeCommand('setContext', 'dbClientActive', false);
         extensionRunning = false;
-        
-        // zapisanie listy plików SQL na dysk
-        await RecentSqlFiles.getInstance().persist();
     }
 }

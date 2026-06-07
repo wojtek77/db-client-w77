@@ -1,15 +1,15 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../db/ConnectionManager';
 import * as path from 'path';
+import * as fs from 'fs';
 
 export class RecentSqlFiles {
     
     private static instance: RecentSqlFiles;
-    private static readonly STORAGE_KEY = 'sqlFiles';
+    private static readonly FILE_NAME = 'recent_sql_files.json';
     
     private sqlFiles = new Map<string, string>(); // klucz *.sql, wartość nazwa połączenia
     private lastSqlFile: string = ''; // poprawa wydajności, jeśli SQL jest uruchamiany wiele razy z tego samego pliku, nie ma przesunięcia na koniec listy w "sqlFiles"
-    private persistPromise: Promise<void> | null = null;
     
     
     public static getInstance(context?: vscode.ExtensionContext): RecentSqlFiles {
@@ -24,30 +24,55 @@ export class RecentSqlFiles {
     
     private constructor(private context: vscode.ExtensionContext) {}
     
-    public restore(): void {
-        const saved = this.context.globalState.get<[string, string][]>(
-            RecentSqlFiles.STORAGE_KEY,
-            []
-        );
-        this.sqlFiles = new Map(saved);
+    /**
+     * Zwraca pełną ścieżkę do pliku zapisu w folderze rozszerzenia
+     */
+    private getStorageFilePath(): string {
+        return path.join(this.context.globalStorageUri.fsPath, RecentSqlFiles.FILE_NAME);
     }
     
-    public async persist(): Promise<void> {
-
-        if (this.persistPromise) {
-            return this.persistPromise;
+    /**
+     * Odtwarza dane synchronicznie z pliku na dysku
+     */
+    public restore(): void {
+        try {
+            const filePath = this.getStorageFilePath();
+            if (fs.existsSync(filePath)) {
+                const rawData = fs.readFileSync(filePath, 'utf-8');
+                const saved = JSON.parse(rawData) as [string, string][];
+                this.sqlFiles = new Map(saved);
+                console.log('RecentSqlFiles: Przywrócono stan z dysku');
+            } else {
+                this.sqlFiles = new Map();
+            }
+        } catch (err) {
+            console.error('RecentSqlFiles: Błąd podczas odtwarzania stanu:', err);
+            this.sqlFiles = new Map();
         }
+    }
+    
+    /**
+     * Gwarantowany, synchroniczny zapis danych na dysku podczas zamykania
+     */
+    public persist(): void {
+        console.log('RecentSqlFiles: Rozpoczęto synchroniczne dispose');
+        try {
+            const storagePath = this.context.globalStorageUri.fsPath;
+            
+            // Upewniamy się, że katalog globalStorageUri istnieje
+            if (!fs.existsSync(storagePath)) {
+                fs.mkdirSync(storagePath, { recursive: true });
+            }
 
-        this.persistPromise = (async () => {
-            await this.context.globalState.update(
-                RecentSqlFiles.STORAGE_KEY,
-                Array.from(this.sqlFiles.entries())
-            );
-        })().finally((): void => {
-            this.persistPromise = null;
-        });
+            const filePath = this.getStorageFilePath();
+            const dataToSave = JSON.stringify(Array.from(this.sqlFiles.entries()));
 
-        return this.persistPromise;
+            // Blokujący zapis synchroniczny - VS Code nie ubije procesu przed zakończeniem zapisu
+            fs.writeFileSync(filePath, dataToSave, 'utf-8');
+            console.log('RecentSqlFiles: Zapisano pomyślnie na dysku');
+        } catch (err) {
+            console.error('RecentSqlFiles: Krytyczny błąd zapisu w dispose:', err);
+        }
     }
     
     public async getConnectionName(isOnlyUpdate = false) {
