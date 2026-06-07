@@ -210,7 +210,7 @@ window.addEventListener('message', event => {
         State.getInstance().connectionName = msg.connectionName
         State.getInstance().connectionTime = msg.connectionTime
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime);
-        showFlashMessage('Connection DB was changed', 3);
+        // showFlashMessage('Connection DB was changed', 3);
     }
     
     if (msg.command === 'updateConfirmed') {

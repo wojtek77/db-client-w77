@@ -45,13 +45,11 @@ export function getHtml(
         | ⏱
         <span id="queryTime" title="SQL execution time">---</span>
         <span id="queryTimeUnit">ms</span>
+        
+        <span id="cancelQuery" class="cancel-query" title="cancel query">cancel</span>
     </div>
         
     <div class="others">
-        <button id="cancelQuery" class="cancel-query-btn">
-            ⛔ Stop SQL
-        </button>
-        
         <span id="flashMessage"></span>
     </div>
 

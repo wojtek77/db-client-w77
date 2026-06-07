@@ -158,20 +158,24 @@ html, body {
 .others {
     flex: 1;
 }
-.cancel-query-btn {
-    background: #c62828;
-    color: white;
+.cancel-query {
+    /* background: #c62828; */
+    /* color: white; */
     font-weight: bold;
     display:none;
-    padding: 1px 7px;
-    margin-left: 1em;
+    padding: 1px 3px;
+    margin-left: 3px;
+    border: 1px solid gray;
+    border-radius: 6px;
 }
-.cancel-query-btn:hover {
-    background: #e53935;
+.cancel-query:hover {
+    cursor: pointer;
+    background: var(--vscode-editorError-background);
+    border: 1px solid var(--vscode-errorForeground);
 }
 
 #flashMessage {
-    color: orange;
+    /* color: orange; */
     font-weight: bold;
     /* display: flex; */
     opacity: 0; /* Domyślnie niewidoczny */
