@@ -7,7 +7,6 @@ import { getCachedColumnsAsStrings } from './cache/tableColumnsCache';
 import { TableCompletionProvider } from './completion/TableCompletionProvider';
 import { runSQLCommand } from './commands/runSqlCommand';
 import { openRecentFilesCommand } from './commands/openRecentFilesCommand';
-import { ConnectionManager } from './db/ConnectionManager';
 
 
 let previousSqlEditors = 0;
@@ -120,13 +119,11 @@ export async function activate(context: vscode.ExtensionContext) {
         await openRecentFilesCommand();
     });
     context.subscriptions.push(runSQL, openRecentFiles);
-    
-    context.subscriptions.push(ConnectionManager.getInstance());
 }
 
 export function deactivate() {
     if (isExtensionRunning()) {
-        // stopExtension(false);
+        stopExtension(false);
     }
 }
 
