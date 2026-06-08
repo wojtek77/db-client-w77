@@ -18,8 +18,11 @@ export async function runSQLCommand() {
     const fullText = editor.document.getText();
     const currentLine = editor.selection.active.line; // Bezpośredni numer linii z VS Code
 
-    let sql = findCurrentQuery(fullText, currentLine);
-    
+    let currentQuery = findCurrentQuery(fullText, currentLine);
+    if (!currentQuery) {
+        return;
+    }
+    const sql = currentQuery.sql;
     if (!sql || sql.trim() === '') {
         vscode.window.showWarningMessage('Nie znaleziono zapytania SQL pod kursorem');
         return;

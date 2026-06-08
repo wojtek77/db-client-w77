@@ -8,7 +8,8 @@ export class Connection {
     private connected = false;
     private connectionName = '';
     private connectionTime = 0;
-    private tableNames: string[] = [];
+    private database = '';
+    private schemaTables = new Map<string, string[]>();
     private threadId: number | null = null;
     
     public static async create(cnfFile: string): Promise<Connection> {
@@ -55,8 +56,8 @@ export class Connection {
         
         // Po połączeniu, pobierz nazwy tabel
         try {
-            const databaseName = config.database || '';
-            this.tableNames = await this.readTableNames(this.conn, databaseName);
+            this.database = config.database ?? '';
+            this.schemaTables = await this.readTableNames(this.conn);
         } catch (err) {
             console.error('Nie udało się pobrać tabel:', err);
         }
@@ -97,9 +98,56 @@ export class Connection {
         }
     }
     
-    public getTableNames(): string[] {
+    public getSchemas(): string[] {
+        return [
+            ...this.schemaTables.keys()
+        ];
+    }
+    
+    public getTableNames(): Map<string, string[]> {
 
-        return this.tableNames;
+        return this.schemaTables;
+    }
+    
+    public getTables(schema: string): string[] {
+        return (
+            this.schemaTables.get(schema)
+            ?? []
+        );
+    }
+    
+    public getDefaultDatabaseTables(): string[] {
+        if (!this.database) {
+            return [];
+        }
+        return (
+            this.schemaTables.get(
+                this.database
+            ) ?? []
+        );
+    }
+    
+    public findSchemaByTable(
+        tableName: string
+    ): string | null {
+
+        for (
+            const [schema, tables]
+            of this.schemaTables
+        ) {
+            if (
+                tables.includes(tableName)
+            ) {
+                return schema;
+            }
+        }
+
+        return null;
+    }
+
+    public getDatabase(): string {
+
+        return this.database;
     }
 
     public getConnection() {
@@ -136,36 +184,119 @@ export class Connection {
         }
     }
     
-    private async readTableNames(conn: mariadb.PoolConnection, database?: string): Promise<string[]> {
-        let tables: string[] = [];
-        
+    private async readTableNames(
+        conn: mariadb.PoolConnection
+    ): Promise<Map<string, string[]>> {
+
+        const schemaTables = new Map<
+            string,
+            string[]
+        >();
+
         try {
-            let sql;
-            if (database) {
-                // Jeśli podano konkretną bazę danych
-                sql = `
-                    SELECT TABLE_NAME 
-                    FROM INFORMATION_SCHEMA.TABLES 
-                    WHERE TABLE_SCHEMA = '${database}'
-                    ORDER BY TABLE_NAME
-                `;
-            } else {
-                // SQL dla MariaDB/MySQL - pobiera nazwy tabel z aktywnej bazy
-                sql = `
-                    SELECT TABLE_NAME 
-                    FROM INFORMATION_SCHEMA.TABLES 
-                    WHERE TABLE_SCHEMA = DATABASE()
-                    ORDER BY TABLE_NAME
-                `
+
+            /* 
+                WHERE TABLE_TYPE = 'BASE TABLE' ozn. bez widoków
+            */
+            const rows = await conn.query(`
+                SELECT
+                    TABLE_SCHEMA,
+                    TABLE_NAME
+                FROM INFORMATION_SCHEMA.TABLES
+            `);
+
+            for (const row of rows) {
+
+                const schema =
+                    row.TABLE_SCHEMA;
+
+                const table =
+                    row.TABLE_NAME;
+
+                let tables =
+                    schemaTables.get(schema);
+
+                if (!tables) {
+
+                    tables = [];
+
+                    schemaTables.set(
+                        schema,
+                        tables
+                    );
+                }
+
+                tables.push(table);
+            }
+
+            const systemSchemas = new Set([
+                'information_schema',
+                'mysql',
+                'performance_schema',
+                'sys'
+            ]);
+            
+            // console.log(
+            //     'Schemas:',
+            //     [...schemaTables.keys()]
+            // );
+
+            const sortedSchemas =
+                [...schemaTables.keys()]
+                    .sort((a, b) => {
+
+                        const aSystem =
+                            systemSchemas.has(a);
+
+                        const bSystem =
+                            systemSchemas.has(b);
+
+                        if (
+                            aSystem !== bSystem
+                        ) {
+                            return aSystem
+                                ? 1
+                                : -1;
+                        }
+
+                        return a.localeCompare(b);
+                    });
+
+            const sortedMap =
+                new Map<string, string[]>();
+
+            for (
+                const schema of sortedSchemas
+            ) {
+
+                const tables =
+                    schemaTables.get(schema)!;
+
+                tables.sort(
+                    (a, b) =>
+                        a.localeCompare(b)
+                );
+
+                sortedMap.set(
+                    schema,
+                    tables
+                );
             }
             
-            const rows = await conn.query(sql);
-            tables = rows.map((row: any) => row.TABLE_NAME);
-            
-        } catch (err: any) {
-            console.error('Błąd pobierania tabel:', err);
+            // console.log(
+            //     sortedMap
+            // );
+
+            return sortedMap;
+
+        } catch (err) {
+
+            console.error(
+                'Unable to read table metadata',
+                err
+            );
+
+            return new Map();
         }
-        
-        return tables;
     }
 }

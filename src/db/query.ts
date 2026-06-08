@@ -1,10 +1,10 @@
 import { ConnectionManager } from './ConnectionManager';
 import { Connection } from './Connection';
-import { setGetCachedColumnsFunction } from '../sql/sqlParser';
 import { SqlUtil } from '../sql/SqlUtil';
+import { TableColumn } from '../cache/tableColumnsCache';
 
 // Eksportuj funkcję do ustawienia callbacku
-export { setGetCachedColumnsFunction };
+// export { setGetCachedColumnsFunction };
 
 export async function executeQuery(db: Connection, sql: string) {
     let rows: any[] = [];
@@ -40,18 +40,10 @@ export async function executeQuery(db: Connection, sql: string) {
     return { rows, headers, meta, queryTime, success, errorMessage };
 }
 
-export async function getTableColumns(tableName: string): Promise<{ 
-    name: string, 
-    order: number,
-    type: string,
-    isNullable: string,
-    defaultValue: any,
-    columnKey: string,
-    extra: string,
-    characterMaximumLength: number | null,  // dla VARCHAR, CHAR
-    numericPrecision: number | null,        // dla INT, DECIMAL
-    numericScale: number | null             // dla DECIMAL (liczba miejsc po przecinku)
-}[]> {
+export async function getTableColumns(
+    schema: string,
+    tableName: string
+): Promise<TableColumn[]> {
     const db = await ConnectionManager.getInstance().getDb();
     let columns: any[] = [];
     
@@ -70,13 +62,13 @@ export async function getTableColumns(tableName: string): Promise<{
                 CHARACTER_MAXIMUM_LENGTH,
                 NUMERIC_PRECISION,
                 NUMERIC_SCALE
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = '${tableName}'
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = ?
+            AND TABLE_NAME = ?
             ORDER BY ORDINAL_POSITION
         `;
         
-        const rows = await conn.query(sql);
+        const rows = await conn.query(sql, [schema, tableName]);
         columns = rows.map((row: any) => ({
             name: row.COLUMN_NAME,
             order: row.ORDINAL_POSITION,

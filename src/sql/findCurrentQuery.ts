@@ -1,45 +1,74 @@
-export function findCurrentQuery(text: string, currentLine: number): string | null {
-    const lines = text.split('\n');
+export interface CurrentQuery {
+    sql: string;
+    startLine: number;
+    endLine: number;
+}
 
-    // Pomocnicza funkcja realizująca punkt 2 (definicja "pustej linii")
-    // Zwraca true, jeśli indeks wykracza poza dokument lub linia zawiera tylko białe znaki
-    const isEmptyOrBoundary = (index: number): boolean => {
-        if (index < 0 || index >= lines.length) {
-            return true; // Początek lub koniec dokumentu
-        }
-        return lines[index].trim() === ''; // Linia zupełnie pusta lub tylko z białymi znakami
-    };
+export function findCurrentQuery(
+    text: string,
+    currentLine: number
+): CurrentQuery | null {
 
-    // KROK 1: Sprawdzenie linii, w której stoi kursor
-    if (isEmptyOrBoundary(currentLine)) {
-        return null; // Wychodzimy z funkcji bez znalezionego SQL-a
+    const lines =
+        text.split('\n');
+
+    if (
+        currentLine < 0 ||
+        currentLine >= lines.length ||
+        lines[currentLine].trim() === ''
+    ) {
+        return null;
     }
 
-    // KROK 3: Szukanie początku kodu SQL (idziemy w górę)
-    let startLine = currentLine;
-    while (!isEmptyOrBoundary(startLine)) {
+    let startLine =
+        currentLine;
+
+    while (startLine > 0) {
+
+        const previousLine =
+            lines[startLine - 1].trim();
+
+        if (
+            previousLine === '' ||
+            previousLine.endsWith(';')
+        ) {
+            break;
+        }
+
         startLine--;
     }
 
-    // KROK 4: Korekta po znalezieniu pustej linii / granicy dokumentu
-    // Jeśli zatrzymaliśmy się, bo i < 0 (początek dokumentu), to startLine wynosi -1.
-    // Wtedy pierwsza linia to 0 (nie zwiększamy). W innym przypadku zwiększamy o 1.
-    if (startLine < 0) {
-        startLine = 0;
-    } else {
-        startLine = startLine + 1;
-    }
+    let endLine =
+        currentLine;
 
-    // KROK 5: Szukanie końca kodu SQL (idziemy w dół od znalezionego początku)
-    let endLine = startLine;
-    while (!isEmptyOrBoundary(endLine)) {
+    while (endLine < lines.length - 1) {
+
+        const current =
+            lines[endLine].trim();
+
+        if (current.endsWith(';')) {
+            break;
+        }
+
+        const nextLine =
+            lines[endLine + 1].trim();
+
+        if (nextLine === '') {
+            break;
+        }
+
         endLine++;
     }
-    // Cofamy o 1, ponieważ pętla zatrzymała się na pierwszej "pustej linii" za kodem
-    endLine = endLine - 1;
 
-    // Wycinamy linie i łączymy je w jeden tekst
-    const queryLines = lines.slice(startLine, endLine + 1);
-    
-    return queryLines.join('\n').trim();
+    return {
+        sql: lines
+            .slice(
+                startLine,
+                endLine + 1
+            )
+            .join('\n')
+            .trim(),
+        startLine,
+        endLine
+    }
 }

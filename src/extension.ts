@@ -1,9 +1,7 @@
 import * as vscode from 'vscode';
 import { SqlResultsProvider } from './panel/SqlResultsProvider';
-import { setGetCachedColumnsFunction } from './db/query';
 import { RecentSqlFiles } from './recentFiles/RecentSqlFiles';
 import { isExtensionRunning, startExtension, stopExtension } from './lifecycle/extensionLifecycle';
-import { getCachedColumnsAsStrings } from './cache/tableColumnsCache';
 import { TableCompletionProvider } from './completion/TableCompletionProvider';
 import { runSQLCommand } from './commands/runSqlCommand';
 import { openRecentFilesCommand } from './commands/openRecentFilesCommand';
@@ -15,8 +13,6 @@ let stopTimeout: NodeJS.Timeout | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log(new Date().toLocaleTimeString('pl-PL', { hour12: false }));
-    
-    configureExtension();
     
     // wczytanie listy plików SQL z dysku
     RecentSqlFiles.getInstance(context).restore();
@@ -125,9 +121,4 @@ export function deactivate() {
     if (isExtensionRunning()) {
         stopExtension(false);
     }
-}
-
-function configureExtension() {
-    // ⭐ Ustaw callback dla parsera SQL
-    setGetCachedColumnsFunction(getCachedColumnsAsStrings);
 }

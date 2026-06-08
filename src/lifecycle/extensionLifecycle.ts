@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../db/ConnectionManager';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles';
+import { clearTableColumnsCache } from '../cache/tableColumnsCache';
 
 let extensionRunning = false;
 
@@ -26,6 +27,9 @@ export async function stopExtension(all = false) {
     
     // zapisanie listy plików SQL na dysk
     RecentSqlFiles.getInstance().persist();
+    
+    // czyszczenie cache tabel z polami
+    clearTableColumnsCache();
     
     if (all) {
         // zamknięcie panelu na dole

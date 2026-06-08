@@ -242,8 +242,18 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 vscode.window.showErrorMessage('Nie można określić źródłowej tabeli lub kolumny');
                 return;
             }
+            
+            // console.log();
+            // console.log(Object.getPrototypeOf(field));
+            // console.table(field);
 
-            const tableColumns = await getCachedColumns(tableName);
+            const schema = field.schema?.();
+            if (!schema) {
+                vscode.window.showErrorMessage(`Nie można określić schema dla tabeli ${tableName}`);
+                return;
+            }
+            
+            const tableColumns = await getCachedColumns(schema, tableName);
 
             const primaryKeys = tableColumns.filter((c: any) => c.columnKey === 'PRI');
 
@@ -275,7 +285,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
 
             const updateSQL = `
-                UPDATE \`${tableName}\`
+                UPDATE \`${schema}\`.\`${tableName}\`
                 SET \`${columnName}\` = ?
                 WHERE ${whereParts.join(' AND ')}
             `;
