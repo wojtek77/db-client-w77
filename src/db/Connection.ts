@@ -11,9 +11,11 @@ export class Connection {
     private database = '';
     private schemaTables = new Map<string, string[]>();
     private threadId: number | null = null;
+    private cnfFile = '';
     
     public static async create(cnfFile: string): Promise<Connection> {
         const db = new this();
+        db.cnfFile = cnfFile;
         const connectionName = path.basename(cnfFile, '.cnf');
         const cnfOptions = await CnfLoader.getOptionsFromCnf(cnfFile);
         await db.connect(connectionName, cnfOptions);
@@ -34,7 +36,7 @@ export class Connection {
         
         this.pool = mariadb.createPool({
             ...config,
-            connectionLimit: 2,
+            connectionLimit: 1,
             connectTimeout: 10000,
             acquireTimeout: 10000,
             supportBigNumbers: true,
@@ -80,21 +82,19 @@ export class Connection {
     }
     
     public async cancelCurrentQuery(): Promise<void> {
-        if (!this.pool || !this.threadId) {
+        if (!this.threadId || !this.cnfFile) {
             return;
         }
 
-        const killConn = await this.pool.getConnection();
-
+        const killConn = await Connection.create(this.cnfFile);
         try {
-            await killConn.query(
+            await killConn.getConnection().query(
                 `KILL QUERY ${this.threadId}`
             );
         } catch (err: any) {
-            // Expected when cancelling a running query
             console.debug('Cancel query:', err.message);
         } finally {
-            killConn.release();
+            killConn.disconnect();
         }
     }
     
