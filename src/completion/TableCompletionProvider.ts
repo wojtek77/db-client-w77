@@ -20,6 +20,17 @@ export class TableCompletionProvider
                 .text
                 .substring(0, position.character);
 
+        const currentQuery =
+                findCurrentQuery(
+                    document.getText(),
+                    position.line
+                );
+            if (!currentQuery) {
+                return [];
+            }
+            const fullText =
+                currentQuery.sql;
+        
         /*
             FROM schema.
             JOIN schema.
@@ -224,11 +235,6 @@ export class TableCompletionProvider
             const fullText =
                 currentQuery.sql;
 
-            const currentLine =
-                document.lineAt(
-                    position.line
-                ).text;
-
             let tableRef: {
                 schema: string;
                 table: string;
@@ -327,16 +333,6 @@ export class TableCompletionProvider
         /*
             SELECT <Ctrl+Space>
         */
-        const currentQuery =
-            findCurrentQuery(
-                document.getText(),
-                position.line
-            );
-        if (!currentQuery) {
-            return [];
-        }
-        const fullText =
-            currentQuery.sql;
         const queryStartOffset =
             document.offsetAt(
                 new vscode.Position(
@@ -374,17 +370,6 @@ export class TableCompletionProvider
 
             const defaultSchema =
                 db.getDatabase();
-
-            const currentQuery =
-                findCurrentQuery(
-                    document.getText(),
-                    position.line
-                );
-            if (!currentQuery) {
-                return [];
-            }
-            const fullText =
-                currentQuery.sql;
 
             const result:
                 vscode.CompletionItem[] = [];
