@@ -123,4 +123,17 @@ function registerEvents(vscode) {
             });
         }
     });
+    
+    /* zmiana koloru DB */
+    document.addEventListener('DOMContentLoaded', () => {
+
+        const btn = document.getElementById('connectionColorBtn');
+        if (btn) {
+            btn.addEventListener('click', () => {
+                vscode.postMessage({
+                    command: 'pickConnectionColor'
+                });
+            });
+        }
+    });
 }

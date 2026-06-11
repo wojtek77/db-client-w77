@@ -36,9 +36,9 @@ export function getHtml(
 
 <body>
 
-<div class="toolbar">
+<div class="toolbar" id="connectionColor">
 
-    <div class="stats" id="stats">
+    <div class="stats">
         <span id="connectionName" title="Click to change DB connection">-------</span>
         <span id="connectionColorBtn" class="connection-color-btn" title="Set color for this connection">✎</span>
         | ⏱
@@ -47,49 +47,49 @@ export function getHtml(
         <span id="queryTime" title="SQL execution time">---</span>
         <span id="queryTimeUnit">ms</span>
         
-        <span id="cancelQuery" class="cancel-query" title="cancel query">cancel</span>
+        <span id="cancelQuery" class="cancel-query btn" title="cancel query">cancel</span>
     </div>
         
     <div class="others">
         <span id="flashMessage"></span>
     </div>
 
-    <button onclick="openRecentFiles()">
-        📚 Recent files
-    </button>
+    <span class="btn" onclick="openRecentFiles()">
+        Recent files
+    </span>
     
-    <button onclick="exportToCSV()">
-        📊 Export CSV
-    </button>
+    <span class="btn" onclick="exportToCSV()">
+        Export CSV
+    </span>
     
-    <button onclick="exportToTXT()">
-        📊 Export TXT
-    </button>
+    <span class="btn" onclick="exportToTXT()">
+        Export TXT
+    </span>
 
     <div class="pagination">
 
-        <button onclick="firstPage()" id="firstBtn">
-            ⏮️
-        </button>
+        <span class="btn" onclick="firstPage()" id="firstBtn">
+            ⏮
+        </span>
 
-        <button onclick="prevPage()" id="prevBtn">
+        <span class="btn" onclick="prevPage()" id="prevBtn">
             ◀
-        </button>
+        </span>
 
         <span class="page-info">
-            Strona
+            page
             <span id="currentPage">1</span>
-            z
+            of
             <span id="totalPages">1</span>
         </span>
 
-        <button onclick="nextPage()" id="nextBtn">
+        <span class="btn" onclick="nextPage()" id="nextBtn">
             ▶
-        </button>
+        </span>
 
-        <button onclick="lastPage()" id="lastBtn">
-            ⏭️
-        </button>
+        <span class="btn" onclick="lastPage()" id="lastBtn">
+            ⏭
+        </span>
 
     </div>
 

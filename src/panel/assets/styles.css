@@ -141,15 +141,16 @@ html, body {
     gap: 10px;
     align-items: center;
     flex-shrink: 0;
+    color: gray;
+    font-weight: bold;
 }
 
 .stats {
     /* flex: 1; */
-    color: gray;
     font-size: 13px;
 }
 .stats span {
-    font-weight: bold;
+    /* font-weight: bold; */
 }
 .stats span#connectionName {
     cursor: pointer;
@@ -169,15 +170,18 @@ html, body {
 .others {
     flex: 1;
 }
+.btn {
+    padding: 1px 3px;
+    margin-left: 3px;
+    border: 1px solid gray;
+    border-radius: 6px;
+    cursor: pointer;
+}
 .cancel-query {
     /* background: #c62828; */
     /* color: white; */
     font-weight: bold;
     display:none;
-    padding: 1px 3px;
-    margin-left: 3px;
-    border: 1px solid gray;
-    border-radius: 6px;
 }
 .cancel-query:hover {
     cursor: pointer;
@@ -212,28 +216,9 @@ html, body {
     align-items: center;
 }
 
-button {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-    border: none;
-    padding: 4px 12px;
-    cursor: pointer;
-    border-radius: 2px;
-    font-size: 11px;
-}
-
-button:hover {
-    background: var(--vscode-button-hoverBackground);
-}
-
-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
 .page-info {
     font-size: 11px;
-    margin: 0 10px;
+    /* margin: 0 10px; */
 }
 
 /* spinner overlay */

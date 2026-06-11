@@ -51,7 +51,7 @@ export class ConnectionColors {
 
         const items = COLOR_OPTIONS.map(opt => ({
             label: opt.label,
-            description: opt.color === currentColor ? '✓ aktualny' : undefined,
+            description: opt.color === currentColor ? '✓ selected' : undefined,
             color: opt.color,
         }));
 

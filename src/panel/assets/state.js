@@ -12,6 +12,7 @@
  * @property {string} connectionName - Nazwa połączenia z DB.
  * @property {string} connectionTime - Czas połączenia z DB.
  * @property {string} queryTime - Czas wykonania ostatniego SQL-a.
+ * @property {string} connectionColor - Kolor dla połącznia DB.
  */
 
 class State {

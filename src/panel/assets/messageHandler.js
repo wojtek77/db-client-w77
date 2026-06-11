@@ -41,7 +41,7 @@ function updateDbAndTimes(connectionName = '-------', connectionTime = null, que
     // ustawienie połączenia z DB i czasów
     const connNameEl = document.getElementById('connectionName');
     connNameEl.textContent = connectionName;
-    document.getElementById('stats').style.color = connectionColor ?? '';
+    document.getElementById('connectionColor').style.color = connectionColor ?? '';
     // ustawienie czasu połączenia
     document.getElementById('connectionTime').textContent = (connectionTime === null) ? '---' : connectionTime.toFixed(2);
     // ustawienie czasu query
