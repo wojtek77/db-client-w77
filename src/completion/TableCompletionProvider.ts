@@ -566,25 +566,21 @@ export class TableCompletionProvider
 
         const item =
             new vscode.CompletionItem(
-                `${fn.name}()`,
+                `${fn.signature}`,
                 vscode.CompletionItemKind.Function
             );
+        
+        item.filterText =
+            fn.name;
 
         item.insertText =
             new vscode.SnippetString(
                 fn.snippet
             );
 
-        item.detail =
-            fn.signature;
-
         item.documentation =
             new vscode.MarkdownString(
-                [
-                    `**${fn.signature}**`,
-                    '',
-                    fn.description
-                ].join('\n')
+                fn.documentation
             );
 
         item.sortText =
