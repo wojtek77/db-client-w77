@@ -1,5 +1,7 @@
 # db-client-w77 README
 
+sudo apt install fonts-noto-color-emoji
+
 This is the README for your extension "db-client-w77". After writing up a brief description, we recommend including the following sections.
 
 ## Features

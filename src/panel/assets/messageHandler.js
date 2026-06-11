@@ -37,9 +37,11 @@ function updatePagination(currentPage = 0, totalPages = 0) {
     document.getElementById('nextBtn').disabled = (currentPage === totalPages);
     document.getElementById('lastBtn').disabled = (currentPage === totalPages);
 }
-function updateDbAndTimes(connectionName = '-------', connectionTime = null, queryTime = null) {
+function updateDbAndTimes(connectionName = '-------', connectionTime = null, queryTime = null, connectionColor = null) {
     // ustawienie połączenia z DB i czasów
-    document.getElementById('connectionName').textContent = connectionName;
+    const connNameEl = document.getElementById('connectionName');
+    connNameEl.textContent = connectionName;
+    document.getElementById('stats').style.color = connectionColor ?? '';
     // ustawienie czasu połączenia
     document.getElementById('connectionTime').textContent = (connectionTime === null) ? '---' : connectionTime.toFixed(2);
     // ustawienie czasu query
@@ -126,7 +128,8 @@ window.addEventListener('message', event => {
         State.getInstance().connectionName = msg.connectionName
         State.getInstance().connectionTime = msg.connectionTime
         State.getInstance().queryTime = msg.queryTime
-        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime);
+        State.getInstance().connectionColor = msg.connectionColor ?? null
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         
         const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
@@ -184,8 +187,11 @@ window.addEventListener('message', event => {
         State.init(msg.sqlFile);
         sqlFile = msg.sqlFile;
         
+        // zaktualizuj kolor (może się zmienić po pickConnectionColor)
+        State.getInstance().connectionColor = msg.connectionColor ?? null;
+        
         startGridContainer();
-        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime);
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         
         // renderowanie HTML
@@ -209,7 +215,8 @@ window.addEventListener('message', event => {
     if (msg.command === 'changeConnection') {
         State.getInstance().connectionName = msg.connectionName
         State.getInstance().connectionTime = msg.connectionTime
-        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime);
+        State.getInstance().connectionColor = msg.connectionColor ?? null
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, null, State.getInstance().connectionColor);
         // showFlashMessage('Connection DB was changed', 3);
     }
     

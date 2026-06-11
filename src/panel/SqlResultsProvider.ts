@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles';
 import { getCachedColumnsBatch, getTableRefKey } from '../cache/tableColumnsCache';
+import { ConnectionColors } from '../db/ConnectionColors';
 
 interface FileResultState {
     rows: any[][];
@@ -15,6 +16,7 @@ interface FileResultState {
     connectionName: string;
     connectionTime: number;
     queryTime: number;
+    connectionColor: string | null;
 }
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
@@ -48,6 +50,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     
     private _connectionName: string = '';
     private _connectionTime: number = 0;
+    private _connectionColor: string | null = null;
     private _extensionPath: string;
     private _allRows: any[][] = [];
     private _headers: string[] = [];
@@ -123,6 +126,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (msg.command === 'cancelQuery') {
                 await this.cancelCurrentQuery();
             }
+            
+            if (msg.command === 'pickConnectionColor') {
+                await this.pickConnectionColor();
+            }
         });
     }
     
@@ -192,6 +199,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 connectionName: this._connectionName,
                 connectionTime: this._connectionTime,
                 queryTime: this._lastQueryTime,
+                connectionColor: this._connectionColor,
                 isEncoded: true,
                 sentAt: Date.now() // znacznik czasu w ms
             });
@@ -378,6 +386,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._connectionName = db.getConnectionName();
         this._connectionTime = db.getConnectionTime();
         this._lastQueryTime = queryTime;
+        this._connectionColor = ConnectionColors.getInstance().getColor(this._connectionName);
         this._currentPage = 1;
         
         this._fileStates.set(sqlFile, {
@@ -388,6 +397,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             connectionName: this._connectionName,
             connectionTime: this._connectionTime,
             queryTime: this._lastQueryTime,
+            connectionColor: this._connectionColor,
         });
         
         // wysłanie info o tym że dane się łądują (blur)
@@ -419,10 +429,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._lastQueryTime = state.queryTime;
         this._connectionName = state.connectionName;
         this._connectionTime = state.connectionTime;
+        this._connectionColor = state.connectionColor ?? null;
 
         this._view.webview.postMessage({
             command: 'showResultsForFile',
             sqlFile: sqlFile,
+            connectionColor: this._connectionColor,
             sentAt: Date.now() // znacznik czasu w ms
         });
     }
@@ -448,12 +460,44 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         this._connectionName = connectionName;
         this._connectionTime = db.getConnectionTime();
+        this._connectionColor = ConnectionColors.getInstance().getColor(this._connectionName);
 
         if (this._view) {
             this._view.webview.postMessage({
                 command: 'changeConnection',
                 connectionName: this._connectionName,
                 connectionTime: this._connectionTime,
+                connectionColor: this._connectionColor,
+            });
+        }
+    }
+    
+    private async pickConnectionColor() {
+        if (!this._connectionName) {
+            return;
+        }
+
+        const newColor = await ConnectionColors.getInstance().pickColor(this._connectionName);
+
+        if (newColor === undefined) {
+            return; // anulowano
+        }
+
+        this._connectionColor = newColor;
+
+        // Zaktualizuj kolor we wszystkich zapisanych stanach dla tego połączenia
+        for (const [file, state] of this._fileStates.entries()) {
+            if (state.connectionName === this._connectionName) {
+                state.connectionColor = newColor;
+            }
+        }
+
+        if (this._view) {
+            this._view.webview.postMessage({
+                command: 'changeConnection',
+                connectionName: this._connectionName,
+                connectionTime: this._connectionTime,
+                connectionColor: this._connectionColor,
             });
         }
     }

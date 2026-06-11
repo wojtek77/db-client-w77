@@ -38,9 +38,10 @@ export function getHtml(
 
 <div class="toolbar">
 
-    <div class="stats">
+    <div class="stats" id="stats">
         <span id="connectionName" title="Click to change DB connection">-------</span>
-        ⏱
+        <span id="connectionColorBtn" class="connection-color-btn" title="Set color for this connection">✎</span>
+        | ⏱
         <span id="connectionTime" title="DB connection time">---</span> ms
         | ⏱
         <span id="queryTime" title="SQL execution time">---</span>

@@ -34,6 +34,7 @@ class State {
                 connectionName: '-------',
                 connectionTime: '---',
                 queryTime: 0,
+                connectionColor: null,
             });
         }
 

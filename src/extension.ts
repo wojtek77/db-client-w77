@@ -5,6 +5,7 @@ import { isExtensionRunning, startExtension, stopExtension } from './lifecycle/e
 import { TableCompletionProvider } from './completion/TableCompletionProvider';
 import { runSQLCommand } from './commands/runSqlCommand';
 import { openRecentFilesCommand } from './commands/openRecentFilesCommand';
+import { ConnectionColors } from './db/ConnectionColors';
 
 
 let previousSqlEditors = 0;
@@ -16,6 +17,9 @@ export async function activate(context: vscode.ExtensionContext) {
     
     // wczytanie listy plików SQL z dysku
     RecentSqlFiles.getInstance(context).restore();
+    
+    // inicjalizacja kolorów połączeń
+    ConnectionColors.initialize(context);
     
     previousSqlEditors = vscode.window.visibleTextEditors.filter(
         e => e.document.languageId === 'sql'

@@ -154,6 +154,17 @@ html, body {
 .stats span#connectionName {
     cursor: pointer;
 }
+.connection-color-btn {
+    cursor: pointer;
+    opacity: 0.4;
+    font-size: 11px;
+    margin-left: 2px;
+    user-select: none;
+    transition: opacity 0.15s;
+}
+.connection-color-btn:hover {
+    opacity: 1;
+}
 
 .others {
     flex: 1;
