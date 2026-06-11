@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../db/ConnectionManager';
-import { getCachedColumns, TableColumn } from '../cache/tableColumnsCache';
+import { getCachedColumnsBatch, getTableRefKey, TableColumn, TableRef } from '../cache/tableColumnsCache';
 import { formatColumnType } from './columnFormatter';
 import { findCurrentQuery } from '../sql/findCurrentQuery';
+import { findQueryTables } from '../sql/findQueryTables';
+import { SQL_FUNCTIONS, SqlFunction } from './sqlFunctions';
 
 export class TableCompletionProvider
     implements vscode.CompletionItemProvider {
@@ -10,8 +12,6 @@ export class TableCompletionProvider
     async provideCompletionItems(
         document: vscode.TextDocument,
         position: vscode.Position,
-        token: vscode.CancellationToken,
-        context: vscode.CompletionContext
     ): Promise<vscode.CompletionItem[]> {
 
         const linePrefix =
@@ -209,11 +209,15 @@ export class TableCompletionProvider
                 const table =
                     parts[1];
 
+                const columnsMap =
+                    await getCachedColumnsBatch([
+                        {
+                            schema,
+                            table
+                        }
+                    ]);
                 const columns =
-                    await getCachedColumns(
-                        schema,
-                        table
-                    );
+                    columnsMap[getTableRefKey({schema, table})] ?? [];
 
                 return columns.map(
                     column =>
@@ -224,21 +228,7 @@ export class TableCompletionProvider
                 );
             }
 
-            const currentQuery =
-                findCurrentQuery(
-                    document.getText(),
-                    position.line
-                );
-            if (!currentQuery) {
-                return [];
-            }
-            const fullText =
-                currentQuery.sql;
-
-            let tableRef: {
-                schema: string;
-                table: string;
-            } | null = null;
+            let tableRef: TableRef | null = null;
 
             const db =
                 await ConnectionManager
@@ -313,12 +303,17 @@ export class TableCompletionProvider
             }
 
             if (tableRef) {
-
-                const columns =
-                    await getCachedColumns(
-                        tableRef.schema,
-                        tableRef.table
+                
+                const tableRefs =
+                    findQueryTables(
+                        fullText,
+                        defaultSchema,
+                        db
                     );
+                const columnsMap =
+                    await getCachedColumnsBatch(tableRefs);
+                const columns =
+                    columnsMap[getTableRefKey(tableRef)] ?? [];
 
                 return columns.map(
                     column =>
@@ -374,61 +369,28 @@ export class TableCompletionProvider
             const result:
                 vscode.CompletionItem[] = [];
 
-            const tableRefs: Array<{
-                schema: string;
-                table: string;
-            }> = [];
-
-            const regex =
-                /\b(?:from|join)\s+(?:(\w+)\s*\.\s*)?(\w+)/gi;
-
-            let match:
-                RegExpExecArray | null;
-
-            while (
-                (match = regex.exec(fullText))
-                !== null
-            ) {
-
-                tableRefs.push({
-
-                    schema:
-                        match[1]
-                        ?? defaultSchema,
-
-                    table:
-                        match[2]
-                });
-            }
+            const tableRefs =
+                findQueryTables(
+                    fullText,
+                    defaultSchema,
+                    db
+                );
             
-            const addedColumns =
-                new Set<string>();
+            const columnsMap =
+                await getCachedColumnsBatch(
+                    tableRefs
+                );
 
             for (
                 const tableRef of tableRefs
             ) {
 
                 const columns =
-                    await getCachedColumns(
-                        tableRef.schema,
-                        tableRef.table
-                    );
-                
+                    columnsMap[getTableRefKey(tableRef)] ?? [];
+
                 for (
                     const column of columns
                 ) {
-                    if (
-                        addedColumns.has(
-                            column.name
-                        )
-                    ) {
-                        continue;
-                    }
-
-                    addedColumns.add(
-                        column.name
-                    );
-
                     result.push(
                         this.createColumnItem(
                             tableRef.table,
@@ -436,6 +398,18 @@ export class TableCompletionProvider
                         )
                     );
                 }
+            }
+            
+            for (
+                const fn
+                of SQL_FUNCTIONS
+            ) {
+
+                result.push(
+                    this.createFunctionItem(
+                        fn
+                    )
+                );
             }
 
             return result;
@@ -510,6 +484,9 @@ export class TableCompletionProvider
                 column.name,
                 vscode.CompletionItemKind.Field
             );
+        
+        item.sortText =
+            `0_${column.name}`;
 
         item.insertText =
             column.name;
@@ -579,6 +556,39 @@ export class TableCompletionProvider
 
         item.documentation =
             `${tableName}.${column.name}\n\n${details.join('\n')}`;
+
+        return item;
+    }
+    
+    private createFunctionItem(
+        fn: SqlFunction
+    ): vscode.CompletionItem {
+
+        const item =
+            new vscode.CompletionItem(
+                `${fn.name}()`,
+                vscode.CompletionItemKind.Function
+            );
+
+        item.insertText =
+            new vscode.SnippetString(
+                fn.snippet
+            );
+
+        item.detail =
+            fn.signature;
+
+        item.documentation =
+            new vscode.MarkdownString(
+                [
+                    `**${fn.signature}**`,
+                    '',
+                    fn.description
+                ].join('\n')
+            );
+
+        item.sortText =
+            `9_${fn.name}`;
 
         return item;
     }

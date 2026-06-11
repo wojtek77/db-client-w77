@@ -1,10 +1,7 @@
 import { ConnectionManager } from './ConnectionManager';
 import { Connection } from './Connection';
 import { SqlUtil } from '../sql/SqlUtil';
-import { TableColumn } from '../cache/tableColumnsCache';
-
-// Eksportuj funkcję do ustawienia callbacku
-// export { setGetCachedColumnsFunction };
+import { TableColumn, TableRef } from '../cache/tableColumnsCache';
 
 export async function executeQuery(db: Connection, sql: string) {
     let rows: any[] = [];
@@ -40,19 +37,39 @@ export async function executeQuery(db: Connection, sql: string) {
     return { rows, headers, meta, queryTime, success, errorMessage };
 }
 
-export async function getTableColumns(
-    schema: string,
-    tableName: string
+export async function getTableColumnsBatch(
+    tables: TableRef[]
 ): Promise<TableColumn[]> {
-    const db = await ConnectionManager.getInstance().getDb();
-    let columns: any[] = [];
+
+    if (tables.length === 0) {
+        return [];
+    }
     
+    const db = await ConnectionManager.getInstance().getDb();
+
     try {
         const conn = db.getConnection();
-        
+
+        const placeholders =
+            tables
+                .map(
+                    () => '(?, ?)'
+                )
+                .join(', ');
+
+        const params =
+            tables.flatMap(
+                table => [
+                    table.schema,
+                    table.table
+                ]
+            );
+
         const sql = `
-            SELECT 
-                COLUMN_NAME, 
+            SELECT
+                TABLE_SCHEMA,
+                TABLE_NAME,
+                COLUMN_NAME,
                 ORDINAL_POSITION,
                 DATA_TYPE,
                 IS_NULLABLE,
@@ -63,29 +80,46 @@ export async function getTableColumns(
                 NUMERIC_PRECISION,
                 NUMERIC_SCALE
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = ?
-            AND TABLE_NAME = ?
-            ORDER BY ORDINAL_POSITION
+            WHERE (
+                TABLE_SCHEMA,
+                TABLE_NAME
+            ) IN (
+                ${placeholders}
+            )
         `;
-        
-        const rows = await conn.query(sql, [schema, tableName]);
-        columns = rows.map((row: any) => ({
-            name: row.COLUMN_NAME,
-            order: row.ORDINAL_POSITION,
-            type: row.DATA_TYPE,
-            isNullable: row.IS_NULLABLE,
-            defaultValue: row.COLUMN_DEFAULT,
-            columnKey: row.COLUMN_KEY,
-            extra: row.EXTRA,
-            characterMaximumLength: row.CHARACTER_MAXIMUM_LENGTH,
-            numericPrecision: row.NUMERIC_PRECISION,
-            numericScale: row.NUMERIC_SCALE
-        }));
-        
-        
-    } catch (err: any) {
-        console.error(`Błąd pobierania kolumn dla tabeli ${tableName}:`, err);
+
+        const rows =
+            await conn.query(sql, params);
+
+        return rows.map(
+            (row: any) => ({
+                schema: row.TABLE_SCHEMA,
+                table: row.TABLE_NAME,
+                name: row.COLUMN_NAME,
+                order: row.ORDINAL_POSITION,
+                type: row.DATA_TYPE,
+                isNullable: row.IS_NULLABLE,
+                defaultValue: row.COLUMN_DEFAULT,
+                columnKey: row.COLUMN_KEY,
+                extra: row.EXTRA,
+                characterMaximumLength: row.CHARACTER_MAXIMUM_LENGTH,
+                numericPrecision: row.NUMERIC_PRECISION,
+                numericScale: row.NUMERIC_SCALE
+            })
+        );
+
+    } catch (err) {
+        const tableList =
+            tables
+                .map(
+                    table =>
+                        `${table.schema}.${table.table}`
+                )
+                .join(', ');
+        console.error(
+            `Błąd pobierania kolumn dla tabel: ${tableList}`,
+            err
+        );
+        return [];
     }
-    
-    return columns;
 }

@@ -5,7 +5,7 @@ import { ConnectionManager } from '../db/ConnectionManager';
 import * as path from 'path';
 import * as os from 'os';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles';
-import { getCachedColumns } from '../cache/tableColumnsCache';
+import { getCachedColumnsBatch, getTableRefKey } from '../cache/tableColumnsCache';
 
 interface FileResultState {
     rows: any[][];
@@ -253,7 +253,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 return;
             }
             
-            const tableColumns = await getCachedColumns(schema, tableName);
+            const columnsMap = await getCachedColumnsBatch([{schema, table: tableName}]);
+            const tableColumns = columnsMap[getTableRefKey({schema, table: tableName})] ?? [];
 
             const primaryKeys = tableColumns.filter((c: any) => c.columnKey === 'PRI');
 

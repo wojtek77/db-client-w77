@@ -1,7 +1,9 @@
 import { ConnectionManager } from '../db/ConnectionManager';
-import { getTableColumns } from '../db/query';
+import { getTableColumnsBatch } from '../db/query';
 
 export interface TableColumn {
+    schema: string;
+    table: string;
     name: string;
     order: number;
     type: string;
@@ -12,6 +14,11 @@ export interface TableColumn {
     characterMaximumLength: number | null;
     numericPrecision: number | null;
     numericScale: number | null;
+}
+
+export interface TableRef {
+    schema: string;
+    table: string;
 }
 
 type TableColumnsCache =
@@ -29,11 +36,13 @@ type TableColumnsCache =
 // Cache dla kolumn tabel - przechowuje pełne informacje o kolumnach
 let tableColumnsCache: TableColumnsCache = {};
 
-// Funkcja do pobierania kolumn z cache lub z bazy (dla autouzupełniania)
-export async function getCachedColumns(
-    schema: string,
-    tableName: string
-): Promise<TableColumn[]> {
+export function getTableRefKey(tableRef: TableRef): string {
+    return `${tableRef.schema}.${tableRef.table}`;
+}
+
+export async function getCachedColumnsBatch(
+    tableRefs: TableRef[]
+): Promise<Record<string, TableColumn[]>> {
 
     const db =
         await ConnectionManager
@@ -43,31 +52,84 @@ export async function getCachedColumns(
     const connectionName =
         db.getConnectionName();
 
-    const cached =
-        getCachedEntry(
-            connectionName,
-            schema,
-            tableName
-        );
+    const result: Record<string, TableColumn[]> = {};
 
-    if (cached) {
-        return cached;
+    const missing: TableRef[] = [];
+
+    for (
+        const tableRef
+        of tableRefs
+    ) {
+
+        const cached =
+            getCachedEntry(
+                connectionName,
+                tableRef.schema,
+                tableRef.table
+            );
+
+        if (cached) {
+            result[getTableRefKey(tableRef)] = cached;
+            continue;
+        }
+
+        missing.push(tableRef);
+    }
+
+    if (missing.length === 0) {
+        return result;
     }
 
     const columns =
-        await getTableColumns(
-            schema,
-            tableName
+        await getTableColumnsBatch(
+            missing
         );
 
-    setCachedEntry(
-        connectionName,
-        schema,
-        tableName,
-        columns
-    );
+    const grouped: Record<string, TableColumn[]> = {};
 
-    return columns;
+    for (
+        const column
+        of columns
+    ) {
+
+        const key = `${column.schema}.${column.table}`;
+
+        if (!grouped[key]) {
+            grouped[key] = [];
+        }
+        grouped[key].push(
+            column
+        );
+    }
+
+    for (
+        const [
+            key,
+            tableColumns
+        ]
+        of Object.entries(grouped)
+    ) {
+        tableColumns.sort(
+            (a, b) =>
+                a.order - b.order
+        );
+
+        const [
+            schema,
+            table
+        ] = key.split('.');
+
+        setCachedEntry(
+            connectionName,
+            schema,
+            table,
+            tableColumns
+        );
+
+        result[key] = tableColumns;
+    }
+
+    return result;
 }
 
 // Funkcja dla parsera SQL (zwraca tylko nazwy kolumn jako string[])
