@@ -560,56 +560,59 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         try {
             const rows = this._allRows;
             const headers = this._headers;
-            // Generuj TXT (format tabelaryczny)
-            const txtLines: string[] = [];
-            
-            // Oblicz szerokości kolumn
-            const colWidths: number[] = [];
-            for (let i = 0; i < headers.length; i++) {
-                let maxWidth = headers[i].length;
+
+            if (rows.length === 0) {
+                vscode.window.showWarningMessage('Brak danych do eksportu.');
+                return;
+            }
+
+            const escapeCell = (value: unknown): string =>
+                value === null || value === undefined ? '' : String(value);
+
+            // Szerokości kolumn — max z nagłówka i danych, ograniczone do 50
+            const colWidths = headers.map((h, i) => {
+                let max = h.length;
                 for (const row of rows) {
-                    const cellStr = String(row[i] === null || row[i] === undefined ? '' : row[i]);
-                    if (cellStr.length > maxWidth) maxWidth = cellStr.length;
+                    const len = escapeCell(row[i]).length;
+                    if (len > max) max = len;
                 }
-                colWidths.push(Math.min(maxWidth, 50));
-            }
-            
-            // Linia oddzielająca
+                return Math.min(max, 50);
+            });
+
             const separator = '+-' + colWidths.map(w => '-'.repeat(w)).join('-+-') + '-+';
-            
-            txtLines.push(separator);
-            txtLines.push('| ' + headers.map((h, i) => h.padEnd(colWidths[i])).join(' | ') + ' |');
-            txtLines.push(separator);
-            
-            // Dane
+            const headerRow = '| ' + headers.map((h, i) => h.padEnd(colWidths[i])).join(' | ') + ' |';
+
+            const parts: string[] = [separator, headerRow, separator];
+
             for (const row of rows) {
-                let rowStr = '| ';
+                let line = '| ';
                 for (let i = 0; i < headers.length; i++) {
-                    let cellStr = String(row[i] ?? '');
-                    if (cellStr.length > colWidths[i]) {
-                        cellStr = cellStr.substring(0, colWidths[i] - 3) + '...';
+                    let cell = escapeCell(row[i]);
+                    if (cell.length > colWidths[i]) {
+                        cell = cell.substring(0, colWidths[i] - 3) + '...';
                     }
-                    rowStr += cellStr.padEnd(colWidths[i]) + ' | ';
+                    line += cell.padEnd(colWidths[i]) + ' | ';
                 }
-                txtLines.push(rowStr);
+                parts.push(line);
             }
-            txtLines.push(separator);
-            txtLines.push(`Liczba wierszy: ${rows.length}`);
-            const txt = txtLines.join('\n') + '\n';
-            
-            // Zapamiętanie katalogu
+
+            parts.push(separator);
+            parts.push(`Row count: ${rows.length}`);
+
+            const txt = parts.join('\n') + '\n';
+
             const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
             const fileName = `export_${timestamp}.txt`;
-            
-            let lastPath = this.getLastExportPath('txt');
+
+            const lastPath = this.getLastExportPath('txt');
             const defaultDir = lastPath ? path.dirname(lastPath) : path.join(os.homedir(), 'Desktop');
             const defaultUri = vscode.Uri.file(path.join(defaultDir, fileName));
-            
+
             const uri = await vscode.window.showSaveDialog({
-                defaultUri: defaultUri,
+                defaultUri,
                 filters: { 'Text files': ['txt'] }
             });
-            
+
             if (uri) {
                 await vscode.workspace.fs.writeFile(uri, Buffer.from(txt, 'utf8'));
                 this.setLastExportPath(uri.fsPath, 'txt');
