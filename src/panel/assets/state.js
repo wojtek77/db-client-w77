@@ -71,7 +71,7 @@ class State {
      */
     static getInstance() {
         if (!State.#instance) {
-            throw new Error("Brak aktywnej instancji. Najpierw wywołaj State.init(filename).");
+            throw new Error("No active instance. First call State.init(filename).");
         }
         return State.#instance;
     }

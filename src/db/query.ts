@@ -117,7 +117,7 @@ export async function getTableColumnsBatch(
                 )
                 .join(', ');
         console.error(
-            `Błąd pobierania kolumn dla tabel: ${tableList}`,
+            `Error getting columns for tables: ${tableList}`,
             err
         );
         return [];
