@@ -6,6 +6,15 @@ import { findCurrentQuery } from '../sql/findCurrentQuery';
 import { findQueryTables } from '../sql/findQueryTables';
 import { SQL_FUNCTIONS, SqlFunction } from './sqlFunctions';
 
+const REGEX_SCHEMA_TABLE =
+    /\b(?:from|join)\s+(\w+)\.(\w*)$/i;
+
+const REGEX_FROM_OBJECT =
+    /\b(?:from|join)\s+(\w*)$/i;
+
+const REGEX_ALIAS_DOT =
+    /([a-zA-Z0-9_.]+)\.$/;
+
 export class TableCompletionProvider
     implements vscode.CompletionItemProvider {
 
@@ -37,7 +46,7 @@ export class TableCompletionProvider
         */
         const schemaTableMatch =
             linePrefix.match(
-                /\b(?:from|join)\s+(\w+)\.(\w*)$/i
+                REGEX_SCHEMA_TABLE
             );
 
         if (schemaTableMatch) {
@@ -77,7 +86,7 @@ export class TableCompletionProvider
         */
         const objectMatch =
             linePrefix.match(
-                /\b(?:from|join)\s+(\w*)$/i
+                REGEX_FROM_OBJECT
             );
 
         if (objectMatch) {
@@ -193,7 +202,7 @@ export class TableCompletionProvider
         */
         const aliasMatch =
             linePrefix.match(
-                /([a-zA-Z0-9_.]+)\.$/
+                REGEX_ALIAS_DOT
             );
         if (aliasMatch) {
 

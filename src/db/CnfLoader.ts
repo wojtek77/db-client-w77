@@ -2,6 +2,15 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+const REGEX_TILDE_PATH =
+    /^~($|\/|\\)/;
+
+const REGEX_LINE_ENDINGS =
+    /\r?\n/;
+
+const REGEX_SURROUNDING_QUOTES =
+    /^["']|["']$/g;
+
 export class CnfLoader {
 
     public static async getOptionsFromCnf(filePath: string): Promise<any> {
@@ -12,14 +21,14 @@ export class CnfLoader {
 
     private static async _optionsFromCnfRec(filePath: string): Promise<[string, string | boolean][]> {
         // 1. Rozwinięcie ścieżki tyldy (~) do katalogu domowego użytkownika
-        const absolutePath = filePath.replace(/^~($|\/|\\)/, `${os.homedir()}$1`);
+        const absolutePath = filePath.replace(REGEX_TILDE_PATH, `${os.homedir()}$1`);
         
         if (!fs.existsSync(absolutePath)) {
             return [];
         }
 
         const fileContent = fs.readFileSync(absolutePath, 'utf-8');
-        const lines = fileContent.split(/\r?\n/);
+        const lines = fileContent.split(REGEX_LINE_ENDINGS);
         
         const options: [string, any][] = [];
         let inClientSection = false;
@@ -63,7 +72,7 @@ export class CnfLoader {
                     key = trimmed.substring(0, eqIndex).trim();
                     value = trimmed.substring(eqIndex + 1).trim();
                     // Usuwanie cudzysłowów otaczających wartość, jeśli istnieją
-                    value = value.replace(/^["']|["']$/g, '');
+                    value = value.replace(REGEX_SURROUNDING_QUOTES, '');
                     
                     // zmiana wartości
                     const valueLower = value.toLowerCase();
