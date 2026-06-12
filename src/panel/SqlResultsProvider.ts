@@ -511,33 +511,40 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         try {
             const rows = this._allRows;
             const headers = this._headers;
-            // Generuj CSV
-            const csvLines: string[] = [headers.join(',')];
+
+            if (rows.length === 0) {
+                vscode.window.showWarningMessage('Brak danych do eksportu.');
+                return;
+            }
+
+            const escapeCell = (value: unknown): string => {
+                const str = value === null || value === undefined ? '' : String(value);
+                return str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')
+                    ? `"${str.replace(/"/g, '""')}"`
+                    : str;
+            };
+
+            const parts: string[] = [];
+            parts.push(headers.map(escapeCell).join(','));
 
             for (const row of rows) {
-                const line = row.map(cell => {
-                    const cellStr = String(cell ?? '');
-                    return (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) 
-                        ? `"${cellStr.replace(/"/g, '""')}"` 
-                        : cellStr;
-                }).join(',');
-                csvLines.push(line);
+                parts.push(row.map(escapeCell).join(','));
             }
-            const csv = csvLines.join('\n') + '\n';
-            
+
+            const csv = parts.join('\n') + '\n';
+
             const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
             const fileName = `export_${timestamp}.csv`;
-            
-            // Pobierz ostatnio używany katalog lub użyj pulpitu
-            let lastPath = this.getLastExportPath('csv');
+
+            const lastPath = this.getLastExportPath('csv');
             const defaultDir = lastPath ? path.dirname(lastPath) : path.join(os.homedir(), 'Desktop');
             const defaultUri = vscode.Uri.file(path.join(defaultDir, fileName));
-            
+
             const uri = await vscode.window.showSaveDialog({
-                defaultUri: defaultUri,
+                defaultUri,
                 filters: { 'CSV files': ['csv'] }
             });
-            
+
             if (uri) {
                 await vscode.workspace.fs.writeFile(uri, Buffer.from(csv, 'utf8'));
                 this.setLastExportPath(uri.fsPath, 'csv');
