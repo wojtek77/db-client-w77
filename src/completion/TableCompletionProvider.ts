@@ -341,14 +341,12 @@ export class TableCompletionProvider
             fullText.substring(
                 0,
                 queryOffset
-            );
+            ).toLowerCase();
         const selectIndex =
             beforeCursor
-                .toLowerCase()
                 .lastIndexOf('select');
         const fromIndex =
             beforeCursor
-                .toLowerCase()
                 .lastIndexOf('from');
         const isInSelectClause =
             selectIndex !== -1 &&
