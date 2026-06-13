@@ -279,15 +279,38 @@ export class TableCompletionProvider
             document.offsetAt(position) - queryStartOffset;
         const beforeCursor =
             fullText.substring(0, queryOffset).toLowerCase();
-        const selectIndex =
-            beforeCursor.lastIndexOf('select');
-        const fromIndex =
-            beforeCursor.lastIndexOf('from');
-        const isInSelectClause =
-            selectIndex !== -1 &&
-            (fromIndex === -1 || selectIndex > fromIndex);
-
-        if (isInSelectClause) {
+        
+        const selectIndex = beforeCursor.lastIndexOf('select');
+        const fromIndex = beforeCursor.lastIndexOf('from');
+        const whereIndex   = beforeCursor.lastIndexOf('where');
+        const groupIndex = beforeCursor.lastIndexOf('group by');
+        const havingIndex = beforeCursor.lastIndexOf('having');
+        const orderIndex = beforeCursor.lastIndexOf('order by');
+        const limitIndex = beforeCursor.lastIndexOf('limit');
+        
+        const clauses = [
+            { name: 'select', index: selectIndex },
+            { name: 'from',   index: fromIndex },
+            { name: 'where',  index: whereIndex },
+            { name: 'group',  index: groupIndex },
+            { name: 'having', index: havingIndex },
+            { name: 'order',  index: orderIndex },
+            { name: 'limit',  index: limitIndex },
+        ];
+        
+        const currentClause =
+                clauses
+                    .filter(c => c.index !== -1)
+                    .sort((a, b) => b.index - a.index)[0]?.name;
+        
+        const isInSelectClause  = currentClause === 'select';
+        const isInWhereClause   = currentClause === 'where';
+        const isInGroupClause   = currentClause === 'group';
+        const isInHavingClause  = currentClause === 'having';
+        const isInOrderClause   = currentClause === 'order';
+        // const isInLimitClause = currentClause === 'limit';
+        
+        if (isInSelectClause || isInWhereClause || isInGroupClause || isInOrderClause) {
 
             const defaultSchema = db.getDatabase();
 
@@ -311,6 +334,38 @@ export class TableCompletionProvider
                 }
             }
 
+            for (const fn of SQL_FUNCTIONS) {
+                result.push(this.createFunctionItem(fn));
+            }
+
+            return result;
+        }
+        
+        if (isInHavingClause) {
+            const result: vscode.CompletionItem[] = [];
+
+            const selectPart =
+                selectIndex !== -1 && fromIndex !== -1
+                    ? fullText.slice(
+                        selectIndex + 'select'.length,
+                        fromIndex
+                    )
+                    : '';
+            const words =
+                (selectPart.match(
+                    /[a-zA-Z0-9_.]+/g
+                ) ?? [])
+                .map(word => word.split('.').pop()!);
+            for (const word of new Set(words)) {
+                const item =
+                    new vscode.CompletionItem(
+                        word,
+                        vscode.CompletionItemKind.Text
+                    );
+                item.sortText = `5_${word}`;
+                result.push(item);
+            }
+            
             for (const fn of SQL_FUNCTIONS) {
                 result.push(this.createFunctionItem(fn));
             }
