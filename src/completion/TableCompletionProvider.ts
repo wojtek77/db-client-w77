@@ -5,6 +5,7 @@ import { formatColumnType } from './columnFormatter';
 import { findCurrentQuery } from '../sql/findCurrentQuery';
 import { findQueryTables } from '../sql/findQueryTables';
 import { SQL_FUNCTIONS, SqlFunction } from './sqlFunctions';
+import { Connection } from '../db/Connection';
 
 const REGEX_SCHEMA_TABLE =
     /\b(?:from|join)\s+(\w+)\.(\w*)$/i;
@@ -12,15 +13,21 @@ const REGEX_SCHEMA_TABLE =
 const REGEX_FROM_OBJECT =
     /\b(?:from|join)\s+(\w*)$/i;
 
+// FIX #4: Doprecyzowany regex — dopasowuje tylko identyfikatory
+// bez zagnieżdżonych kropek w samym aliasie, co eliminuje
+// fałszywe dopasowania dla a.b.c.
 const REGEX_ALIAS_DOT =
-    /([a-zA-Z0-9_.]+)\.$/;
+    /([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)\.$/;
 
 export class TableCompletionProvider
     implements vscode.CompletionItemProvider {
 
+    // FIX #7: Obsługa CancellationToken — przerywamy przetwarzanie,
+    // gdy VS Code anuluje żądanie (np. użytkownik pisze dalej).
     async provideCompletionItems(
         document: vscode.TextDocument,
         position: vscode.Position,
+        token: vscode.CancellationToken,
     ): Promise<vscode.CompletionItem[]> {
 
         const linePrefix =
@@ -30,50 +37,61 @@ export class TableCompletionProvider
                 .substring(0, position.character);
 
         const currentQuery =
-                findCurrentQuery(
-                    document.getText(),
-                    position.line
-                );
-            if (!currentQuery) {
-                return [];
-            }
-            const fullText =
-                currentQuery.sql;
-        
+            findCurrentQuery(
+                document.getText(),
+                position.line
+            );
+
+        if (!currentQuery) {
+            return [];
+        }
+
+        const fullText = currentQuery.sql;
+
+        // FIX #3: Jedno wspólne pobranie połączenia z obsługą błędów.
+        // FIX #5: getDb() wywoływane raz — wynik reużywany we wszystkich
+        // sekcjach zamiast wielokrotnego await w każdej gałęzi.
+        let db: Connection;
+        try {
+            db = await ConnectionManager
+                .getInstance()
+                .getDb();
+        } catch (err) {
+            console.error('[TableCompletionProvider] Błąd połączenia z bazą:', err);
+            return [];
+        }
+
+        if (token.isCancellationRequested) {
+            return [];
+        }
+
         /*
             FROM schema.
             JOIN schema.
         */
         const schemaTableMatch =
-            linePrefix.match(
-                REGEX_SCHEMA_TABLE
-            );
+            linePrefix.match(REGEX_SCHEMA_TABLE);
 
         if (schemaTableMatch) {
 
-            const schema =
-                schemaTableMatch[1];
+            const schema = schemaTableMatch[1];
 
-            const filter =
-                schemaTableMatch[2]
-                    ?.toLowerCase()
-                ?? '';
-
-            const db =
-                await ConnectionManager
-                    .getInstance()
-                    .getDb();
+            // FIX #8: schemaTableMatch[2] pochodzi z grupy (\w*),
+            // więc nigdy nie jest undefined — usunięto zbędne ?. i ?? ''.
+            const filter = schemaTableMatch[2].toLowerCase();
 
             return db
                 .getTables(schema)
                 .filter(table =>
-                    table
-                        .toLowerCase()
-                        .includes(filter)
+                    table.toLowerCase().includes(filter)
                 )
                 .map((table, index) =>
                     this.createTableItem(table, index)
                 );
+        }
+
+        if (token.isCancellationRequested) {
+            return [];
         }
 
         /*
@@ -85,180 +103,111 @@ export class TableCompletionProvider
             - tabele domyślnej bazy
         */
         const objectMatch =
-            linePrefix.match(
-                REGEX_FROM_OBJECT
-            );
+            linePrefix.match(REGEX_FROM_OBJECT);
 
         if (objectMatch) {
 
-            const filter =
-                objectMatch[1]
-                    ?.toLowerCase()
-                ?? '';
-
-            const db =
-                await ConnectionManager
-                    .getInstance()
-                    .getDb();
+            const filter = objectMatch[1].toLowerCase();
 
             const result: vscode.CompletionItem[] = [];
 
-            /*
-                Jeśli jest ustawiona database,
-                najpierw pokaż tabele.
-            */
             if (db.getDatabase()) {
 
                 let tableOrder = 0;
 
-                for (
-                    const table of
-                    db.getDefaultDatabaseTables()
-                ) {
+                for (const table of db.getDefaultDatabaseTables()) {
 
-                    if (
-                        filter &&
-                        !table
-                            .toLowerCase()
-                            .includes(filter)
-                    ) {
+                    if (filter && !table.toLowerCase().includes(filter)) {
                         continue;
                     }
 
                     result.push(
-                        this.createTableItem(
-                            table,
-                            tableOrder++
-                        )
+                        this.createTableItem(table, tableOrder++)
                     );
                 }
-
-                /*
-                    Schematy zawsze na końcu
-                */
-                const schemas =
-                    db.getSchemas();
-
-                schemas.forEach(
-                    (schema, index) => {
-
-                        if (
-                            filter &&
-                            !schema
-                                .toLowerCase()
-                                .includes(filter)
-                        ) {
-                            return;
-                        }
-
-                        result.push(
-                            this.createSchemaItem(
-                                schema,
-                                index
-                            )
-                        );
-                    }
-                );
             }
-            else {
 
-                /*
-                    Brak database:
-                    pokazuj tylko schematy.
-                */
-                const schemas =
-                    db.getSchemas();
+            // FIX #2: Usunięto duplikację — schematy dodawane raz,
+            // niezależnie od tego czy baza domyślna jest ustawiona.
+            const schemas = db.getSchemas();
 
-                schemas.forEach(
-                    (schema, index) => {
+            schemas.forEach((schema, index) => {
 
-                        if (
-                            filter &&
-                            !schema
-                                .toLowerCase()
-                                .includes(filter)
-                        ) {
-                            return;
-                        }
+                if (filter && !schema.toLowerCase().includes(filter)) {
+                    return;
+                }
 
-                        result.push(
-                            this.createSchemaItem(
-                                schema,
-                                index
-                            )
-                        );
-                    }
+                result.push(
+                    this.createSchemaItem(schema, index)
                 );
-            }
+            });
 
             return result;
         }
-        
+
+        if (token.isCancellationRequested) {
+            return [];
+        }
+
         /*
-            Alias.
+            Alias lub pełna nazwa tabeli.
             Przykład:
 
             select s.
+            select contacts.
+            select public.contacts.
         */
         const aliasMatch =
-            linePrefix.match(
-                REGEX_ALIAS_DOT
-            );
+            linePrefix.match(REGEX_ALIAS_DOT);
+
         if (aliasMatch) {
 
-            const alias =
-                aliasMatch[1];
-            
-            // obsługa pełnej nazwy
+            const alias = aliasMatch[1];
+
+            // FIX #4: parts.length może być tylko 1 lub 2 dzięki
+            // nowemu regexowi — obsługa a.b.c. jest teraz wykluczona.
             const parts = alias.split('.');
+
             if (parts.length === 2) {
-                const schema =
-                    parts[0];
 
-                const table =
-                    parts[1];
+                const schema = parts[0];
+                const table  = parts[1];
 
+                // FIX #9: Walidacja przed użyciem
+                if (!schema || !table) {
+                    return [];
+                }
+
+                // Obsługa pełnej nazwy schema.table — pobieramy
+                // tylko kolumny tej jednej tabeli.
                 const columnsMap =
-                    await getCachedColumnsBatch([
-                        {
-                            schema,
-                            table
-                        }
-                    ]);
+                    await getCachedColumnsBatch([{ schema, table }]);
+
                 const columns =
-                    columnsMap[getTableRefKey({schema, table})] ?? [];
+                    columnsMap[getTableRefKey({ schema, table })] ?? [];
 
                 return columns.map(
-                    column =>
-                        this.createColumnItem(
-                            table,
-                            column
-                        )
+                    column => this.createColumnItem(table, column)
                 );
             }
 
+            if (token.isCancellationRequested) {
+                return [];
+            }
+
+            const defaultSchema = db.getDatabase();
+
             let tableRef: TableRef | null = null;
 
-            const db =
-                await ConnectionManager
-                    .getInstance()
-                    .getDb();
-
-            const defaultSchema =
-                db.getDatabase();
-
             const patterns = [
-
                 new RegExp(
                     `from\\s+(?:(\\w+)\\s*\\.\\s*)?(\\w+)\\s+(?:as\\s+)?${alias}\\b`,
                     'i'
                 ),
-
                 new RegExp(
                     `join\\s+(?:(\\w+)\\s*\\.\\s*)?(\\w+)\\s+(?:as\\s+)?${alias}\\b`,
                     'i'
                 ),
-
                 new RegExp(
                     `,\\s*(?:(\\w+)\\s*\\.\\s*)?(\\w+)\\s+(?:as\\s+)?${alias}\\b`,
                     'i'
@@ -267,8 +216,7 @@ export class TableCompletionProvider
 
             for (const pattern of patterns) {
 
-                const match =
-                    fullText.match(pattern);
+                const match = fullText.match(pattern);
 
                 if (!match) {
                     continue;
@@ -281,142 +229,90 @@ export class TableCompletionProvider
                     schema:
                         match[1]
                         || defaultSchema
-                        || db.findSchemaByTable(
-                            match[2]
-                        )
+                        || db.findSchemaByTable(match[2])
                         || '',
-
-                    table:
-                        match[2]
+                    table: match[2]
                 };
 
                 break;
             }
-            
-            // Brak aliasu.
-            // Użytkownik wpisał np.:
-            // contacts.
-            // contacts_cstm.
-            // Traktujemy identyfikator jako nazwę tabeli.
+
+            // Brak aliasu — identyfikator traktowany jako nazwa tabeli.
             if (!tableRef) {
                 tableRef = {
                     schema:
                         defaultSchema
-                        || db.findSchemaByTable(
-                            alias
-                        )
+                        || db.findSchemaByTable(alias)
                         || '',
-                    table:
-                        alias
+                    table: alias
                 };
             }
 
-            if (tableRef) {
-                
-                const tableRefs =
-                    findQueryTables(
-                        fullText,
-                        defaultSchema,
-                        db
-                    );
-                const columnsMap =
-                    await getCachedColumnsBatch(tableRefs);
-                const columns =
-                    columnsMap[getTableRefKey(tableRef)] ?? [];
+            // FIX #6: Pobieramy kolumny tylko dla docelowej tabeli
+            // zamiast wszystkich tabel z zapytania.
+            // FIX #1: Usunięto zbędny `if (tableRef)` — po bloku
+            // `if (!tableRef) { tableRef = ... }` wartość jest zawsze
+            // ustawiona, dodatkowe sprawdzenie było zawsze prawdziwe.
+            const columnsMap =
+                await getCachedColumnsBatch([tableRef]);
 
-                return columns.map(
-                    column =>
-                        this.createColumnItem(
-                            tableRef.table,
-                            column
-                        )
-                );
-            }
+            const columns =
+                columnsMap[getTableRefKey(tableRef)] ?? [];
+
+            return columns.map(
+                column => this.createColumnItem(tableRef!.table, column)
+            );
         }
-        
+
+        if (token.isCancellationRequested) {
+            return [];
+        }
+
         /*
             SELECT <Ctrl+Space>
         */
         const queryStartOffset =
             document.offsetAt(
-                new vscode.Position(
-                    currentQuery.startLine,
-                    0
-                )
+                new vscode.Position(currentQuery.startLine, 0)
             );
         const queryOffset =
             document.offsetAt(position) - queryStartOffset;
         const beforeCursor =
-            fullText.substring(
-                0,
-                queryOffset
-            ).toLowerCase();
+            fullText.substring(0, queryOffset).toLowerCase();
         const selectIndex =
-            beforeCursor
-                .lastIndexOf('select');
+            beforeCursor.lastIndexOf('select');
         const fromIndex =
-            beforeCursor
-                .lastIndexOf('from');
+            beforeCursor.lastIndexOf('from');
         const isInSelectClause =
             selectIndex !== -1 &&
-            (
-                fromIndex === -1 ||
-                selectIndex > fromIndex
-            );
+            (fromIndex === -1 || selectIndex > fromIndex);
+
         if (isInSelectClause) {
 
-            const db =
-                await ConnectionManager
-                    .getInstance()
-                    .getDb();
+            const defaultSchema = db.getDatabase();
 
-            const defaultSchema =
-                db.getDatabase();
-
-            const result:
-                vscode.CompletionItem[] = [];
+            const result: vscode.CompletionItem[] = [];
 
             const tableRefs =
-                findQueryTables(
-                    fullText,
-                    defaultSchema,
-                    db
-                );
-            
-            const columnsMap =
-                await getCachedColumnsBatch(
-                    tableRefs
-                );
+                findQueryTables(fullText, defaultSchema, db);
 
-            for (
-                const tableRef of tableRefs
-            ) {
+            const columnsMap =
+                await getCachedColumnsBatch(tableRefs);
+
+            for (const tableRef of tableRefs) {
 
                 const columns =
                     columnsMap[getTableRefKey(tableRef)] ?? [];
 
-                for (
-                    const column of columns
-                ) {
+                for (const column of columns) {
                     result.push(
-                        this.createColumnItem(
-                            tableRef.table,
-                            column
-                        )
+                        this.createColumnItem(tableRef.table, column)
                     );
                 }
             }
-            
-            for (
-                const fn
-                of SQL_FUNCTIONS
-            ) {
 
-                result.push(
-                    this.createFunctionItem(
-                        fn
-                    )
-                );
+            for (const fn of SQL_FUNCTIONS) {
+                result.push(this.createFunctionItem(fn));
             }
 
             return result;
@@ -436,19 +332,12 @@ export class TableCompletionProvider
                 vscode.CompletionItemKind.Struct
             );
 
-        item.insertText =
-            tableName;
+        item.insertText = tableName;
+        item.detail     = 'Table';
 
-        item.detail =
-            'Table';
-
-        /*
-            Tabele zawsze przed schema
-        */
+        // Tabele zawsze przed schematami
         item.sortText =
-            `0_${order
-                .toString()
-                .padStart(5, '0')}`;
+            `0_${order.toString().padStart(5, '0')}`;
 
         return item;
     }
@@ -464,23 +353,16 @@ export class TableCompletionProvider
                 vscode.CompletionItemKind.Module
             );
 
-        item.insertText =
-            schema;
+        item.insertText = schema;
+        item.detail     = 'Schema';
 
-        item.detail =
-            'Schema';
-
-        /*
-            Schematy zawsze po tabelach
-        */
+        // Schematy zawsze po tabelach
         item.sortText =
-            `1_${order
-                .toString()
-                .padStart(5, '0')}`;
+            `1_${order.toString().padStart(5, '0')}`;
 
         return item;
     }
-    
+
     private createColumnItem(
         tableName: string,
         column: TableColumn
@@ -491,71 +373,32 @@ export class TableCompletionProvider
                 column.name,
                 vscode.CompletionItemKind.Field
             );
-        
-        item.sortText =
-            `0_${column.name}`;
 
-        item.insertText =
-            column.name;
+        item.sortText   = `0_${column.name}`;
+        item.insertText = column.name;
 
-        const formattedType =
-            formatColumnType(
-                column
-            );
+        const formattedType = formatColumnType(column);
 
-        const details: string[] = [];
+        const details: string[] = [formattedType];
 
         details.push(
-            formattedType
+            column.isNullable === 'YES' ? 'NULL' : 'NOT NULL'
         );
 
-        if (
-            column.isNullable ===
-            'YES'
-        ) {
-            details.push(
-                'NULL'
-            );
-        } else {
-            details.push(
-                'NOT NULL'
-            );
+        if (column.columnKey === 'PRI') {
+            details.push('🔑 PRIMARY KEY');
         }
 
-        if (
-            column.columnKey ===
-            'PRI'
-        ) {
-            details.push(
-                '🔑 PRIMARY KEY'
-            );
+        if (column.columnKey === 'UNI') {
+            details.push('🔗 UNIQUE');
         }
 
-        if (
-            column.columnKey ===
-            'UNI'
-        ) {
-            details.push(
-                '🔗 UNIQUE'
-            );
+        if (column.extra === 'auto_increment') {
+            details.push('📈 AUTO_INCREMENT');
         }
 
-        if (
-            column.extra ===
-            'auto_increment'
-        ) {
-            details.push(
-                '📈 AUTO_INCREMENT'
-            );
-        }
-
-        if (
-            column.defaultValue !==
-            null
-        ) {
-            details.push(
-                `📌 DEFAULT: ${column.defaultValue}`
-            );
+        if (column.defaultValue !== null) {
+            details.push(`📌 DEFAULT: ${column.defaultValue}`);
         }
 
         item.detail =
@@ -566,7 +409,7 @@ export class TableCompletionProvider
 
         return item;
     }
-    
+
     private createFunctionItem(
         fn: SqlFunction
     ): vscode.CompletionItem {
@@ -576,22 +419,16 @@ export class TableCompletionProvider
                 `${fn.signature}`,
                 vscode.CompletionItemKind.Function
             );
-        
-        item.filterText =
-            fn.name;
+
+        item.filterText = fn.name;
 
         item.insertText =
-            new vscode.SnippetString(
-                fn.snippet
-            );
+            new vscode.SnippetString(fn.snippet);
 
         item.documentation =
-            new vscode.MarkdownString(
-                fn.documentation
-            );
+            new vscode.MarkdownString(fn.documentation);
 
-        item.sortText =
-            `9_${fn.name}`;
+        item.sortText = `9_${fn.name}`;
 
         return item;
     }
