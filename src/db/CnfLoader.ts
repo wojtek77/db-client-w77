@@ -19,7 +19,7 @@ export class CnfLoader {
         return cnf;
     }
 
-    private static async _optionsFromCnfRec(filePath: string): Promise<[string, string | boolean][]> {
+    private static async _optionsFromCnfRec(filePath: string): Promise<[string, string | boolean | number][]> {
         // 1. Rozwinięcie ścieżki tyldy (~) do katalogu domowego użytkownika
         const absolutePath = filePath.replace(REGEX_TILDE_PATH, `${os.homedir()}$1`);
         
@@ -32,6 +32,8 @@ export class CnfLoader {
         
         const options: [string, any][] = [];
         let inClientSection = false;
+        let inMysqldSection = false;
+        let tcpKeepaliveTime: number | null = null;
 
         for (const line of lines) {
             const trimmed = line.trim();
@@ -56,14 +58,33 @@ export class CnfLoader {
                 continue;
             }
 
-            // 2. Wykrywanie sekcji - interesuje nas tylko [client]
+            // 2. Wykrywanie sekcji
             if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
                 const sectionName = trimmed.slice(1, -1).trim();
                 inClientSection = (sectionName === 'client');
+                inMysqldSection = (sectionName === 'mysqld');
                 continue;
             }
 
-            // 3. Przetwarzanie parametrów wewnątrz sekcji [client]
+            // 3. Przetwarzanie parametrów wewnątrz sekcji [mysqld] dla tcp_keepalive_time
+            if (inMysqldSection) {
+                const eqIndex = trimmed.indexOf('=');
+                if (eqIndex !== -1) {
+                    const key = trimmed.substring(0, eqIndex).trim();
+                    const value = trimmed.substring(eqIndex + 1).trim();
+                    
+                    if (key === 'tcp_keepalive_time') {
+                        // Konwersja na liczbę (sekundy)
+                        const numValue = Number(value);
+                        if (!isNaN(numValue) && numValue > 0) {
+                            tcpKeepaliveTime = numValue;
+                        }
+                        continue; // Nie przetwarzamy dalej tej linii
+                    }
+                }
+            }
+
+            // 4. Przetwarzanie parametrów wewnątrz sekcji [client]
             if (inClientSection) {
                 // Podział na klucz i wartość przy pierwszym znaku "="
                 const eqIndex = trimmed.indexOf('=');
@@ -111,6 +132,11 @@ export class CnfLoader {
                 
                 options.push([key, value]);
             }
+        }
+
+        // Po przetworzeniu całego pliku, jeśli znaleziono tcp_keepalive_time, dodajemy keepAliveDelay
+        if (tcpKeepaliveTime !== null && tcpKeepaliveTime > 0) {
+            options.push(['keepAliveDelay', tcpKeepaliveTime * 1000]);
         }
 
         return options;

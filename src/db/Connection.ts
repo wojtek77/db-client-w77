@@ -34,10 +34,10 @@ export class Connection {
             return this.connectionTime;
         }
         
+        console.log('config', config);
         this.pool = mariadb.createPool({
             ...config,
             connectionLimit: 1,
-            keepAliveDelay: 10000,
             connectTimeout: 10000,
             socketTimeout: 0,
             acquireTimeout: 10000,
