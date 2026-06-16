@@ -2,6 +2,20 @@ import { ConnectionManager } from './ConnectionManager';
 import { Connection } from './Connection';
 import { SqlUtil } from '../sql/SqlUtil';
 import { TableColumn, TableRef } from '../cache/tableColumnsCache';
+import * as vscode from 'vscode';
+
+const CONNECTION_CLOSED_ERRORS = [
+    'connection closed',
+    'socket hang up',
+    'connection lost',
+    'connection end',
+    'cannot execute new commands',
+];
+
+function isConnectionClosedError(message: string): boolean {
+    const lower = message.toLowerCase();
+    return CONNECTION_CLOSED_ERRORS.some(e => lower.includes(e));
+}
 
 export async function executeQuery(db: Connection, sql: string) {
     let rows: any[] = [];
@@ -14,11 +28,32 @@ export async function executeQuery(db: Connection, sql: string) {
     try {
         // wcześniej na SQL był TRIM
         sql = SqlUtil.appendLimit(sql);
-        const conn = db.getConnection();
+        let conn = db.getConnection();
         
-        const startQuery = performance.now();
+        let startQuery = performance.now();
         
-        [rows, meta] = await conn.query({ sql, rowsAsArray: true, metaAsArray: true });
+        try {
+            [rows, meta] = await conn.query({ sql, rowsAsArray: true, metaAsArray: true });
+        } catch (err: any) {
+            // Jeśli połączenie zostało zerwane (np. restart MariaDB) — spróbuj reconnect
+            if (err.message && isConnectionClosedError(err.message)) {
+                const manager = ConnectionManager.getInstance();
+                const connectionName = db.getConnectionName();
+
+                const reconnected = await manager.reconnect(connectionName);
+                conn = reconnected.getConnection();
+
+                vscode.window.showInformationMessage(
+                    `🔄 Reconnect DB "${connectionName}".`
+                );
+
+                startQuery = performance.now();
+                [rows, meta] = await conn.query({ sql, rowsAsArray: true, metaAsArray: true });
+            } else {
+                throw err;
+            }
+        }
+
         headers = meta.map((field: any) => field.name());
         
         const endQuery = performance.now();

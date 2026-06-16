@@ -33,6 +33,27 @@ export class ConnectionManager {
         }
         return this.connections[connectionName];
     }
+
+    public async reconnect(connectionName: string): Promise<Connection> {
+        // Zamknij stare połączenie jeśli istnieje
+        if (this.connections[connectionName]) {
+            try {
+                this.connections[connectionName].disconnect();
+            } catch (err) {
+                console.error('Error closing old connection:', err);
+            }
+            delete this.connections[connectionName];
+        }
+
+        const cnfPath = this.configs[connectionName];
+        if (!cnfPath) {
+            throw new Error(`No configuration for connection: "${connectionName}"`);
+        }
+
+        const connection = await Connection.create(cnfPath);
+        this.connections[connectionName] = connection;
+        return connection;
+    }
     
     public start() {
         
