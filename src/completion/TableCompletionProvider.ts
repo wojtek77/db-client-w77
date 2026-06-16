@@ -10,7 +10,6 @@ import { Connection } from '../db/Connection';
 const REGEX_SCHEMA_TABLE = /\b(?:from|join)\s+(\w+)\.(\w*)$/i;
 const REGEX_FROM_OBJECT = /\b(?:from|join)\s+(\w*)$/i;
 const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)\.$/;
-const REGEX_WORDS = /[a-zA-Z0-9_().]+/g;
 
 export class TableCompletionProvider implements vscode.CompletionItemProvider {
 
