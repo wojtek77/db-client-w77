@@ -128,20 +128,20 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         /* HAVING */
         if (isInHavingClause) {
             const result: vscode.CompletionItem[] = [];
-            const selectPart = selectIndex !== -1 && fromIndex !== -1
-                ? sqlBeforeCursor.slice('select'.length, fromIndex)
-                : '';
-            const words = (selectPart.match(REGEX_WORDS) ?? [])
-                .map(word => {
-                    const i = word.lastIndexOf('.');
-                    return i === -1 ? word : word.slice(i + 1);
-                });
-            for (const word of new Set(words)) {
+
+            // Wyciągamy fragment SELECT...FROM z tego samego poziomu zagnieżdżenia
+            // co kursor, śledząc głębokość nawiasów.
+            const selectPart = this.extractSelectPartAtCursorLevel(sqlBeforeCursor);
+
+            // Wyciągamy kandydatów kolumn z listy SELECT kolumna po kolumnie.
+            const candidates = this.extractHavingCandidates(selectPart);
+
+            for (const word of candidates) {
                 const item = new vscode.CompletionItem(word, vscode.CompletionItemKind.Text);
                 item.sortText = `5_${word}`;
                 result.push(item);
             }
-            
+
             for (const fn of SQL_FUNCTIONS) {
                 result.push(this.createFunctionItem(fn));
             }
@@ -309,5 +309,131 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         item.documentation = new vscode.MarkdownString(fn.documentation);
         item.sortText = `9_${fn.name}`;
         return item;
+    }
+    
+    /**
+     * Upraszcza SQL do jednego poziomu zagnieżdżenia: zastępuje każde (...)
+     * ciągiem spacji tej samej długości, zachowując oryginalne offsety znaków.
+     * Operację stosujemy rekurencyjnie, aż nie będzie już żadnych nawiasów.
+     */
+    private flattenSubqueries(sql: string): string {
+        // Jeden przebieg: zamień najbardziej zagnieżdżone (...) na spacje
+        const pass = sql.replace(/\([^()]*\)/g, match => ' '.repeat(match.length));
+        return pass === sql ? sql : this.flattenSubqueries(pass);
+    }
+
+    /**
+     * Zwraca tekst między SELECT a FROM **na tym samym poziomie zagnieżdżenia**
+     * co kursor, ignorując podzapytania.
+     *
+     * Strategia:
+     *  1. Ustal poziom nawiasów kursora (głębokość w sqlBeforeCursor).
+     *  2. Jeśli kursor jest na głębokości 0 — szukamy w całym sqlBeforeCursor.
+     *     Jeśli na głębokości > 0 — wycinamy fragment od ostatniego '(' na depth-1
+     *     do końca sqlBeforeCursor, czyli tekst wewnątrz bieżącego podzapytania.
+     *  3. Na wyciętym fragmencie spłaszczamy wszystkie zagnieżdżone nawiasy
+     *     (flattenSubqueries), po czym szukamy ostatniego SELECT…FROM.
+     *  4. Zwracamy fragment między nimi — to lista kolumn bieżącego SELECT.
+     */
+    private extractSelectPartAtCursorLevel(sqlBeforeCursor: string): string {
+        // Krok 1: ustal na jakim poziomie zagnieżdżenia jest kursor
+        const cursorDepth = this.depthAtEnd(sqlBeforeCursor);
+
+        // Krok 2: znajdź offset za '(' który otworzył bieżący poziom
+        // Skanujemy od lewej, szukamy momentu gdy depth osiąga cursorDepth
+        let depth = 0;
+        let blockStart = 0;
+
+        for (let i = 0; i < sqlBeforeCursor.length; i++) {
+            const ch = sqlBeforeCursor[i];
+            if (ch === '(') {
+                depth++;
+                if (depth === cursorDepth) {
+                    blockStart = i + 1; // tekst za tym '(' to bieżący blok
+                }
+            } else if (ch === ')') {
+                depth--;
+            }
+        }
+
+        // Krok 3: wytnij fragment SQL od początku bieżącego bloku do kursora
+        const block = sqlBeforeCursor.slice(blockStart);
+
+        // Krok 4: spłaszcz podzapytania TYLKO do celów wyszukiwania SELECT/FROM
+        // (nie zwracamy spłaszczonego tekstu — chcemy zachować oryginalne nawiasy w wynikach)
+        const flat = this.flattenSubqueries(block);
+
+        // Krok 5: znajdź ostatni SELECT w spłaszczonym tekście
+        const selectRegex = /\bselect\b/gi;
+        let lastSelectEnd = -1;
+        let m: RegExpExecArray | null;
+        while ((m = selectRegex.exec(flat)) !== null) {
+            lastSelectEnd = m.index + m[0].length;
+        }
+        if (lastSelectEnd === -1) { return ''; }
+
+        // Krok 6: znajdź pierwsze FROM po tym SELECT
+        const fromRegex = /\bfrom\b/gi;
+        fromRegex.lastIndex = lastSelectEnd;
+        const fromResult = fromRegex.exec(flat);
+        if (!fromResult) { return ''; }
+
+        // Krok 7: zwróć ORYGINALNY (niespłaszczony) fragment — z zachowanymi nawiasami
+        // Pozwoli to extractHavingCandidates odróżnić `ABS(-1)` od `col`
+        return block.slice(lastSelectEnd, fromResult.index);
+    }
+
+    /** Zwraca głębokość nawiasów na końcu tekstu. */
+    private depthAtEnd(sql: string): number {
+        let d = 0;
+        for (const ch of sql) {
+            if (ch === '(') { d++; }
+            else if (ch === ')') { d--; }
+        }
+        return d;
+    }
+
+    /**
+     * Przetwarza fragment SELECT (tekst między SELECT a FROM) i zwraca listę nazw
+     * które mają sens w klauzuli HAVING.
+     *
+     * Algorytm:
+     *  1. Podziel przez "," (na poziomie 0 nawiasów)
+     *  2. Każdy element: RTRIM (usuń białe znaki z prawej)
+     *  3. Podziel przez spację lub kropkę: / /
+     *  4. Weź ostatni element i LTRIM (usuń białe znaki z lewej)
+     */
+    private extractHavingCandidates(selectPart: string): string[] {
+        // Krok 1: podziel przez "," na poziomie 0 nawiasów
+        const entries: string[] = [];
+        let depth = 0;
+        let start = 0;
+        for (let i = 0; i < selectPart.length; i++) {
+            const ch = selectPart[i];
+            if (ch === '(') { depth++; }
+            else if (ch === ')') { depth--; }
+            else if (ch === ',' && depth === 0) {
+                entries.push(selectPart.slice(start, i));
+                start = i + 1;
+            }
+        }
+        entries.push(selectPart.slice(start));
+
+        const result: string[] = [];
+
+        for (const entry of entries) {
+            // Krok 2: RTRIM
+            const rtrimmed = entry.trimEnd();
+            if (!rtrimmed) { continue; }
+
+            // Krok 3: podziel przez spację lub kropkę
+            const parts = rtrimmed.split(/[ .]/);
+
+            // Krok 4: ostatni element + LTRIM
+            const last = parts[parts.length - 1].trimStart();
+            if (last) { result.push(last); }
+        }
+
+        return [...new Set(result)];
     }
 }
