@@ -483,3 +483,144 @@ suite('TableCompletionProvider — podpowiedzi w SQL', () => {
         assert.strictEqual(items.length, 0, 'oczekiwano 0 podpowiedzi na pustej linii');
     });
 });
+
+suite('TableCompletionProvider — HAVING', () => {
+
+    // ── prosta kolumna ────────────────────────────────────────────────────────
+
+    test('HAVING: podpowiada prostą kolumnę z SELECT', async () => {
+        const sql = 'SELECT agency_id FROM client HAVING ';
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('agency_id'), 'brak agency_id w HAVING');
+    });
+
+    test('HAVING: podpowiada kolumnę z prefiksem tabeli (t.col → col)', async () => {
+        const sql = 'SELECT t.agency_id FROM client t HAVING ';
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('agency_id'), 'brak agency_id (z prefiksem t.) w HAVING');
+        assert.ok(!labels.includes('t'),        '"t" nie powinno być podpowiedziane');
+    });
+
+    // ── alias jawny (AS) ──────────────────────────────────────────────────────
+
+    test('HAVING: podpowiada alias AS dla prostej kolumny', async () => {
+        const sql = 'SELECT agency_id AS aid FROM client HAVING ';
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('aid'),        'brak aliasu "aid" w HAVING');
+        assert.ok(!labels.includes('agency_id'), '"agency_id" nie powinno być (jest alias)');
+    });
+
+    test('HAVING: podpowiada alias AS dla wyrażenia z funkcją', async () => {
+        const sql = 'SELECT sum(id) AS total FROM client HAVING ';
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('total'), 'brak aliasu "total" w HAVING');
+        assert.ok(!labels.includes('sum'),  '"sum" nie powinno być podpowiedziane');
+        assert.ok(!labels.includes('id'),   '"id" nie powinno być podpowiedziane');
+    });
+
+    // ── alias niejawny (bez AS) ───────────────────────────────────────────────
+
+    test('HAVING: podpowiada alias niejawny (bez AS)', async () => {
+        const sql = 'SELECT agency_id aid FROM client HAVING ';
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('aid'),        'brak aliasu niejawnego "aid" w HAVING');
+        assert.ok(!labels.includes('agency_id'), '"agency_id" nie powinno być (jest alias niejawny)');
+    });
+
+    // ── wyrażenie z funkcją bez aliasu ────────────────────────────────────────
+
+    test('HAVING: podpowiada wyrażenie ABS(number) bez aliasu', async () => {
+        const sql = 'SELECT ABS(number) FROM client HAVING ';
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('ABS(number)'), 'brak "ABS(number)" w HAVING');
+    });
+
+    test('HAVING: podpowiada wyrażenie sum(id) bez aliasu', async () => {
+        const sql = 'SELECT sum(id) FROM client HAVING ';
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('sum(id)'), 'brak "sum(id)" w HAVING');
+    });
+
+    // ── wiele kolumn ──────────────────────────────────────────────────────────
+
+    test('HAVING: podpowiada wszystkie pozycje z listy SELECT', async () => {
+        const sql = 'SELECT aaa, bbb, ccc FROM client HAVING ';
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('aaa'), 'brak aaa');
+        assert.ok(labels.includes('bbb'), 'brak bbb');
+        assert.ok(labels.includes('ccc'), 'brak ccc');
+    });
+
+    test('HAVING: mieszanka kolumn, aliasów i funkcji', async () => {
+        const sql = 'SELECT aaa, ABS(number), sum(id) AS xx, t.col FROM client HAVING ';
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('aaa'),         'brak aaa');
+        assert.ok(labels.includes('ABS(number)'), 'brak ABS(number)');
+        assert.ok(labels.includes('xx'),          'brak aliasu xx');
+        assert.ok(labels.includes('col'),         'brak col (z t.col)');
+        assert.ok(!labels.includes('sum'),        '"sum" nie powinno być');
+        assert.ok(!labels.includes('id'),         '"id" nie powinno być');
+        assert.ok(!labels.includes('t'),          '"t" nie powinno być');
+    });
+
+    // ── podzapytanie w SELECT ─────────────────────────────────────────────────
+
+    test('HAVING zewnętrzne: podpowiada alias podzapytania', async () => {
+        const sql = [
+            'SELECT',
+            '    aaa,',
+            '    (',
+            '        SELECT bbb FROM student HAVING x LIMIT 2',
+            '    ) AS bbb',
+            'FROM client',
+            'HAVING ',
+        ].join('\n');
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('aaa'), 'brak aaa w zewnętrznym HAVING');
+        assert.ok(labels.includes('bbb'), 'brak aliasu bbb w zewnętrznym HAVING');
+    });
+
+    test('HAVING wewnętrzne: podpowiada tylko kolumny wewnętrznego SELECT', async () => {
+        const sql = [
+            'SELECT',
+            '    aaa,',
+            '    (',
+            '        SELECT bbb FROM student HAVING ',
+        ].join('\n');
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('bbb'),  'brak bbb w wewnętrznym HAVING');
+        assert.ok(!labels.includes('aaa'), '"aaa" nie powinno być w wewnętrznym HAVING');
+    });
+
+    // ── funkcje SQL ───────────────────────────────────────────────────────────
+
+    test('HAVING: zawiera funkcje SQL w podpowiedziach', async () => {
+        const sql = 'SELECT count(*) FROM client HAVING ';
+        const items = await getCompletions(sql, sql.length);
+        const hasFunctions = items.some(i => i.kind === vscode.CompletionItemKind.Function);
+        assert.ok(hasFunctions, 'brak funkcji SQL w HAVING');
+    });
+
+    // ── LIMIT nie podpowiada ──────────────────────────────────────────────────
+
+    test('LIMIT: podpowiada tylko wartości liczbowe', async () => {
+        const sql = 'SELECT aaa FROM client HAVING x > 0 LIMIT ';
+        const items = await getCompletions(sql, sql.length);
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('1'),   'brak wartości 1 w LIMIT');
+        assert.ok(labels.includes('10'),  'brak wartości 10 w LIMIT');
+        assert.ok(labels.includes('100'), 'brak wartości 100 w LIMIT');
+        assert.ok(!labels.includes('aaa'), '"aaa" nie powinno być w LIMIT');
+    });
+});
