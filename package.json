@@ -59,9 +59,8 @@
     ]
   },
   "scripts": {
-    "clean": "rimraf out",
     "vscode:prepublish": "npm run compile",
-    "compile": "npm run clean && tsc -p ./",
+    "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
