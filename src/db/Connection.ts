@@ -34,7 +34,6 @@ export class Connection {
             return this.connectionTime;
         }
         
-        console.log('config', config);
         this.pool = mariadb.createPool({
             ...config,
             connectionLimit: 1,
