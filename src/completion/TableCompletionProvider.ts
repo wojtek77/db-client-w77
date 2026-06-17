@@ -19,8 +19,6 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         token: vscode.CancellationToken,
     ): Promise<vscode.CompletionItem[]> {
         
-        // Wykorzystujemy Promise.race ukryty pod logiką tokenu.
-        // Jeśli użytkownik anuluje (np. pisząc dalej), natychmiast wychodzimy z metody.
         try {
             return await this.raceCancellation(
                 this.executeProvideCompletionItems(document, position),
@@ -28,18 +26,13 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
             );
         } catch (err) {
             if (err instanceof vscode.CancellationError) {
-                // VS Code anulował żądanie – zwracamy bezpiecznie pustą listę
                 return [];
             }
-            // Inne nieprzewidziane błędy krytyczne
             console.error('[TableCompletionProvider] Krytyczny błąd metody:', err);
             return [];
         }
     }
 
-    /**
-     * Pomocnicza metoda wiążąca asynchroniczne wykonanie z tokenem anulowania VS Code.
-     */
     private raceCancellation<T>(promise: Promise<T>, token: vscode.CancellationToken): Promise<T> {
         return new Promise<T>((resolve, reject) => {
             if (token.isCancellationRequested) {
@@ -56,9 +49,6 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         });
     }
 
-    /**
-     * Właściwa logika biznesowa podpowiadania składni (oczyszczona z if(token...))
-     */
     private async executeProvideCompletionItems(
         document: vscode.TextDocument,
         position: vscode.Position
@@ -124,21 +114,39 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
             ];
         }
         
+        const defaultSchema = db.getDatabase();
+
         /* HAVING */
         if (isInHavingClause) {
             const result: vscode.CompletionItem[] = [];
 
             // Wyciągamy fragment SELECT...FROM z tego samego poziomu zagnieżdżenia
-            // co kursor, śledząc głębokość nawiasów.
             const selectPart = this.extractSelectPartAtCursorLevel(sqlBeforeCursor);
-
-            // Wyciągamy kandydatów kolumn z listy SELECT kolumna po kolumnie.
             const candidates = this.extractHavingCandidates(selectPart);
 
+            let shouldLoadAllTables = false;
+            const specificAliasesToLoad = new Set<string>();
+
             for (const word of candidates) {
-                const item = new vscode.CompletionItem(word, vscode.CompletionItemKind.Text);
-                item.sortText = `5_${word}`;
-                result.push(item);
+                if (word === '*') {
+                    shouldLoadAllTables = true;
+                } else if (word.endsWith('.*')) {
+                    const alias = word.split('.')[0];
+                    if (alias) {
+                        specificAliasesToLoad.add(alias.toLowerCase());
+                    }
+                } else {
+                    const item = new vscode.CompletionItem(word, vscode.CompletionItemKind.Text);
+                    item.sortText = `5_${word}`;
+                    result.push(item);
+                }
+            }
+
+            // Wspólna metoda: Ładujemy kolumny z tabel na podstawie gwiazdek
+            if (shouldLoadAllTables) {
+                await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db);
+            } else if (specificAliasesToLoad.size > 0) {
+                await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, specificAliasesToLoad);
             }
 
             for (const fn of SQL_FUNCTIONS) {
@@ -206,7 +214,6 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
                 return columns.map(column => this.createColumnItem(table, column));
             }
 
-            const defaultSchema = db.getDatabase();
             let tableRef: TableRef | null = null;
 
             const patterns = [
@@ -242,18 +249,10 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
 
         /* SELECT, WHERE, GROUP BY, ORDER BY <Ctrl+Space> */
         if (isInSelectClause || isInWhereClause || isInGroupClause || isInOrderClause) {
-            const defaultSchema = db.getDatabase();
             const result: vscode.CompletionItem[] = [];
 
-            const tableRefs = findQueryTables(fullText, defaultSchema, db);
-            const columnsMap = await getCachedColumnsBatch(tableRefs);
-
-            for (const tableRef of tableRefs) {
-                const columns = columnsMap[getTableRefKey(tableRef)] ?? [];
-                for (const column of columns) {
-                    result.push(this.createColumnItem(tableRef.table, column));
-                }
-            }
+            // Wspólna metoda: Ładujemy wszystkie kolumny dla klauzul strukturalnych
+            await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db);
 
             for (const fn of SQL_FUNCTIONS) {
                 result.push(this.createFunctionItem(fn));
@@ -263,6 +262,50 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         }
         
         return [];
+    }
+
+    /**
+     * Wspólna metoda wyciągająca tabele z zapytania, pobierająca ich kolumny z cache
+     * oraz uzupełniająca przekazaną listę wynikową (opcjonalnie filtrując po aliasach).
+     */
+    private async addColumnsFromQueryTables(
+        resultList: vscode.CompletionItem[],
+        fullText: string,
+        defaultSchema: string | undefined,
+        db: Connection,
+        allowedAliases?: Set<string>
+    ): Promise<void> {
+        // Dodano operator ?? '', aby zamienić undefined na pusty string
+        const tableRefs = findQueryTables(fullText, defaultSchema ?? '', db);
+        const columnsMap = await getCachedColumnsBatch(tableRefs);
+
+        for (const tableRef of tableRefs) {
+            if (allowedAliases) {
+                const patterns = [
+                    new RegExp(`from\\s+(?:(\\w+)\\s*\\.\\s*)?${tableRef.table}\\s+(?:as\\s+)?([a-zA-Z0-9_]+)\\b`, 'i'),
+                    new RegExp(`join\\s+(?:(\\w+)\\s*\\.\\s*)?${tableRef.table}\\s+(?:as\\s+)?([a-zA-Z0-9_]+)\\b`, 'i'),
+                    new RegExp(`,\\s*(?:(\\w+)\\s*\\.\\s*)?${tableRef.table}\\s+(?:as\\s+)?([a-zA-Z0-9_]+)\\b`, 'i')
+                ];
+
+                let currentAlias = tableRef.table.toLowerCase();
+                for (const pattern of patterns) {
+                    const aliasMatch = fullText.match(pattern);
+                    if (aliasMatch && aliasMatch[2]) {
+                        currentAlias = aliasMatch[2].toLowerCase();
+                        break;
+                    }
+                }
+
+                if (!allowedAliases.has(currentAlias)) {
+                    continue;
+                }
+            }
+
+            const columns = columnsMap[getTableRefKey(tableRef)] ?? [];
+            for (const column of columns) {
+                resultList.push(this.createColumnItem(tableRef.table, column));
+            }
+        }
     }
 
     private createTableItem(tableName: string, order: number): vscode.CompletionItem {
@@ -310,36 +353,13 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         return item;
     }
     
-    /**
-     * Upraszcza SQL do jednego poziomu zagnieżdżenia: zastępuje każde (...)
-     * ciągiem spacji tej samej długości, zachowując oryginalne offsety znaków.
-     * Operację stosujemy rekurencyjnie, aż nie będzie już żadnych nawiasów.
-     */
     private flattenSubqueries(sql: string): string {
-        // Jeden przebieg: zamień najbardziej zagnieżdżone (...) na spacje
         const pass = sql.replace(/\([^()]*\)/g, match => ' '.repeat(match.length));
         return pass === sql ? sql : this.flattenSubqueries(pass);
     }
 
-    /**
-     * Zwraca tekst między SELECT a FROM **na tym samym poziomie zagnieżdżenia**
-     * co kursor, ignorując podzapytania.
-     *
-     * Strategia:
-     *  1. Ustal poziom nawiasów kursora (głębokość w sqlBeforeCursor).
-     *  2. Jeśli kursor jest na głębokości 0 — szukamy w całym sqlBeforeCursor.
-     *     Jeśli na głębokości > 0 — wycinamy fragment od ostatniego '(' na depth-1
-     *     do końca sqlBeforeCursor, czyli tekst wewnątrz bieżącego podzapytania.
-     *  3. Na wyciętym fragmencie spłaszczamy wszystkie zagnieżdżone nawiasy
-     *     (flattenSubqueries), po czym szukamy ostatniego SELECT…FROM.
-     *  4. Zwracamy fragment między nimi — to lista kolumn bieżącego SELECT.
-     */
     private extractSelectPartAtCursorLevel(sqlBeforeCursor: string): string {
-        // Krok 1: ustal na jakim poziomie zagnieżdżenia jest kursor
         const cursorDepth = this.depthAtEnd(sqlBeforeCursor);
-
-        // Krok 2: znajdź offset za '(' który otworzył bieżący poziom
-        // Skanujemy od lewej, szukamy momentu gdy depth osiąga cursorDepth
         let depth = 0;
         let blockStart = 0;
 
@@ -348,21 +368,16 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
             if (ch === '(') {
                 depth++;
                 if (depth === cursorDepth) {
-                    blockStart = i + 1; // tekst za tym '(' to bieżący blok
+                    blockStart = i + 1;
                 }
             } else if (ch === ')') {
                 depth--;
             }
         }
 
-        // Krok 3: wytnij fragment SQL od początku bieżącego bloku do kursora
         const block = sqlBeforeCursor.slice(blockStart);
-
-        // Krok 4: spłaszcz podzapytania TYLKO do celów wyszukiwania SELECT/FROM
-        // (nie zwracamy spłaszczonego tekstu — chcemy zachować oryginalne nawiasy w wynikach)
         const flat = this.flattenSubqueries(block);
 
-        // Krok 5: znajdź ostatni SELECT w spłaszczonym tekście
         const selectRegex = /\bselect\b/gi;
         let lastSelectEnd = -1;
         let m: RegExpExecArray | null;
@@ -371,18 +386,14 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         }
         if (lastSelectEnd === -1) { return ''; }
 
-        // Krok 6: znajdź pierwsze FROM po tym SELECT
         const fromRegex = /\bfrom\b/gi;
         fromRegex.lastIndex = lastSelectEnd;
         const fromResult = fromRegex.exec(flat);
         if (!fromResult) { return ''; }
 
-        // Krok 7: zwróć ORYGINALNY (niespłaszczony) fragment — z zachowanymi nawiasami
-        // Pozwoli to extractHavingCandidates odróżnić `ABS(-1)` od `col`
         return block.slice(lastSelectEnd, fromResult.index);
     }
 
-    /** Zwraca głębokość nawiasów na końcu tekstu. */
     private depthAtEnd(sql: string): number {
         let d = 0;
         for (const ch of sql) {
@@ -392,18 +403,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         return d;
     }
 
-    /**
-     * Przetwarza fragment SELECT (tekst między SELECT a FROM) i zwraca listę nazw
-     * które mają sens w klauzuli HAVING.
-     *
-     * Algorytm:
-     *  1. Podziel przez "," (na poziomie 0 nawiasów)
-     *  2. Każdy element: RTRIM (usuń białe znaki z prawej)
-     *  3. Podziel przez spację lub kropkę: / /
-     *  4. Weź ostatni element i LTRIM (usuń białe znaki z lewej)
-     */
     private extractHavingCandidates(selectPart: string): string[] {
-        // Krok 1: podziel przez "," na poziomie 0 nawiasów
         const entries: string[] = [];
         let depth = 0;
         let start = 0;
@@ -421,11 +421,9 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         const result: string[] = [];
 
         for (const entry of entries) {
-            // Krok 2: RTRIM
             const rtrimmed = entry.trimEnd();
             if (!rtrimmed) { continue; }
             
-            // obsługa wyrażenia w nawiadach np. (select 1)
             if (rtrimmed.endsWith(')')) {
                 const e1 = rtrimmed.trimStart();
                 if (e1.startsWith('(')) {
@@ -434,10 +432,13 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
                 }
             }
 
-            // Krok 3: podziel przez spację lub kropkę
-            const parts = rtrimmed.split(/[ .]/);
+            const e1 = rtrimmed.trimStart();
+            if (e1.endsWith('.*')) {
+                result.push(e1);
+                continue;
+            }
 
-            // Krok 4: ostatni element + LTRIM
+            const parts = rtrimmed.split(/[ .]/);
             const last = parts[parts.length - 1].trimStart();
             if (last) { result.push(last); }
         }
