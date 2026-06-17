@@ -283,7 +283,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
 
     private createColumnItem(tableName: string, column: TableColumn): vscode.CompletionItem {
         const item = new vscode.CompletionItem(column.name, vscode.CompletionItemKind.Field);
-        item.sortText   = `0_${column.name}`;
+        item.sortText   = `0_${tableName}_${column.name}`;
         item.insertText = column.name;
 
         const formattedType = formatColumnType(column);
@@ -295,7 +295,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         if (column.extra === 'auto_increment') { details.push('📈 AUTO_INCREMENT'); }
         if (column.defaultValue !== null) { details.push(`📌 DEFAULT: ${column.defaultValue}`); }
 
-        item.detail = `📊 ${formattedType} | ${details.slice(1).join(' | ')}`;
+        item.detail = `${tableName} 📊 ${formattedType} | ${details.slice(1).join(' | ')}`;
         item.documentation = `${tableName}.${column.name}\n\n${details.join('\n')}`;
 
         return item;
@@ -424,6 +424,15 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
             // Krok 2: RTRIM
             const rtrimmed = entry.trimEnd();
             if (!rtrimmed) { continue; }
+            
+            // obsługa wyrażenia w nawiadach np. (select 1)
+            if (rtrimmed.endsWith(')')) {
+                const e1 = rtrimmed.trimStart();
+                if (e1.startsWith('(')) {
+                    result.push(e1);
+                    continue;
+                }
+            }
 
             // Krok 3: podziel przez spację lub kropkę
             const parts = rtrimmed.split(/[ .]/);
