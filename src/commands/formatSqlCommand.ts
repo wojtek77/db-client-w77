@@ -175,12 +175,13 @@ function fmt(sql: string, lvl: number): string {
 
         // AND/OR po JOIN – doklejamy do linii JOIN lub łamiemy z wcięciem
         if (INDENTED_KEYWORDS.has(kw) && afterJoin) {
+            const restFmt = rest.replace(/\bon\b/gi, 'ON');
             const lastLine = lines[lines.length - 1] ?? '';
-            const candidate = lastLine + ` ${kw}${rest ? ' ' + rest : ''}`;
+            const candidate = lastLine + ` ${kw}${restFmt ? ' ' + restFmt : ''}`;
             if (candidate.length <= SELECT_WRAP_AT) {
                 lines[lines.length - 1] = candidate;
             } else {
-                lines.push(`${pad}\t\t${kw}${rest ? ' ' + rest : ''}`);
+                lines.push(`${pad}\t\t${kw}${restFmt ? ' ' + restFmt : ''}`);
             }
             continue; // afterJoin pozostaje true
         }
@@ -190,10 +191,13 @@ function fmt(sql: string, lvl: number): string {
 
         afterJoin = JOIN_KEYWORDS.has(kw);
 
+        // Uppercase słowa kluczowego ON w tekście po JOIN
+        const restFmt = afterJoin ? rest.replace(/\bon\b/gi, 'ON') : rest;
+
         if (INDENTED_KEYWORDS.has(kw) && afterWhere) {
-            lines.push(`${pad}\t${kw}${rest ? ' ' + rest : ''}`);
+            lines.push(`${pad}\t${kw}${restFmt ? ' ' + restFmt : ''}`);
         } else {
-            lines.push(`${pad}${kw}${rest ? ' ' + rest : ''}`);
+            lines.push(`${pad}${kw}${restFmt ? ' ' + restFmt : ''}`);
         }
     }
 
