@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
-import { SqlResultsProvider } from './panel/SqlResultsProvider';
-import { RecentSqlFiles } from './recentFiles/RecentSqlFiles';
-import { isExtensionRunning, startExtension, stopExtension } from './lifecycle/extensionLifecycle';
-import { TableCompletionProvider } from './completion/TableCompletionProvider';
-import { runSQLCommand } from './commands/runSqlCommand';
-import { openRecentFilesCommand } from './commands/openRecentFilesCommand';
-import { formatSqlCommand } from './commands/formatSqlCommand';
-import { ConnectionColors } from './db/ConnectionColors';
+import { SqlResultsProvider } from './panel/SqlResultsProvider.js';
+import { RecentSqlFiles } from './recentFiles/RecentSqlFiles.js';
+import { isExtensionRunning, startExtension, stopExtension } from './lifecycle/extensionLifecycle.js';
+import { TableCompletionProvider } from './completion/TableCompletionProvider.js';
+import { runSQLCommand } from './commands/runSqlCommand.js';
+import { openRecentFilesCommand } from './commands/openRecentFilesCommand.js';
+import { formatSqlCommand } from './commands/formatSqlCommand.js';
+import { ConnectionColors } from './db/ConnectionColors.js';
 
 
 let previousSqlEditors = 0;

@@ -1,5 +1,5 @@
-import { ConnectionManager } from '../db/ConnectionManager';
-import { getTableColumnsBatch } from '../db/query';
+import { ConnectionManager } from '../db/ConnectionManager.js';
+import { getTableColumnsBatch } from '../db/query.js';
 
 export interface TableColumn {
     schema: string;

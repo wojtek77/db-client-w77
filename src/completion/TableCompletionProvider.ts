@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
-import { ConnectionManager } from '../db/ConnectionManager';
-import { getCachedColumnsBatch, getTableRefKey, TableColumn, TableRef } from '../cache/tableColumnsCache';
-import { formatColumnType } from './columnFormatter';
-import { findCurrentQuery } from '../sql/findCurrentQuery';
-import { findQueryTables } from '../sql/findQueryTables';
-import { SQL_FUNCTIONS, SqlFunction } from './sqlFunctions';
-import { Connection } from '../db/Connection';
+import { ConnectionManager } from '../db/ConnectionManager.js';
+import { getCachedColumnsBatch, getTableRefKey, TableColumn, TableRef } from '../cache/tableColumnsCache.js';
+import { formatColumnType } from './columnFormatter.js';
+import { findCurrentQuery } from '../sql/findCurrentQuery.js';
+import { findQueryTables } from '../sql/findQueryTables.js';
+import { SQL_FUNCTIONS, SqlFunction } from './sqlFunctions.js';
+import { Connection } from '../db/Connection.js';
 
 const REGEX_SCHEMA_TABLE = /\b(?:from|join)\s+(\w+)\.(\w*)$/i;
 const REGEX_FROM_OBJECT = /\b(?:from|join)\s+(\w*)$/i;

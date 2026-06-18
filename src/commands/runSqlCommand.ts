@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { SqlResultsProvider } from '../panel/SqlResultsProvider';
-import { findCurrentQuery } from "../sql/findCurrentQuery";
+import { SqlResultsProvider } from '../panel/SqlResultsProvider.js';
+import { findCurrentQuery } from "../sql/findCurrentQuery.js";
 
 export async function runSQLCommand() {
     const editor = vscode.window.activeTextEditor;

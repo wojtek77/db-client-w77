@@ -1,6 +1,9 @@
 import * as mariadb from 'mariadb';
 import path from 'path';
-import { CnfLoader } from "./CnfLoader";
+import { CnfLoader } from "./CnfLoader.js";
+
+// Dynamiczne pobranie typu konfiguracyjnego bezpośrednio z funkcji createPool
+type PoolConfig = Parameters<typeof mariadb.createPool>[0];
 
 export class Connection {
     private pool: mariadb.Pool | null = null;
@@ -26,7 +29,7 @@ export class Connection {
     
     public async connect(
         connectionName: string,
-        config: mariadb.PoolConfig
+        config: PoolConfig // Używa wyekstrahowanego typu bez błędów kompilacji
     ): Promise<number> {
         this.connectionName = connectionName;
         

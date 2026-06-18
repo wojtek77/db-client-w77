@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { ConnectionManager } from '../db/ConnectionManager';
-import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles';
-import { clearTableColumnsCache } from '../cache/tableColumnsCache';
+import { ConnectionManager } from '../db/ConnectionManager.js';
+import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
+import { clearTableColumnsCache } from '../cache/tableColumnsCache.js';
 
 let extensionRunning = false;
 

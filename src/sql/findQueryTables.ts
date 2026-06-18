@@ -1,5 +1,5 @@
-import { Connection } from '../db/Connection';
-import { getTableRefKey, TableRef } from '../cache/tableColumnsCache';
+import { Connection } from '../db/Connection.js';
+import { getTableRefKey, TableRef } from '../cache/tableColumnsCache.js';
 
 export function findQueryTables(
     sql: string,

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ConnectionManager } from '../db/ConnectionManager';
+import { ConnectionManager } from '../db/ConnectionManager.js';
 import * as path from 'path';
 import * as fs from 'fs';
 

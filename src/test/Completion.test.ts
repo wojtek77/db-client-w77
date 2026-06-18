@@ -1,11 +1,11 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { findCurrentQuery } from '../sql/findCurrentQuery';
-import { findQueryTables } from '../sql/findQueryTables';
-import { TableCompletionProvider } from '../completion/TableCompletionProvider';
-import { TableColumn } from '../cache/tableColumnsCache';
-import { ConnectionManager } from '../db/ConnectionManager';
-import * as cacheModule from '../cache/tableColumnsCache';
+import { findCurrentQuery } from '../sql/findCurrentQuery.js';
+import { findQueryTables } from '../sql/findQueryTables.js';
+import { TableCompletionProvider } from '../completion/TableCompletionProvider.js';
+import { TableColumn } from '../cache/tableColumnsCache.js';
+import { ConnectionManager } from '../db/ConnectionManager.js';
+import * as cacheModule from '../cache/tableColumnsCache.js';
 
 // ─── Typy pomocnicze ──────────────────────────────────────────────────────────
 

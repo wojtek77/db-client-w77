@@ -1,7 +1,7 @@
-import { ConnectionManager } from './ConnectionManager';
-import { Connection } from './Connection';
-import { SqlUtil } from '../sql/SqlUtil';
-import { TableColumn, TableRef } from '../cache/tableColumnsCache';
+import { ConnectionManager } from './ConnectionManager.js';
+import { Connection } from './Connection.js';
+import { SqlUtil } from '../sql/SqlUtil.js';
+import { TableColumn, TableRef } from '../cache/tableColumnsCache.js';
 import * as vscode from 'vscode';
 
 const CONNECTION_CLOSED_ERRORS = [

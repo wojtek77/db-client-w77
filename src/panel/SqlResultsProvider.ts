@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
-import { getHtml } from './html';
-import { executeQuery } from '../db/query';
-import { ConnectionManager } from '../db/ConnectionManager';
+import { getHtml } from './html.js';
+import { executeQuery } from '../db/query.js';
+import { ConnectionManager } from '../db/ConnectionManager.js';
 import * as path from 'path';
 import * as os from 'os';
-import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles';
-import { getCachedColumnsBatch, getTableRefKey } from '../cache/tableColumnsCache';
-import { ConnectionColors } from '../db/ConnectionColors';
+import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
+import { getCachedColumnsBatch, getTableRefKey } from '../cache/tableColumnsCache.js';
+import { ConnectionColors } from '../db/ConnectionColors.js';
 
 interface FileResultState {
     rows: any[][];
