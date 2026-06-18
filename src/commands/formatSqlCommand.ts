@@ -97,18 +97,38 @@ function fmt(sql: string, lvl: number): string {
     const pad = tabs(lvl);
     const lines: string[] = [];
     let afterWhere = false;
+    let afterJoin = false;
+
+    const JOIN_KEYWORDS = new Set([
+        'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN', 'CROSS JOIN',
+        'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN',
+    ]);
 
     for (const { kw, rest } of segs) {
         if (!kw) { lines.push(pad + rest); continue; }
 
         if (kw === 'SELECT') {
-            afterWhere = false;
+            afterWhere = false; afterJoin = false;
             lines.push(fmtSelect(rest, lvl));
             continue;
         }
 
+        // AND/OR po JOIN – doklejamy do linii JOIN lub łamiemy z wcięciem
+        if (INDENTED_KEYWORDS.has(kw) && afterJoin) {
+            const lastLine = lines[lines.length - 1] ?? '';
+            const candidate = lastLine + ` ${kw}${rest ? ' ' + rest : ''}`;
+            if (candidate.length <= SELECT_WRAP_AT) {
+                lines[lines.length - 1] = candidate;
+            } else {
+                lines.push(`${pad}\t\t${kw}${rest ? ' ' + rest : ''}`);
+            }
+            continue; // afterJoin pozostaje true
+        }
+
         if (RESET_INDENT_KEYWORDS.has(kw)) { afterWhere = false; }
         if (kw === 'WHERE') { afterWhere = true; }
+
+        afterJoin = JOIN_KEYWORDS.has(kw);
 
         if (INDENTED_KEYWORDS.has(kw) && afterWhere) {
             lines.push(`${pad}\t${kw}${rest ? ' ' + rest : ''}`);
