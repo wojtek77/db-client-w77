@@ -20,6 +20,56 @@ const RESET_INDENT_KEYWORDS = new Set([
 
 function tabs(n: number): string { return '\t'.repeat(n); }
 
+// ─── Wyciąganie i przywracanie komentarzy ─────────────────────────────────────
+
+interface CommentSlot { placeholder: string; comment: string; standalone: boolean; }
+
+function extractComments(sql: string): { sql: string; slots: CommentSlot[] } {
+    const slots: CommentSlot[] = [];
+    const lines = sql.replace(/\r\n/g, '\n').split('\n');
+    const out: string[] = [];
+
+    for (const line of lines) {
+        const idx = line.indexOf('--');
+        if (idx === -1) { out.push(line); continue; }
+
+        const before = line.slice(0, idx).trim();
+        const comment = line.slice(idx).trimEnd();
+        const n = slots.length;
+        const placeholder = `__CMT_${n}__`;
+
+        if (before === '') {
+            // Samodzielny komentarz – wstawiamy placeholder jako osobny "token" w strumieniu.
+            // Żeby normalize go nie scalił z sąsiednimi liniami, owijamy go separatorami
+            // które przetrwają normalizację (normalize zamienia \n na spację, więc
+            // używamy specjalnego prefiksu który fmt rozpozna).
+            slots.push({ placeholder, comment, standalone: true });
+            out.push(placeholder);
+        } else {
+            // Komentarz końcowy – SQL przed nim + placeholder na końcu linii
+            slots.push({ placeholder, comment, standalone: false });
+            out.push(`${before} ${placeholder}`);
+        }
+    }
+
+    return { sql: out.join('\n'), slots };
+}
+
+function restoreComments(formatted: string, slots: CommentSlot[]): string {
+    let result = formatted;
+    for (const { placeholder, comment } of slots) {
+        // Samodzielny: placeholder jest całą linią (może mieć wcięcie nadane przez fmt)
+        result = result.replace(
+            new RegExp(`^([ \\t]*)${placeholder}[ \\t]*$`, 'm'),
+            (_m, indent) => `${indent}${comment}`,
+        );
+        // Końcowy: placeholder na końcu linii
+        result = result.replace(placeholder, comment);
+    }
+    return result;
+}
+
+
 // ─── Normalizacja wejścia ─────────────────────────────────────────────────────
 
 function normalize(sql: string): string {
@@ -67,7 +117,8 @@ function findClauses(sql: string): ClauseMatch[] {
         if (sql[i] === ')') { d--; }
     }
     const pattern = CLAUSE_KEYWORDS.map(k => k.replace(/ /g, '\\s+')).join('|');
-    const re = new RegExp(`(?<![\\w])(${pattern})(?![\\w])`, 'gi');
+    // Dodajemy wzorzec na placeholdery komentarzy
+    const re = new RegExp(`(?<![\\w])(${pattern}|__CMT_\\d+__)(?![\\w])`, 'gi');
     const out: ClauseMatch[] = [];
     let m: RegExpExecArray | null;
     while ((m = re.exec(sql)) !== null) {
@@ -104,8 +155,17 @@ function fmt(sql: string, lvl: number): string {
         'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN',
     ]);
 
+    const CMT_RE = /^__CMT_\d+__$/;
+
     for (const { kw, rest } of segs) {
         if (!kw) { lines.push(pad + rest); continue; }
+
+        // Samodzielny komentarz – emituj z wcięciem odpowiadającym bieżącemu kontekstowi
+        if (CMT_RE.test(kw)) {
+            const cmtIndent = afterWhere ? pad + '\t' : pad;
+            lines.push(`${cmtIndent}${kw}`);
+            continue;
+        }
 
         if (kw === 'SELECT') {
             afterWhere = false; afterJoin = false;
@@ -211,7 +271,8 @@ export async function formatSqlCommand(): Promise<void> {
         return;
     }
 
-    const formatted = fmt(editor.document.getText(selection), 0);
+    const { sql: sqlNoComments, slots } = extractComments(editor.document.getText(selection));
+    const formatted = restoreComments(fmt(sqlNoComments, 0), slots);
 
     await editor.edit(eb => eb.replace(selection, formatted));
 }
