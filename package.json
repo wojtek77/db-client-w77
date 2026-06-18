@@ -44,8 +44,21 @@
       {
         "command": "db-client.openRecentFiles",
         "title": "DB client: Open Recent SQL Files"
+      },
+      {
+        "command": "db-client.formatSQL",
+        "title": "DB client: Format SQL"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "db-client.formatSQL",
+          "when": "resourceExtname == '.sql' && editorHasSelection",
+          "group": "1_modification"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "db-client.runSQL",
@@ -55,6 +68,11 @@
       {
         "command": "db-client.openRecentFiles",
         "key": "F3"
+      },
+      {
+        "command": "db-client.formatSQL",
+        "key": "ctrl+shift+f",
+        "when": "editorTextFocus && !editorReadonly && resourceExtname == '.sql' && editorHasSelection"
       }
     ]
   },

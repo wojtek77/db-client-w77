@@ -5,6 +5,7 @@ import { isExtensionRunning, startExtension, stopExtension } from './lifecycle/e
 import { TableCompletionProvider } from './completion/TableCompletionProvider';
 import { runSQLCommand } from './commands/runSqlCommand';
 import { openRecentFilesCommand } from './commands/openRecentFilesCommand';
+import { formatSqlCommand } from './commands/formatSqlCommand';
 import { ConnectionColors } from './db/ConnectionColors';
 
 
@@ -118,7 +119,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const openRecentFiles = vscode.commands.registerCommand('db-client.openRecentFiles', async () => {
         await openRecentFilesCommand();
     });
-    context.subscriptions.push(runSQL, openRecentFiles);
+    const formatSQL = vscode.commands.registerCommand('db-client.formatSQL', async () => {
+        await formatSqlCommand();
+    });
+    context.subscriptions.push(runSQL, openRecentFiles, formatSQL);
 }
 
 export function deactivate() {
