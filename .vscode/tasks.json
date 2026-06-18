@@ -4,17 +4,16 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"type": "npm",
-			"script": "watch",
-			"problemMatcher": "$tsc-watch",
-			"isBackground": true,
+			"label": "Clean and Compile",
+			"type": "shell",
+			"command": "npm",
+			"args": ["run", "compile"],
+			"group": "build",
 			"presentation": {
-				"reveal": "never"
+				"reveal": "silent",
+				"clear": true
 			},
-			"group": {
-				"kind": "build",
-				"isDefault": true
-			}
+			"problemMatcher": "$tsc"
 		}
 	]
 }
