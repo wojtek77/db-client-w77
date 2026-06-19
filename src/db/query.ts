@@ -3,19 +3,8 @@ import { Connection } from './Connection.js';
 import { SqlUtil } from '../sql/SqlUtil.js';
 import { TableColumn, TableRef } from '../cache/tableColumnsCache.js';
 import * as vscode from 'vscode';
-
-const CONNECTION_CLOSED_ERRORS = [
-    'connection closed',
-    'socket hang up',
-    'connection lost',
-    'connection end',
-    'cannot execute new commands',
-];
-
-function isConnectionClosedError(message: string): boolean {
-    const lower = message.toLowerCase();
-    return CONNECTION_CLOSED_ERRORS.some(e => lower.includes(e));
-}
+import { findCurrentQuery } from '../sql/findCurrentQuery.js';
+import { SqlResultsProvider } from '../panel/SqlResultsProvider.js';
 
 export async function executeQuery(db: Connection, sql: string) {
     let rows: any[] = [];
@@ -28,32 +17,10 @@ export async function executeQuery(db: Connection, sql: string) {
     try {
         // wcześniej na SQL był TRIM
         sql = SqlUtil.appendLimit(sql);
-        let conn = db.getConnection();
         
         let startQuery = performance.now();
         
-        try {
-            [rows, meta] = await conn.query({ sql, rowsAsArray: true, metaAsArray: true });
-        } catch (err: any) {
-            // Jeśli połączenie zostało zerwane (np. restart MariaDB) — spróbuj reconnect
-            if (err.message && isConnectionClosedError(err.message)) {
-                const manager = ConnectionManager.getInstance();
-                const connectionName = db.getConnectionName();
-
-                const reconnected = await manager.reconnect(connectionName);
-                conn = reconnected.getConnection();
-
-                vscode.window.showInformationMessage(
-                    `🔄 Reconnect DB "${connectionName}".`
-                );
-
-                startQuery = performance.now();
-                [rows, meta] = await conn.query({ sql, rowsAsArray: true, metaAsArray: true });
-            } else {
-                throw err;
-            }
-        }
-
+        [rows, meta] = await db.query({ sql, rowsAsArray: true, metaAsArray: true });
         headers = meta.map((field: any) => field.name());
         
         const endQuery = performance.now();
@@ -69,6 +36,86 @@ export async function executeQuery(db: Connection, sql: string) {
         }
     }
     
+    return { rows, headers, meta, queryTime, success, errorMessage };
+}
+
+export async function executeQueryWholeFile(db: Connection, fullText: string) {
+    let rows: any[] = [];
+    let queryTime = 0;
+    let success = true;
+    let errorMessage = '';
+    let headers: string[] = [];
+    let meta: any;
+    
+    const lines = fullText.split('\n');
+
+    let selectExecuted = false;
+    let executedSqlCount = 0;
+    let skippedSelectCount = 0;
+
+    let lineIndex = 0;
+    
+    let startQuery = performance.now();
+
+    while (lineIndex < lines.length) {
+        // Pomijamy puste linie
+        if (lines[lineIndex].trim() === '') {
+            lineIndex++;
+            continue;
+        }
+
+        // Używamy findCurrentQuery, żeby znaleźć zapytanie zaczynające się od tej linii
+        const query = findCurrentQuery(fullText, lineIndex);
+        if (!query) {
+            lineIndex++;
+            continue;
+        }
+
+        const sql = query.sql;
+
+        if (SqlUtil.isSelect(sql)) {
+            if (!selectExecuted) {
+                // Wykonaj pierwszy SELECT przez executeQuery
+                ({ rows, headers, meta, success, errorMessage } = await executeQuery(db, sql));
+                if (!success) {
+                    break;
+                }
+                selectExecuted = true;
+                ++executedSqlCount;
+            } else {
+                // Pomiń kolejne SELECT-y
+                ++skippedSelectCount;
+            }
+        } else {
+            // Nie-SELECT: wykonaj przez połączenie z bazą danych
+            ({success, errorMessage} = await executeQuery(db, sql));
+            if (!success) {
+                break;
+            }
+            ++executedSqlCount;
+        }
+
+        // Przeskocz do linii po końcu znalezionego zapytania
+        lineIndex = query.endLine + 1;
+    }
+    
+    const endQuery = performance.now();
+    queryTime = endQuery - startQuery;
+
+    // Wyświetl ogólną informację
+    vscode.window.showInformationMessage(`Executed ${executedSqlCount} ${executedSqlCount === 1 ? 'query' : 'queries'}`);
+    
+    if (skippedSelectCount > 0) {
+        
+        // Wyświetl informację o pominiętych SELECT-ach przez flashMessage w webview
+        SqlResultsProvider.getInstance().showFlashMessage(
+            `Skipped ${skippedSelectCount} SELECT ${skippedSelectCount === 1 ? 'query' : 'queries'}`,
+            4
+        );
+    }
+    
+    success = true;
+        
     return { rows, headers, meta, queryTime, success, errorMessage };
 }
 

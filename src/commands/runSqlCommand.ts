@@ -23,7 +23,7 @@ export async function runSQLCommand() {
         return;
     }
     const sql = currentQuery.sql;
-    if (!sql || sql.trim() === '') {
+    if (!sql || sql === '') {
         vscode.window.showWarningMessage('Nie znaleziono zapytania SQL pod kursorem');
         return;
     }

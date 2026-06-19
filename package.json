@@ -43,6 +43,10 @@
         "title": "DB client: Run SQL"
       },
       {
+        "command": "db-client.runSqlWholeFile",
+        "title": "DB client: Run SQL Whole File"
+      },
+      {
         "command": "db-client.openRecentFiles",
         "title": "DB client: Open Recent SQL Files"
       },
@@ -54,6 +58,16 @@
     "menus": {
       "editor/context": [
         {
+          "command": "db-client.runSQL",
+          "when": "resourceExtname == '.sql'",
+          "group": "1_modification"
+        },
+        {
+          "command": "db-client.runSqlWholeFile",
+          "when": "resourceExtname == '.sql'",
+          "group": "1_modification"
+        },
+        {
           "command": "db-client.formatSQL",
           "when": "resourceExtname == '.sql' && editorHasSelection",
           "group": "1_modification"
@@ -61,6 +75,11 @@
       ]
     },
     "keybindings": [
+      {
+        "command": "db-client.runSqlWholeFile",
+        "key": "alt+x",
+        "when": "editorTextFocus && !editorReadonly && resourceExtname == '.sql'"
+      },
       {
         "command": "db-client.runSQL",
         "key": "ctrl+enter",

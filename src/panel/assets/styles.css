@@ -190,7 +190,7 @@ html, body {
 }
 
 #flashMessage {
-    /* color: orange; */
+    color: orange;
     font-weight: bold;
     /* display: flex; */
     opacity: 0; /* Domyślnie niewidoczny */

@@ -15,9 +15,9 @@ const REGEX_SELECT_WITHOUT_LIMIT =
 
 export class SqlUtil {
 
-    // public static isSelect(sql: string): boolean {
-    //     return /^select\s/i.test(sql);
-    // }
+    public static isSelect(sql: string): boolean {
+        return /^select\s/i.test(sql);
+    }
     
     public static appendLimit(
         sql: string,

@@ -6,6 +6,7 @@ import { TableCompletionProvider } from './completion/TableCompletionProvider.js
 import { runSQLCommand } from './commands/runSqlCommand.js';
 import { openRecentFilesCommand } from './commands/openRecentFilesCommand.js';
 import { formatSqlCommand } from './commands/formatSqlCommand.js';
+import { runSqlWholeFileCommand } from './commands/runSqlWholeFileCommand.js';
 import { ConnectionColors } from './db/ConnectionColors.js';
 
 
@@ -119,10 +120,13 @@ export async function activate(context: vscode.ExtensionContext) {
     const openRecentFiles = vscode.commands.registerCommand('db-client.openRecentFiles', async () => {
         await openRecentFilesCommand();
     });
+    const runSqlWholeFile = vscode.commands.registerCommand('db-client.runSqlWholeFile', async () => {
+        await runSqlWholeFileCommand();
+    });
     const formatSQL = vscode.commands.registerCommand('db-client.formatSQL', async () => {
         await formatSqlCommand();
     });
-    context.subscriptions.push(runSQL, openRecentFiles, formatSQL);
+    context.subscriptions.push(runSQL, openRecentFiles, runSqlWholeFile, formatSQL);
 }
 
 export function deactivate() {

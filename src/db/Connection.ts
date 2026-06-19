@@ -1,8 +1,8 @@
 import * as mariadb from 'mariadb';
 import path from 'path';
 import { CnfLoader } from "./CnfLoader.js";
+import * as vscode from 'vscode';
 
-// Dynamiczne pobranie typu konfiguracyjnego bezpośrednio z funkcji createPool
 type PoolConfig = Parameters<typeof mariadb.createPool>[0];
 
 export class Connection {
@@ -15,6 +15,8 @@ export class Connection {
     private schemaTables = new Map<string, string[]>();
     private threadId: number | null = null;
     private cnfFile = '';
+    // Przechowujemy konfigurację, aby móc wykonać reconnect bez podawania parametrów na nowo
+    private cachedConfig: PoolConfig | null = null;
     
     public static async create(cnfFile: string): Promise<Connection> {
         const db = new this();
@@ -29,13 +31,18 @@ export class Connection {
     
     public async connect(
         connectionName: string,
-        config: PoolConfig // Używa wyekstrahowanego typu bez błędów kompilacji
+        config: PoolConfig
     ): Promise<number> {
         this.connectionName = connectionName;
+        this.cachedConfig = config; // Zapisujemy konfigurację do cache
         
-        if (this.connected) {
+        // Jeśli już jesteśmy połączeni, a połączenie jest aktywne, zwracamy dotychczasowy czas
+        if (this.connected && this.conn) {
             return this.connectionTime;
         }
+
+        // Zabezpieczenie: jeśli istniały stare, wiszące zasoby, sprzątamy je przed re-connectem
+        this.cleanupResources();
         
         this.pool = mariadb.createPool({
             ...config,
@@ -49,40 +56,91 @@ export class Connection {
             bigIntAsNumber: true,
             dateStrings: true
         });
+
         const startConn = performance.now();
-        this.conn = await this.pool.getConnection();
-        this.threadId = this.conn.threadId;
-        this.conn.on('error', err => {
-            console.error('MariaDB connection error:', err);
-        });
-        const endConn = performance.now();
-        this.connectionTime = endConn - startConn;
-        
-        this.connected = true;
-        
-        // Po połączeniu, pobierz nazwy tabel
         try {
-            this.database = config.database ?? '';
-            this.schemaTables = await this.readTableNames(this.conn);
+            this.conn = await this.pool.getConnection();
+            this.threadId = this.conn.threadId;
+            
+            this.conn.on('error', err => {
+                console.error('MariaDB connection error:', err);
+                // W przypadku krytycznego błędu połączenia (np. zerwanie linku), 
+                // oznaczamy obiekt jako rozłączony, co pozwoli na ponowny connect
+                this.connected = false;
+            });
+
+            const endConn = performance.now();
+            this.connectionTime = endConn - startConn;
+            this.connected = true;
+            
+            // Po połączeniu, pobierz nazwy tabel
+            try {
+                this.database = config.database ?? '';
+                this.schemaTables = await this.readTableNames(this.conn);
+            } catch (err) {
+                console.error('Nie udało się pobrać tabel:', err);
+            }
+            
+            return this.connectionTime;
         } catch (err) {
-            console.error('Nie udało się pobrać tabel:', err);
+            this.connected = false;
+            this.cleanupResources();
+            throw err; // Przekazujemy błąd wyżej, żeby aplikacja wiedziała, że nie udało się połączyć
         }
-        
-        return this.connectionTime;
+    }
+
+    /**
+     * Metoda wymuszająca ponowne połączenie z użyciem zachowanej konfiguracji
+     */
+    public async reconnect(): Promise<number> {
+        if (!this.cachedConfig || !this.connectionName) {
+            throw new Error('Brak wcześniejszej konfiguracji do wykonania reconnect.');
+        }
+        // Resetujemy flagę, aby connect nie zakończył się przedwcześnie
+        this.connected = false; 
+        return await this.connect(this.connectionName, this.cachedConfig);
     }
     
     public getConnectionName(): string {
-
         return this.connectionName;
     }
     
     public getConnectionTime(): number {
-
         return this.connectionTime;
     }
     
     public getThreadId(): number | null {
         return this.threadId;
+    }
+    
+    public async query(params: string | any, values?: any[]): Promise<any> {
+        try {
+            const conn = this.getConnection();
+            return await conn.query(params, values);
+        } catch (err: any) {
+            // Dodano bezpieczne sprawdzanie err.message?.includes
+            const isClosed = 
+                err.code === 'ER_CMD_CONNECTION_CLOSED' || 
+                err.message?.includes('conn') ||
+                err.code === 'ECONNRESET' ||
+                err.code === 'PROTOCOL_CONNECTION_LOST';
+
+            if (isClosed) {
+                // Reconnect z Rozwiązania 3 automatycznie wyczyści stare zasoby
+                await this.reconnect();
+                
+                const conn = this.getConnection();
+                const connectionName = this.getConnectionName();
+                
+                // Informacja dla użytkownika w VS Code
+                vscode.window.showInformationMessage(
+                    `🔄 Reconnect DB "${connectionName}".`
+                );
+                
+                return await conn.query(params, values);
+            }
+            throw err;
+        }
     }
     
     public async cancelCurrentQuery(): Promise<void> {
@@ -109,7 +167,6 @@ export class Connection {
     }
     
     public getTableNames(): Map<string, string[]> {
-
         return this.schemaTables;
     }
     
@@ -134,7 +191,6 @@ export class Connection {
     public findSchemaByTable(
         tableName: string
     ): string | null {
-
         for (
             const [schema, tables]
             of this.schemaTables
@@ -145,17 +201,15 @@ export class Connection {
                 return schema;
             }
         }
-
         return null;
     }
 
     public getDatabase(): string {
-
         return this.database;
     }
 
     public getConnection() {
-        if (!this.conn) {
+        if (!this.connected || !this.conn) {
             throw new Error(
                 'Database is not connected'
             );
@@ -164,19 +218,19 @@ export class Connection {
     }
 
     public isConnected(): boolean {
-
         return this.connected;
     }
 
-    public disconnect() {
-
+    /**
+     * Wewnętrzna metoda pomocnicza czyszcząca referencje bez mutowania flagi `connected`
+     */
+    private cleanupResources() {
         try {
             if (this.conn) this.conn.end();
         } catch (err) {
             console.error('Błąd conn.end():', err);
         } finally {
             this.conn = null;
-            this.connected = false;
         }
 
         try {
@@ -186,22 +240,20 @@ export class Connection {
         } finally {
             this.pool = null;
         }
+        this.threadId = null;
+    }
+
+    public disconnect() {
+        this.cleanupResources();
+        this.connected = false;
     }
     
     private async readTableNames(
         conn: mariadb.PoolConnection
     ): Promise<Map<string, string[]>> {
-
-        const schemaTables = new Map<
-            string,
-            string[]
-        >();
+        const schemaTables = new Map<string, string[]>();
 
         try {
-
-            /* 
-                WHERE TABLE_TYPE = 'BASE TABLE' ozn. bez widoków
-            */
             const rows = await conn.query(`
                 SELECT
                     TABLE_SCHEMA,
@@ -210,26 +262,14 @@ export class Connection {
             `);
 
             for (const row of rows) {
-
-                const schema =
-                    row.TABLE_SCHEMA;
-
-                const table =
-                    row.TABLE_NAME;
-
-                let tables =
-                    schemaTables.get(schema);
+                const schema = row.TABLE_SCHEMA;
+                const table = row.TABLE_NAME;
+                let tables = schemaTables.get(schema);
 
                 if (!tables) {
-
                     tables = [];
-
-                    schemaTables.set(
-                        schema,
-                        tables
-                    );
+                    schemaTables.set(schema, tables);
                 }
-
                 tables.push(table);
             }
 
@@ -239,67 +279,29 @@ export class Connection {
                 'performance_schema',
                 'sys'
             ]);
-            
-            // console.log(
-            //     'Schemas:',
-            //     [...schemaTables.keys()]
-            // );
 
-            const sortedSchemas =
-                [...schemaTables.keys()]
-                    .sort((a, b) => {
+            const sortedSchemas = [...schemaTables.keys()]
+                .sort((a, b) => {
+                    const aSystem = systemSchemas.has(a);
+                    const bSystem = systemSchemas.has(b);
 
-                        const aSystem =
-                            systemSchemas.has(a);
+                    if (aSystem !== bSystem) {
+                        return aSystem ? 1 : -1;
+                    }
+                    return a.localeCompare(b);
+                });
 
-                        const bSystem =
-                            systemSchemas.has(b);
+            const sortedMap = new Map<string, string[]>();
 
-                        if (
-                            aSystem !== bSystem
-                        ) {
-                            return aSystem
-                                ? 1
-                                : -1;
-                        }
-
-                        return a.localeCompare(b);
-                    });
-
-            const sortedMap =
-                new Map<string, string[]>();
-
-            for (
-                const schema of sortedSchemas
-            ) {
-
-                const tables =
-                    schemaTables.get(schema)!;
-
-                tables.sort(
-                    (a, b) =>
-                        a.localeCompare(b)
-                );
-
-                sortedMap.set(
-                    schema,
-                    tables
-                );
+            for (const schema of sortedSchemas) {
+                const tables = schemaTables.get(schema)!;
+                tables.sort((a, b) => a.localeCompare(b));
+                sortedMap.set(schema, tables);
             }
-            
-            // console.log(
-            //     sortedMap
-            // );
 
             return sortedMap;
-
         } catch (err) {
-
-            console.error(
-                'Unable to read table metadata',
-                err
-            );
-
+            console.error('Unable to read table metadata', err);
             return new Map();
         }
     }

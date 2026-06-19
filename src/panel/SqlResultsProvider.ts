@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { getHtml } from './html.js';
-import { executeQuery } from '../db/query.js';
+import { executeQuery, executeQueryWholeFile } from '../db/query.js';
 import { ConnectionManager } from '../db/ConnectionManager.js';
 import * as path from 'path';
 import * as os from 'os';
@@ -336,7 +336,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    public async executeQuery(sql: string, sqlFile: string) {
+    public async executeQuery(sql: string, sqlFile: string, wholeFile = false) {
         console.log('executeQuery');
         this._currentSqlFile = sqlFile;
         
@@ -366,7 +366,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             startedAt: Date.now()
         });
         
-        const { rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(db, sql);
+        let rows, headers, meta, queryTime, success, errorMessage;
+        if (wholeFile) {
+            ({ rows, headers, meta, queryTime, success, errorMessage } = await executeQueryWholeFile(db, sql));
+        } else {
+            ({ rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(db, sql));
+        }
         
         this._queryRunning = false;
         this._view?.webview.postMessage({
@@ -408,6 +413,17 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this.sendPage(1);
     }
     
+    public showFlashMessage(text: string, seconds: number) {
+        if (!this._view) {
+            return;
+        }
+        this._view.webview.postMessage({
+            command: 'showFlashMessage',
+            text,
+            seconds
+        });
+    }
+
     public showResultsForFile(sqlFile: string) {
         if (!this._view) {
             return;

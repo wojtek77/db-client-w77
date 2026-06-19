@@ -230,6 +230,11 @@ window.addEventListener('message', event => {
         });
     }
     
+    if (msg.command === 'showFlashMessage') {
+        showFlashMessage(msg.text, msg.seconds);
+        return;
+    }
+
     if (msg.command === 'error') {
         stopSpinner();
         stopGridContainer();
