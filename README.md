@@ -22,7 +22,7 @@ It is an extension for VS Code that works like MariaDB client.
 socket = /run/mysqld/mysqld.sock
 user = root
 password = root
-database = 
+database =
 skip-ssl = true
 reconnect = false
 compress = false
