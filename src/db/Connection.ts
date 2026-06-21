@@ -208,7 +208,7 @@ export class Connection {
         return this.database;
     }
 
-    public getConnection() {
+    private getConnection() {
         if (!this.connected || !this.conn) {
             throw new Error(
                 'Database is not connected'

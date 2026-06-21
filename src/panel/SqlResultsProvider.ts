@@ -227,7 +227,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private async updateCellInDB(rowIndex: number, columnIndex: number, value: any) {
         try {
             const db = await ConnectionManager.getInstance().getDb();
-            const conn = db.getConnection();
 
             const row = this._allRows[rowIndex];
 
@@ -304,7 +303,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 value = null;
             }
             
-            await conn.query(updateSQL, [value, ...whereValues]);
+            await db.query(updateSQL, [value, ...whereValues]);
 
             this._allRows[rowIndex][columnIndex] = value;
 

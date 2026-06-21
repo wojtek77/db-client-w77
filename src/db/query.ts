@@ -130,8 +130,6 @@ export async function getTableColumnsBatch(
     const db = await ConnectionManager.getInstance().getDb();
 
     try {
-        const conn = db.getConnection();
-
         const placeholders =
             tables
                 .map(
@@ -171,7 +169,7 @@ export async function getTableColumnsBatch(
         `;
 
         const rows =
-            await conn.query(sql, params);
+            await db.query(sql, params);
 
         return rows.map(
             (row: any) => ({
