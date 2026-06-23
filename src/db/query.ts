@@ -20,8 +20,22 @@ export async function executeQuery(db: Connection, sql: string) {
         
         let startQuery = performance.now();
         
-        [rows, meta] = await db.query({ sql, rowsAsArray: true, metaAsArray: true });
-        headers = meta.map((field: any) => field.name());
+        const [queryData, queryMeta] = await db.query({ sql, rowsAsArray: true, metaAsArray: true });
+        if (Array.isArray(queryData)) {
+            // SELECT: queryData to wiersze, queryMeta to definicje kolumn
+            rows = queryData;
+            meta = queryMeta;
+            headers = meta.map((field: any) => field.name());
+        } else {
+            // Nie-SELECT (np. SET, INSERT, UPDATE, DELETE): queryData to OkPacket,
+            // więc budujemy własną tabelę wyniku
+            headers = ['Name', 'Value'];
+            rows = [
+                ['Updated Rows', queryData?.affectedRows ?? 0],
+                ['Query', sql]
+            ];
+            meta = undefined;
+        }
         
         const endQuery = performance.now();
         queryTime = endQuery - startQuery;
