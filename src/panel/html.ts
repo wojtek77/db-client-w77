@@ -51,6 +51,7 @@ export function getHtml(
     </div>
         
     <div class="others">
+        <span id="infoMessage"></span>
         <span id="flashMessage"></span>
     </div>
 

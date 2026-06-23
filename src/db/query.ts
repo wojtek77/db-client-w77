@@ -60,6 +60,7 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
     let errorMessage = '';
     let headers: string[] = [];
     let meta: any;
+    let updatedRows = 0;
     
     const lines = fullText.split('\n');
 
@@ -102,11 +103,13 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
             }
         } else {
             // Nie-SELECT: wykonaj przez połączenie z bazą danych
-            ({success, errorMessage} = await executeQuery(db, sql));
+            let noSelectRows: any[][] = [];
+            ({success, errorMessage, rows: noSelectRows} = await executeQuery(db, sql));
             if (!success) {
                 break;
             }
             ++executedSqlCount;
+            updatedRows += noSelectRows[0][1];
         }
 
         // Przeskocz do linii po końcu znalezionego zapytania
@@ -117,20 +120,15 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
     queryTime = endQuery - startQuery;
 
     // Wyświetl ogólną informację
-    vscode.window.showInformationMessage(`Executed ${executedSqlCount} ${executedSqlCount === 1 ? 'query' : 'queries'}`);
-    
+    const infoMessage = `Updated Rows: ${updatedRows}, Executed ${executedSqlCount} ${executedSqlCount === 1 ? 'query' : 'queries'}`;
+    let flashMessage;
     if (skippedSelectCount > 0) {
-        
-        // Wyświetl informację o pominiętych SELECT-ach przez flashMessage w webview
-        SqlResultsProvider.getInstance().showFlashMessage(
-            `Skipped ${skippedSelectCount} SELECT ${skippedSelectCount === 1 ? 'query' : 'queries'}`,
-            4
-        );
+        flashMessage = `Skipped ${skippedSelectCount} SELECT ${skippedSelectCount === 1 ? 'query' : 'queries'}`;
     }
     
     success = true;
         
-    return { rows, headers, meta, queryTime, success, errorMessage };
+    return { rows, headers, meta, queryTime, success, errorMessage, infoMessage, flashMessage };
 }
 
 export async function getTableColumnsBatch(

@@ -13,6 +13,7 @@
  * @property {string} connectionTime - Czas połączenia z DB.
  * @property {string} queryTime - Czas wykonania ostatniego SQL-a.
  * @property {string} connectionColor - Kolor dla połącznia DB.
+ * @property {string} infoMessage - Dodatkowa informacja np. ilość zmienionych rekordów.
  */
 
 class State {
@@ -36,6 +37,7 @@ class State {
                 connectionTime: '---',
                 queryTime: 0,
                 connectionColor: null,
+                infoMessage: '',
             });
         }
 

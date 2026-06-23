@@ -169,7 +169,14 @@ html, body {
 
 .others {
     flex: 1;
+    font-size: 13px;
 }
+#infoMessage {
+    padding: 1px 3px;
+    border: 4px double gray;
+    border-radius: 6px;
+}
+
 .btn {
     padding: 1px 3px;
     margin-left: 3px;

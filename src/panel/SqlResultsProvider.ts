@@ -58,6 +58,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _meta: any[] = [];
     private _lastSQL = '';
     private _currentPage = 1;
+    private _infoMessage = '';
+    private _flashMessage = '';
     private readonly ROWS_PER_PAGE = 200;
     private _context?: vscode.ExtensionContext;
     private _resolveView?: (value: boolean) => void;
@@ -200,6 +202,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 connectionTime: this._connectionTime,
                 queryTime: this._lastQueryTime,
                 connectionColor: this._connectionColor,
+                infoMessage: this._infoMessage,
+                flashMessage: this._flashMessage,
                 isEncoded: true,
                 sentAt: Date.now() // znacznik czasu w ms
             });
@@ -365,9 +369,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             startedAt: Date.now()
         });
         
-        let rows, headers, meta, queryTime, success, errorMessage;
+        let rows, headers, meta, queryTime, success, errorMessage, infoMessage, flashMessage;
         if (wholeFile) {
-            ({ rows, headers, meta, queryTime, success, errorMessage } = await executeQueryWholeFile(db, sql));
+            ({ rows, headers, meta, queryTime, success, errorMessage, infoMessage, flashMessage } = await executeQueryWholeFile(db, sql));
         } else {
             ({ rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(db, sql));
         }
@@ -392,6 +396,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._lastQueryTime = queryTime;
         this._connectionColor = ConnectionColors.getInstance().getColor(this._connectionName);
         this._currentPage = 1;
+        this._infoMessage = infoMessage ?? '';
+        this._flashMessage = flashMessage ?? '';
         
         this._fileStates.set(sqlFile, {
             rows: this._allRows,
@@ -412,17 +418,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this.sendPage(1);
     }
     
-    public showFlashMessage(text: string, seconds: number) {
-        if (!this._view) {
-            return;
-        }
-        this._view.webview.postMessage({
-            command: 'showFlashMessage',
-            text,
-            seconds
-        });
-    }
-
     public showResultsForFile(sqlFile: string) {
         if (!this._view) {
             return;

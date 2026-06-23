@@ -11,6 +11,7 @@ const gridContainer = document.getElementById('gridContainer');
 const spinner = document.querySelector('.spinner');
 const loadingText = document.querySelector('.loading-text');
 const cancelBtn = document.getElementById('cancelQuery');
+const infoMessage = document.getElementById('infoMessage');
 
 function stopQueryTimer() {
     if (queryTimer) {
@@ -18,7 +19,7 @@ function stopQueryTimer() {
         queryTimer = null;
     }
 }
-function showFlashMessage(text, seconds) {
+function showFlashMessage(text, seconds = 3) {
     const flash = document.getElementById('flashMessage');
     if (!flash) return;
     flash.innerText = text;
@@ -59,6 +60,16 @@ function updateDbAndTimes(connectionName = '-------', connectionTime = null, que
     }
     document.getElementById('queryTime').textContent = qt;
     document.getElementById('queryTimeUnit').textContent = qtu;
+}
+function updateInfoMessage(msg = '') {
+    if (infoMessage) {
+        if (msg) {
+            infoMessage.style.display = 'inline';
+            infoMessage.textContent = msg;
+        } else {
+            infoMessage.style.display = 'none';
+        }
+    }
 }
 function stopError() {
     if (errorDisplay) errorDisplay.style.display = 'none';
@@ -129,8 +140,12 @@ window.addEventListener('message', event => {
         State.getInstance().connectionTime = msg.connectionTime
         State.getInstance().queryTime = msg.queryTime
         State.getInstance().connectionColor = msg.connectionColor ?? null
+        State.getInstance().infoMessage = msg.infoMessage
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor);
+        updateInfoMessage(State.getInstance().infoMessage);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
+        
+        if (msg.flashMessage) showFlashMessage(msg.flashMessage, 4);
         
         const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
         
@@ -192,6 +207,7 @@ window.addEventListener('message', event => {
         
         startGridContainer();
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor);
+        updateInfoMessage(State.getInstance().infoMessage);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         
         // renderowanie HTML
@@ -209,6 +225,7 @@ window.addEventListener('message', event => {
         
         stopGridContainer();
         updateDbAndTimes();
+        updateInfoMessage();
         updatePagination();
     }
     
@@ -230,11 +247,6 @@ window.addEventListener('message', event => {
         });
     }
     
-    if (msg.command === 'showFlashMessage') {
-        showFlashMessage(msg.text, msg.seconds);
-        return;
-    }
-
     if (msg.command === 'error') {
         stopSpinner();
         stopGridContainer();
