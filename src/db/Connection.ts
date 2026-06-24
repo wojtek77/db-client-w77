@@ -121,9 +121,9 @@ export class Connection {
             // Dodano bezpieczne sprawdzanie err.message?.includes
             const isClosed = 
                 err.code === 'ER_CMD_CONNECTION_CLOSED' || 
-                err.message?.includes('conn') ||
                 err.code === 'ECONNRESET' ||
-                err.code === 'PROTOCOL_CONNECTION_LOST';
+                err.code === 'PROTOCOL_CONNECTION_LOST' ||
+                err.message === 'Database is not connected';
 
             if (isClosed) {
                 // Reconnect z Rozwiązania 3 automatycznie wyczyści stare zasoby
