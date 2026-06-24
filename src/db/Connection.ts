@@ -17,6 +17,8 @@ export class Connection {
     private cnfFile = '';
     // Przechowujemy konfigurację, aby móc wykonać reconnect bez podawania parametrów na nowo
     private cachedConfig: PoolConfig | null = null;
+    private cancelled = false; // kill query
+    private isTransactionActive = false;
     
     public static async create(cnfFile: string): Promise<Connection> {
         const db = new this();
@@ -67,6 +69,9 @@ export class Connection {
                 // W przypadku krytycznego błędu połączenia (np. zerwanie linku), 
                 // oznaczamy obiekt jako rozłączony, co pozwoli na ponowny connect
                 this.connected = false;
+                this.threadId = null;
+                this.cancelled = false;
+                this.isTransactionActive = false;
             });
 
             const endConn = performance.now();
@@ -125,7 +130,7 @@ export class Connection {
                 err.code === 'PROTOCOL_CONNECTION_LOST' ||
                 err.message === 'Database is not connected';
 
-            if (isClosed) {
+            if (isClosed && !this.cancelled) {
                 // Reconnect z Rozwiązania 3 automatycznie wyczyści stare zasoby
                 await this.reconnect();
                 
@@ -150,12 +155,14 @@ export class Connection {
 
         const killConn = await Connection.create(this.cnfFile);
         try {
+            this.cancelled = true;
             await killConn.getConnection().query(
                 `KILL QUERY ${this.threadId}`
             );
         } catch (err: any) {
             console.debug('Cancel query:', err.message);
         } finally {
+            this.cancelled = false;
             killConn.disconnect();
         }
     }
@@ -206,6 +213,25 @@ export class Connection {
 
     public getDatabase(): string {
         return this.database;
+    }
+    
+    public async startTransaction() {
+        await this.query('START TRANSACTION');
+        this.isTransactionActive = true;
+    }
+    
+    public async commit() {
+        if (this.isTransactionActive) {
+            await this.query('COMMIT');
+            this.isTransactionActive = false;
+        }
+    }
+    
+    public async rollback() {
+        if (this.isTransactionActive) {
+            await this.query('ROLLBACK');
+            this.isTransactionActive = false;
+        }
     }
 
     private getConnection() {

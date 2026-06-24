@@ -2,9 +2,7 @@ import { ConnectionManager } from './ConnectionManager.js';
 import { Connection } from './Connection.js';
 import { SqlUtil } from '../sql/SqlUtil.js';
 import { TableColumn, TableRef } from '../cache/tableColumnsCache.js';
-import * as vscode from 'vscode';
 import { findCurrentQuery } from '../sql/findCurrentQuery.js';
-import { SqlResultsProvider } from '../panel/SqlResultsProvider.js';
 
 export async function executeQuery(db: Connection, sql: string) {
     let rows: any[] = [];
@@ -72,6 +70,7 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
     
     let startQuery = performance.now();
 
+    await db.startTransaction();
     while (lineIndex < lines.length) {
         // Pomijamy puste linie
         if (lines[lineIndex].trim() === '') {
@@ -116,6 +115,14 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
         lineIndex = query.endLine + 1;
     }
     
+    if (success) {
+        await db.commit();
+    } else {
+        await db.rollback();
+        headers = [];
+        rows = [];
+    }
+    
     const endQuery = performance.now();
     queryTime = endQuery - startQuery;
 
@@ -126,8 +133,6 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
         flashMessage = `Skipped ${skippedSelectCount} SELECT ${skippedSelectCount === 1 ? 'query' : 'queries'}`;
     }
     
-    success = true;
-        
     return { rows, headers, meta, queryTime, success, errorMessage, infoMessage, flashMessage };
 }
 
