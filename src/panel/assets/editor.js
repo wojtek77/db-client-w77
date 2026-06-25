@@ -7,13 +7,13 @@ function registerEvents(vscode) {
     /* edycja komórki */
     document.addEventListener('DOMContentLoaded', () => {
         const gridBody = document.getElementById('gridBody');
-        if (!gridBody) return;
+        if (!gridBody) {return;}
 
         gridBody.addEventListener('dblclick', (event) => {
             const cell = event.target.closest('.grid-cell');
             
             // Blokujemy nagłówki, LP oraz sytuację gdy input już istnieje
-            if (!cell || cell.classList.contains('lp-cell') || cell.querySelector('input')) return;
+            if (!cell || cell.classList.contains('lp-cell') || cell.querySelector('input')) {return;}
 
             const rowIndex = cell._index.row;
             const colIndex = cell._index.col;
@@ -74,14 +74,14 @@ function registerEvents(vscode) {
             gridBody.addEventListener('click', (event) => {
                 // Szukamy najbliższej komórki (div z klasą .grid-cell)
                 const cell = event.target.closest('.grid-cell');
-                if (!cell) return;
+                if (!cell) {return;}
                 
                 // Ignorujemy kliknięcia w komórkę LP (numer wiersza), jeśli nie chcesz jej zaznaczać
                 // if (cell.classList.contains('lp-cell')) return;
 
                 // Znajdujemy cały wiersz, w którym znajduje się kliknięta komórka
                 const targetRow = cell.closest('.grid-row');
-                if (!targetRow) return;
+                if (!targetRow) {return;}
 
                 // 🚀 WYDAJNOŚĆ: Usuwamy klasę 'selected-row' z poprzednio zaznaczonego wiersza
                 const previousSelected = gridBody.querySelector('.selected-row');

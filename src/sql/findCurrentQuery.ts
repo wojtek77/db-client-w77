@@ -70,5 +70,5 @@ export function findCurrentQuery(
             .trim(),
         startLine,
         endLine
-    }
+    };
 }

@@ -252,7 +252,7 @@ export class Connection {
      */
     private cleanupResources() {
         try {
-            if (this.conn) this.conn.end();
+            if (this.conn) {this.conn.end();}
         } catch (err) {
             console.error('Błąd conn.end():', err);
         } finally {
@@ -260,7 +260,7 @@ export class Connection {
         }
 
         try {
-            if (this.pool) this.pool.end();
+            if (this.pool) {this.pool.end();}
         } catch (err) {
             console.error('Błąd pool.end():', err);
         } finally {

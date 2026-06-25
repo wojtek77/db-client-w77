@@ -21,7 +21,7 @@ function stopQueryTimer() {
 }
 function showFlashMessage(text, seconds = 3) {
     const flash = document.getElementById('flashMessage');
-    if (!flash) return;
+    if (!flash) {return;}
     flash.innerText = text;
     flash.style.opacity = '1';
     flashTimeout = setTimeout(() => {
@@ -82,16 +82,16 @@ function updateErrorMessage(err = '') {
     }
 }
 function startSpinner() {
-    if (loadingOverlay) loadingOverlay.style.display = 'flex';
+    if (loadingOverlay) {loadingOverlay.style.display = 'flex';}
 }
 function stopSpinner() {
-    if (loadingOverlay) loadingOverlay.style.display = 'none';
+    if (loadingOverlay) {loadingOverlay.style.display = 'none';}
 }
 function startGridContainer() {
-    if (gridContainer) gridContainer.style.display = 'flex';
+    if (gridContainer) {gridContainer.style.display = 'flex';}
 }
 function stopGridContainer() {
-    if (gridContainer) gridContainer.style.display = 'none';
+    if (gridContainer) {gridContainer.style.display = 'none';}
 }
 
 window.addEventListener('message', event => {
@@ -142,18 +142,18 @@ window.addEventListener('message', event => {
         if (msg.headers) {
             State.getInstance().headers = msg.headers;
         }
-        State.getInstance().connectionName = msg.connectionName
-        State.getInstance().connectionTime = msg.connectionTime
-        State.getInstance().queryTime = msg.queryTime
-        State.getInstance().connectionColor = msg.connectionColor ?? null
-        State.getInstance().infoMessage = msg.infoMessage
-        State.getInstance().errorMessage = msg.errorMessage
+        State.getInstance().connectionName = msg.connectionName;
+        State.getInstance().connectionTime = msg.connectionTime;
+        State.getInstance().queryTime = msg.queryTime;
+        State.getInstance().connectionColor = msg.connectionColor ?? null;
+        State.getInstance().infoMessage = msg.infoMessage;
+        State.getInstance().errorMessage = msg.errorMessage;
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor);
         updateInfoMessage(State.getInstance().infoMessage);
         updateErrorMessage(State.getInstance().errorMessage);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         
-        if (msg.flashMessage) showFlashMessage(msg.flashMessage, 4);
+        if (msg.flashMessage) {showFlashMessage(msg.flashMessage, 4);}
         
         const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
         
@@ -221,7 +221,7 @@ window.addEventListener('message', event => {
         
         // renderowanie HTML
         console.time("⏱️ Czas renderHeaders");
-        renderHeaders(State.getInstance().currentRows)
+        renderHeaders(State.getInstance().currentRows);
         console.timeEnd("⏱️ Czas renderHeaders");
         console.time("⏱️ Czas restoreGridFromCache");
         restoreGridFromCache();
@@ -240,9 +240,9 @@ window.addEventListener('message', event => {
     }
     
     if (msg.command === 'changeConnection') {
-        State.getInstance().connectionName = msg.connectionName
-        State.getInstance().connectionTime = msg.connectionTime
-        State.getInstance().connectionColor = msg.connectionColor ?? null
+        State.getInstance().connectionName = msg.connectionName;
+        State.getInstance().connectionTime = msg.connectionTime;
+        State.getInstance().connectionColor = msg.connectionColor ?? null;
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, null, State.getInstance().connectionColor);
         // showFlashMessage('Connection DB was changed', 3);
     }

@@ -10,9 +10,9 @@ function exportToCSV() {
     const rows = State.getInstance().currentRows;
     const headers = State.getInstance().headers;
     
-    if (!rows || rows.length === 0) return;
-    if (!headers || headers.length === 0) return;
-    if (!window.vscode) return;
+    if (!rows || rows.length === 0) {return;}
+    if (!headers || headers.length === 0) {return;}
+    if (!window.vscode) {return;}
     
     window.vscode.postMessage({
         command: 'exportCSV',
@@ -26,9 +26,9 @@ function exportToTXT() {
     const rows = State.getInstance().currentRows;
     const headers = State.getInstance().headers;
     
-    if (!rows || rows.length === 0) return;
-    if (!headers || headers.length === 0) return;
-    if (!window.vscode) return;
+    if (!rows || rows.length === 0) {return;}
+    if (!headers || headers.length === 0) {return;}
+    if (!window.vscode) {return;}
     
     window.vscode.postMessage({
         command: 'exportTXT',

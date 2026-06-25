@@ -160,7 +160,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
 
     private updateHtml() {
-        if (!this._view) throw new Error("brak webview");
+        if (!this._view) {throw new Error("brak webview");}
         
         if (!this._view.webview.html) {
             const html = getHtml(
@@ -173,7 +173,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
 
     private sendPage(pageNumber: number) {
-        if (!this._view) return;
+        if (!this._view) {return;}
         
         const start = (pageNumber - 1) * this.ROWS_PER_PAGE;
         const end = start + this.ROWS_PER_PAGE;
@@ -333,7 +333,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
     
     private async waitForView(): Promise<boolean> {
-        if (this._view) return true;
+        if (this._view) {return true;}
         
         return new Promise(resolve => {
             this._resolveView = resolve;
@@ -587,7 +587,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 let max = h.length;
                 for (const row of rows) {
                     const len = escapeCell(row[i]).length;
-                    if (len > max) max = len;
+                    if (len > max) {max = len;}
                 }
                 return Math.min(max, 50);
             });

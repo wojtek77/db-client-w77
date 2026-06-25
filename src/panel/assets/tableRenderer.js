@@ -99,7 +99,7 @@ function initializeGrid(currentRows) {
         }
 
         // fragment.appendChild(rowDiv);
-        gridBody.appendChild(rowDiv)
+        gridBody.appendChild(rowDiv);
         rows.push(cells);
         rowsHtml.push(rowDiv);
     }
