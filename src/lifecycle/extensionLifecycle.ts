@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../db/ConnectionManager.js';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
-import { clearTableColumnsCache } from '../cache/tableColumnsCache.js';
+import { TableColumnsService } from '../cache/TableColumnsService.js';
 
 let extensionRunning = false;
 
@@ -29,7 +29,7 @@ export async function stopExtension(all = false) {
     RecentSqlFiles.getInstance().persist();
     
     // czyszczenie cache tabel z polami
-    clearTableColumnsCache();
+    TableColumnsService.getInstance().clearTableColumnsCache();
     
     if (all) {
         // zamknięcie panelu na dole

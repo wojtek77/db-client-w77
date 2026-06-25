@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../db/ConnectionManager.js';
-import { getCachedColumnsBatch, getTableRefKey, TableColumn, TableRef } from '../cache/tableColumnsCache.js';
+import { TableColumn, TableColumnsService, TableRef } from '../cache/TableColumnsService.js';
 import { formatColumnType } from './columnFormatter.js';
 import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
@@ -12,6 +12,12 @@ const REGEX_FROM_OBJECT = /\b(?:from|join)\s+(\w*)$/i;
 const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)\.$/;
 
 export class TableCompletionProvider implements vscode.CompletionItemProvider {
+    
+    private tableColumnsService;
+    
+    public constructor() {
+        this.tableColumnsService = TableColumnsService.getInstance();
+    }
 
     async provideCompletionItems(
         document: vscode.TextDocument,
@@ -208,8 +214,8 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
                     return [];
                 }
 
-                const columnsMap = await getCachedColumnsBatch([{ schema, table }]);
-                const columns = columnsMap[getTableRefKey({ schema, table })] ?? [];
+                const columnsMap = await this.tableColumnsService.getCachedColumnsBatch([{ schema, table }]);
+                const columns = columnsMap[this.tableColumnsService.getTableRefKey({ schema, table })] ?? [];
 
                 return columns.map(column => this.createColumnItem(table, column));
             }
@@ -241,8 +247,8 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
                 };
             }
 
-            const columnsMap = await getCachedColumnsBatch([tableRef]);
-            const columns = columnsMap[getTableRefKey(tableRef)] ?? [];
+            const columnsMap = await this.tableColumnsService.getCachedColumnsBatch([tableRef]);
+            const columns = columnsMap[this.tableColumnsService.getTableRefKey(tableRef)] ?? [];
 
             return columns.map(column => this.createColumnItem(tableRef!.table, column));
         }
@@ -277,7 +283,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
     ): Promise<void> {
         // Dodano operator ?? '', aby zamienić undefined na pusty string
         const tableRefs = findQueryTables(fullText, defaultSchema ?? '', db);
-        const columnsMap = await getCachedColumnsBatch(tableRefs);
+        const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(tableRefs);
 
         for (const tableRef of tableRefs) {
             if (allowedAliases) {
@@ -301,7 +307,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
                 }
             }
 
-            const columns = columnsMap[getTableRefKey(tableRef)] ?? [];
+            const columns = columnsMap[this.tableColumnsService.getTableRefKey(tableRef)] ?? [];
             for (const column of columns) {
                 resultList.push(this.createColumnItem(tableRef.table, column));
             }

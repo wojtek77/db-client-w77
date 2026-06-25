@@ -1,5 +1,5 @@
+import { TableColumnsService, TableRef } from '../cache/TableColumnsService.js';
 import { Connection } from '../db/Connection.js';
-import { getTableRefKey, TableRef } from '../cache/tableColumnsCache.js';
 
 export function findQueryTables(
     sql: string,
@@ -35,11 +35,12 @@ export function findQueryTables(
         });
     }
 
+    const tableColumnsService = TableColumnsService.getInstance();
     return Array.from(
         new Map(
             tableRefs.map(
                 tableRef => [
-                    getTableRefKey(tableRef),
+                    tableColumnsService.getTableRefKey(tableRef),
                     tableRef
                 ]
             )

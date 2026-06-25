@@ -3,9 +3,8 @@ import * as vscode from 'vscode';
 import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { TableCompletionProvider } from '../completion/TableCompletionProvider.js';
-import { TableColumn } from '../cache/tableColumnsCache.js';
 import { ConnectionManager } from '../db/ConnectionManager.js';
-import * as cacheModule from '../cache/tableColumnsCache.js';
+import { TableColumn, TableColumnsService, TableRef } from '../cache/TableColumnsService.js';
 
 // ─── Typy pomocnicze ──────────────────────────────────────────────────────────
 
@@ -53,15 +52,18 @@ async function getCompletions(
 
     const db = makeFakeDb(dbOverrides);
 
-    // Podmiana ConnectionManager.getInstance — zachowaj oryginał
-    const origGetInstance = ConnectionManager.getInstance.bind(ConnectionManager);
+    // 1. Podmiana ConnectionManager.getInstance — zachowaj oryginał
+    const origConnectionGetInstance = ConnectionManager.getInstance.bind(ConnectionManager);
     (ConnectionManager as any).getInstance = () => ({
         getDb: async () => db,
     });
 
-    // Podmiana getCachedColumnsBatch — zachowaj oryginał
-    const origGetCached = cacheModule.getCachedColumnsBatch;
-    (cacheModule as any).getCachedColumnsBatch = async () => columnsStub;
+    // 2. Podmiana metody w instancji TableColumnsService — zachowaj oryginał
+    const columnsServiceInstance = TableColumnsService.getInstance();
+    const origGetCachedColumnsBatch = columnsServiceInstance.getCachedColumnsBatch.bind(columnsServiceInstance);
+    
+    // Nadpisujemy metodę na instancji, aby zwracała dane testowe (stub)
+    columnsServiceInstance.getCachedColumnsBatch = async () => columnsStub;
 
     try {
         const document = await vscode.workspace.openTextDocument({
@@ -78,8 +80,9 @@ async function getCompletions(
         return result ?? [];
 
     } finally {
-        (ConnectionManager as any).getInstance = origGetInstance;
-        (cacheModule as any).getCachedColumnsBatch = origGetCached;
+        // 3. Przywrócenie oryginalnych zachowań w bloku finally
+        (ConnectionManager as any).getInstance = origConnectionGetInstance;
+        columnsServiceInstance.getCachedColumnsBatch = origGetCachedColumnsBatch;
     }
 }
 

@@ -1,8 +1,8 @@
 import { ConnectionManager } from './ConnectionManager.js';
 import { Connection } from './Connection.js';
 import { SqlUtil } from '../sql/SqlUtil.js';
-import { TableColumn, TableRef } from '../cache/tableColumnsCache.js';
 import { findCurrentQuery } from '../sql/findCurrentQuery.js';
+import { TableColumn, TableRef } from '../cache/TableColumnsService.js';
 
 export async function executeQuery(db: Connection, sql: string) {
     let rows: any[] = [];
