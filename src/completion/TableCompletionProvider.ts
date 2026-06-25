@@ -347,7 +347,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
 
     private createColumnItem(tableName: string, column: TableColumn): vscode.CompletionItem {
         const item = new vscode.CompletionItem(column.name, vscode.CompletionItemKind.Field);
-        item.sortText   = `0_${tableName}_${column.name}`;
+        item.sortText   = `0_${tableName}0_${column.name}`;
         item.insertText = column.name;
 
         const formattedType = formatColumnType(column);
