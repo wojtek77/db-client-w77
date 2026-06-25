@@ -126,6 +126,13 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         if (isInHavingClause) {
             const result: vscode.CompletionItem[] = [];
 
+            // Sprawdzamy czy kursor jest wewnątrz nawiasów funkcji, np. GROUP_CONCAT(|)
+            // Jeśli tak, pomijamy analizę SELECT i od razu serwujemy kolumny z tabel zapytania
+            if (this.isCursorInsideFunctionCall(sqlBeforeCursor, havingIndex)) {
+                await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db);
+                return result;
+            }
+
             // Wyciągamy fragment SELECT...FROM z tego samego poziomu zagnieżdżenia
             const selectPart = this.extractSelectPartAtCursorLevel(sqlBeforeCursor);
             const candidates = this.extractHavingCandidates(selectPart);
@@ -359,6 +366,35 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         return item;
     }
     
+    /**
+     * Sprawdza czy kursor znajduje się wewnątrz nawiasów funkcji w obrębie danej klauzuli.
+     * Przykład: "HAVING GROUP_CONCAT(|)" lub "HAVING COUNT(|)" → zwraca true.
+     * Działa poprzez liczenie nawiasów od początku klauzuli do kursora:
+     * jeśli głębokość > 0, kursor jest wewnątrz wywołania funkcji.
+     */
+    private isCursorInsideFunctionCall(sqlBeforeCursor: string, clauseIndex: number): boolean {
+        if (clauseIndex === -1) { return false; }
+        const fromClause = sqlBeforeCursor.slice(clauseIndex);
+        let depth = 0;
+        let inString = false;
+        let stringChar = '';
+        for (const ch of fromClause) {
+            if (inString) {
+                if (ch === stringChar) { inString = false; }
+                continue;
+            }
+            if (ch === "'" || ch === '"' || ch === '`') {
+                inString = true;
+                stringChar = ch;
+            } else if (ch === '(') {
+                depth++;
+            } else if (ch === ')') {
+                depth--;
+            }
+        }
+        return depth > 0;
+    }
+
     private flattenSubqueries(sql: string): string {
         const pass = sql.replace(/\([^()]*\)/g, match => ' '.repeat(match.length));
         return pass === sql ? sql : this.flattenSubqueries(pass);
