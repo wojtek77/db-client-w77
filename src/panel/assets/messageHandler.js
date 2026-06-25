@@ -71,8 +71,15 @@ function updateInfoMessage(msg = '') {
         }
     }
 }
-function stopError() {
-    if (errorDisplay) errorDisplay.style.display = 'none';
+function updateErrorMessage(err = '') {
+    if (errorDisplay) {
+        if (err) {
+            errorDisplay.style.display = 'block';
+            errorDisplay.textContent = `Error: ${err}`;
+        } else {
+            errorDisplay.style.display = 'none';
+        }
+    }
 }
 function startSpinner() {
     if (loadingOverlay) loadingOverlay.style.display = 'flex';
@@ -102,7 +109,6 @@ window.addEventListener('message', event => {
             document.getElementById('queryTimeUnit').textContent = 's';
         }, 100);
         
-        stopError();
         startGridContainer();
         
         startSpinner();
@@ -141,8 +147,10 @@ window.addEventListener('message', event => {
         State.getInstance().queryTime = msg.queryTime
         State.getInstance().connectionColor = msg.connectionColor ?? null
         State.getInstance().infoMessage = msg.infoMessage
+        State.getInstance().errorMessage = msg.errorMessage
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor);
         updateInfoMessage(State.getInstance().infoMessage);
+        updateErrorMessage(State.getInstance().errorMessage);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         
         if (msg.flashMessage) showFlashMessage(msg.flashMessage, 4);
@@ -208,6 +216,7 @@ window.addEventListener('message', event => {
         startGridContainer();
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor);
         updateInfoMessage(State.getInstance().infoMessage);
+        updateErrorMessage(State.getInstance().errorMessage);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         
         // renderowanie HTML
@@ -226,6 +235,7 @@ window.addEventListener('message', event => {
         stopGridContainer();
         updateDbAndTimes();
         updateInfoMessage();
+        updateErrorMessage();
         updatePagination();
     }
     
@@ -245,15 +255,5 @@ window.addEventListener('message', event => {
             cell.classList.add('updated-cell');
             setTimeout(() => cell.classList.remove('updated-cell'), 500);
         });
-    }
-    
-    if (msg.command === 'error') {
-        stopSpinner();
-        stopGridContainer();
-        if (errorDisplay) {
-            errorDisplay.style.display = 'block';
-            errorDisplay.textContent = `Error: ${msg.message}`;
-        }
-        return; // Zakończ, bo tylko pokazujemy błąd
     }
 });

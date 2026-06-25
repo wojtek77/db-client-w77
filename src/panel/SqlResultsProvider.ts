@@ -60,6 +60,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _currentPage = 1;
     private _infoMessage = '';
     private _flashMessage = '';
+    private _errorMessage = '';
     private readonly ROWS_PER_PAGE = 200;
     private _context?: vscode.ExtensionContext;
     private _resolveView?: (value: boolean) => void;
@@ -204,6 +205,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 connectionColor: this._connectionColor,
                 infoMessage: this._infoMessage,
                 flashMessage: this._flashMessage,
+                errorMessage: this._errorMessage,
                 isEncoded: true,
                 sentAt: Date.now() // znacznik czasu w ms
             });
@@ -369,7 +371,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             startedAt: Date.now()
         });
         
-        let rows, headers, meta, queryTime, success, errorMessage, infoMessage, flashMessage;
+        let rows, headers: string[], meta, queryTime, success, errorMessage, infoMessage, flashMessage;
         if (wholeFile) {
             ({ rows, headers, meta, queryTime, success, errorMessage, infoMessage, flashMessage } = await executeQueryWholeFile(db, sql));
         } else {
@@ -382,9 +384,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         });
         
         if (!success) {
-            // vscode.window.showErrorMessage(`Błąd zapytania: ${errorMessage}`);
-            this._view.webview.postMessage({ command: 'error', message: errorMessage });
-            return;
+            // headers = [];
+            // rows = [];
         }
         
         this._allRows = rows;
@@ -398,6 +399,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._currentPage = 1;
         this._infoMessage = infoMessage ?? '';
         this._flashMessage = flashMessage ?? '';
+        this._errorMessage = errorMessage ?? '';
         
         this._fileStates.set(sqlFile, {
             rows: this._allRows,
