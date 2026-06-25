@@ -56,7 +56,8 @@ export class Connection {
             bigNumberStrings: false,
             insertIdAsNumber: true,
             bigIntAsNumber: true,
-            dateStrings: true
+            dateStrings: true,
+            foundRows: false,
         });
 
         const startConn = performance.now();
