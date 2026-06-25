@@ -254,7 +254,11 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
                 };
             }
 
-            const columnsMap = await this.tableColumnsService.getCachedColumnsBatch([tableRef]);
+            // Pre-fetch kolumn dla wszystkich tabel w zapytaniu (w tym JOIN-ów) — wypełnia cache jednym batchem
+            const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db);
+            const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(
+                allTableRefs.length > 0 ? allTableRefs : [tableRef]
+            );
             const columns = columnsMap[this.tableColumnsService.getTableRefKey(tableRef)] ?? [];
 
             return columns.map(column => this.createColumnItem(tableRef!.table, column));
