@@ -100,9 +100,13 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
             { name: 'limit',  index: limitIndex },
         ];
         
-        const currentClause = clauses
-            .filter(c => c.index !== -1)
-            .sort((a, b) => b.index - a.index)[0]?.name;
+        let maxClause = null;
+        for (const c of clauses) {
+            if (c.index !== -1 && (maxClause === null || c.index > maxClause.index)) {
+                maxClause = c;
+            }
+        }
+        const currentClause = maxClause?.name;
         
         const isInSelectClause = currentClause === 'select';
         const isInWhereClause  = currentClause === 'where';
