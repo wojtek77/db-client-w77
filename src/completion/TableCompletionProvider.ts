@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../db/ConnectionManager.js';
-import { TableColumn, TableColumnsService, TableRef } from '../cache/TableColumnsService.js';
+import { TableColumn, TableColumnsCache, TableRef } from '../cache/TableColumnsCache.js';
 import { formatColumnType } from './columnFormatter.js';
 import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
@@ -16,7 +16,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
     private tableColumnsService;
     
     public constructor() {
-        this.tableColumnsService = TableColumnsService.getInstance();
+        this.tableColumnsService = TableColumnsCache.getInstance();
     }
 
     async provideCompletionItems(

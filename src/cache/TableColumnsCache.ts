@@ -21,16 +21,16 @@ export interface TableRef {
     table: string;
 }
 
-export type TableColumnsCache = Record<
+type Cache = Record<
     string,
     Record<string, Record<string, TableColumn[]>>
 >;
 
-export class TableColumnsService {
-    private static instance: TableColumnsService | null = null;
+export class TableColumnsCache {
+    private static instance: TableColumnsCache | null = null;
     
     // Prywatny cache dostępny tylko przez metody klasy
-    private tableColumnsCache: TableColumnsCache = {};
+    private tableColumnsCache: Cache = {};
     
     // Prywatny konstruktor
     private constructor() {}
@@ -38,11 +38,11 @@ export class TableColumnsService {
     /**
      * Metoda statyczna do pobierania jedynej instancji klasy
      */
-    public static getInstance(): TableColumnsService {
-        if (!TableColumnsService.instance) {
-        TableColumnsService.instance = new TableColumnsService();
+    public static getInstance(): TableColumnsCache {
+        if (!TableColumnsCache.instance) {
+        TableColumnsCache.instance = new TableColumnsCache();
         }
-        return TableColumnsService.instance;
+        return TableColumnsCache.instance;
     }
 
     /**
@@ -112,7 +112,7 @@ export class TableColumnsService {
     /**
      * Zwraca aktualny stan cache (odpowiednik dawnego getTableColumnsCache)
      */
-    public getCache(): TableColumnsCache {
+    public getCache(): Cache {
         return this.tableColumnsCache;
     }
 

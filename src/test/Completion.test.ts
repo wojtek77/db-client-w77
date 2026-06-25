@@ -4,7 +4,7 @@ import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { TableCompletionProvider } from '../completion/TableCompletionProvider.js';
 import { ConnectionManager } from '../db/ConnectionManager.js';
-import { TableColumn, TableColumnsService, TableRef } from '../cache/TableColumnsService.js';
+import { TableColumn, TableColumnsCache, TableRef } from '../cache/TableColumnsCache.js';
 
 // ─── Typy pomocnicze ──────────────────────────────────────────────────────────
 
@@ -59,7 +59,7 @@ async function getCompletions(
     });
 
     // 2. Podmiana metody w instancji TableColumnsService — zachowaj oryginał
-    const columnsServiceInstance = TableColumnsService.getInstance();
+    const columnsServiceInstance = TableColumnsCache.getInstance();
     const origGetCachedColumnsBatch = columnsServiceInstance.getCachedColumnsBatch.bind(columnsServiceInstance);
     
     // Nadpisujemy metodę na instancji, aby zwracała dane testowe (stub)
