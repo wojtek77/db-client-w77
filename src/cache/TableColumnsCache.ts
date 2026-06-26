@@ -7,6 +7,7 @@ export interface TableColumn {
     name: string;
     order: number;
     type: string;
+    columnType: string,
     isNullable: string;
     defaultValue: any;
     columnKey: string;

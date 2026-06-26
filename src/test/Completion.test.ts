@@ -22,7 +22,7 @@ type FakeDb = {
 function makeColumn(name: string, type: string, key = ''): TableColumn {
     return {
         schema: 'public', table: 'users', name,
-        order: 1, type, isNullable: 'NO', defaultValue: null,
+        order: 1, type, columnType: type, isNullable: 'NO', defaultValue: null,
         columnKey: key, extra: '', characterMaximumLength: null,
         numericPrecision: null, numericScale: null,
     };
