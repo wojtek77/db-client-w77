@@ -105,7 +105,40 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                                 continue;
                             }
 
-                            // A. Sprawdzanie, czy pole akceptuje NULL
+                            const dataType = (dbCol.type || '').toLowerCase();
+
+                            // -----------------------------------------------------------------
+                            // NOWOŚĆ: Strategia sprawdzania wartości domyślnej (defaultValue) z bazy
+                            // -----------------------------------------------------------------
+                            if (dbCol.defaultValue !== null && dbCol.defaultValue !== undefined && String(dbCol.defaultValue).toLowerCase() !== 'null') {
+                                const rawDefault = String(dbCol.defaultValue);
+                                const rawDefaultLower = rawDefault.toLowerCase();
+
+                                // Sprawdzamy, czy wartość domyślna to funkcja wbudowana (np. current_timestamp(), now(), uuid())
+                                const isSqlFunction = [
+                                    'current_timestamp', 'now()', 'uuid()', 'current_date', 'current_time'
+                                ].some(f => rawDefaultLower.includes(f));
+
+                                if (isSqlFunction) {
+                                    valueTokens.push(rawDefault); // wstawiamy jako bezpośrednie słowo/funkcję bez apostrofów
+                                    continue;
+                                }
+
+                                // Oczyszczamy wartość z ewentualnych skrajnych apostrofów/cudzysłowów dodanych przez silnik bazy
+                                const cleanDefault = rawDefault.replace(/^['"]|['"]$/g, '');
+
+                                // Jeśli to typ liczbowy, wstawiamy bezpośrednio jako cyfrę
+                                const numericTypes = ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal', 'numeric', 'bit'];
+                                if (numericTypes.some(t => dataType.includes(t))) {
+                                    valueTokens.push(cleanDefault);
+                                } else {
+                                    // Dla pozostałych typów zabezpieczamy znacznikiem "密"
+                                    valueTokens.push(`密${cleanDefault}密`);
+                                }
+                                continue;
+                            }
+
+                            // A. Sprawdzanie, czy pole akceptuje NULL (gdy brak specyficznej wartości domyślnej)
                             const colNullableRaw = String(dbCol.isNullable).toLowerCase();
                             const isNullable = colNullableRaw === 'yes' || colNullableRaw === '1' || colNullableRaw === 'true';
                             
@@ -114,9 +147,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                                 continue;
                             }
 
-                            // B. Jeśli NOT NULL -> sprawdzamy typ danych
-                            const dataType = (dbCol.type || '').toLowerCase();
-
+                            // B. Jeśli NOT NULL i brak wartości domyślnej -> sprawdzamy typ danych pod kątem sztywnych domyślnych
                             // Obsługa typu ENUM -> szukamy definicji w dedykowanym, nowym polu columnType
                             if (dataType.startsWith('enum')) {
                                 const fullEnumDefinition = ((dbCol as any).columnType || dbCol.type || '');
