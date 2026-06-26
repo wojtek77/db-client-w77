@@ -50,6 +50,8 @@ tcp_keepalive_time = 60
 ```
 More information [here](https://mariadb.com/docs/server/server-management/install-and-upgrade-mariadb/configuring-mariadb/configuring-mariadb-with-option-files).
 
+![Git Blame screeshot 1](images/screenshot1.png)
+
 ## Support me
 [![ko-fi](images/ko-fi.png)](https://ko-fi.com/w77w77)
 
