@@ -91,6 +91,20 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                                 continue;
                             }
 
+                            const colExtra = String(dbCol.extra || '').toLowerCase();
+
+                            // OCHRONA: Jeśli użytkownik ręcznie wpisał kolumnę wirtualną, podpowiadamy DEFAULT
+                            if (colExtra.includes('generated')) {
+                                valueTokens.push("DEFAULT");
+                                continue;
+                            }
+
+                            // POPRAWKA: Jeśli kolumna ma właściwość auto_increment, podpowiadamy dla niej NULL
+                            if (colExtra.includes('auto_increment')) {
+                                valueTokens.push("NULL");
+                                continue;
+                            }
+
                             // A. Sprawdzanie, czy pole akceptuje NULL
                             const colNullableRaw = String(dbCol.isNullable).toLowerCase();
                             const isNullable = colNullableRaw === 'yes' || colNullableRaw === '1' || colNullableRaw === 'true';
@@ -179,6 +193,8 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                     const filter = parts[parts.length - 1].trim().toLowerCase();
 
                     return columns
+                        // POPRAWKA: Filtrujemy i ukrywamy kolumny wirtualne (VIRTUAL / STORED GENERATED)
+                        .filter(col => !String(col.extra || '').toLowerCase().includes('generated'))
                         .filter(col => !filter || col.name.toLowerCase().includes(filter))
                         .map(column => this.createColumnItem(tableName, column));
                 }
@@ -204,7 +220,12 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                 const columns = columnsMap[cacheKey] || [];
 
                 if (columns.length > 0) {
-                    const columnNames = columns.map(col => col.name).join(', ');
+                    // POPRAWKA: Pobieramy nazwy, pomijając kolumny wirtualne (GENERATED)
+                    const columnNames = columns
+                        .filter(col => !String(col.extra || '').toLowerCase().includes('generated'))
+                        .map(col => col.name)
+                        .join(', ');
+                        
                     const snippetString = `(${columnNames})`;
 
                     const completionItem = new vscode.CompletionItem(snippetString, vscode.CompletionItemKind.Snippet);
