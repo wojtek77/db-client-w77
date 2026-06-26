@@ -82,26 +82,27 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                             .map(field => field.trim().toLowerCase());
 
                         const valueTokens: string[] = [];
+                        let tabIndex = 1; // Licznik punktów zatrzymania tabulatora ($1, $2...)
 
                         for (const fieldName of targetFields) {
                             const dbCol = dbColumns.find(c => c.name.toLowerCase() === fieldName);
 
                             if (!dbCol) {
-                                valueTokens.push("''");
+                                valueTokens.push(`'\${${tabIndex++}}'`);
                                 continue;
                             }
 
                             const colExtra = String(dbCol.extra || '').toLowerCase();
 
-                            // OCHRONA: Jeśli użytkownik ręcznie wpisał kolumnę wirtualną, podpowiadamy DEFAULT
+                            // OCHRONA: Kolumna wirtualna
                             if (colExtra.includes('generated')) {
-                                valueTokens.push("DEFAULT");
+                                valueTokens.push(`\${${tabIndex++}:DEFAULT}`);
                                 continue;
                             }
 
-                            // POPRAWKA: Jeśli kolumna ma właściwość auto_increment, podpowiadamy dla niej NULL
+                            // POPRAWKA: Kolumna z auto_increment
                             if (colExtra.includes('auto_increment')) {
-                                valueTokens.push("NULL");
+                                valueTokens.push(`\${${tabIndex++}:NULL}`);
                                 continue;
                             }
 
@@ -114,88 +115,87 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                                 const rawDefault = String(dbCol.defaultValue);
                                 const rawDefaultLower = rawDefault.toLowerCase();
 
-                                // Sprawdzamy, czy wartość domyślna to funkcja wbudowana (np. current_timestamp(), now(), uuid())
+                                // Funkcje wbudowane (np. current_timestamp()) - bez apostrofów
                                 const isSqlFunction = [
                                     'current_timestamp', 'now()', 'uuid()', 'current_date', 'current_time'
                                 ].some(f => rawDefaultLower.includes(f));
 
                                 if (isSqlFunction) {
-                                    valueTokens.push(rawDefault); // wstawiamy jako bezpośrednie słowo/funkcję bez apostrofów
+                                    valueTokens.push(`\${${tabIndex++}:${rawDefault}}`);
                                     continue;
                                 }
 
-                                // Oczyszczamy wartość z ewentualnych skrajnych apostrofów/cudzysłowów dodanych przez silnik bazy
                                 const cleanDefault = rawDefault.replace(/^['"]|['"]$/g, '');
 
-                                // Jeśli to typ liczbowy, wstawiamy bezpośrednio jako cyfrę
+                                // Typy liczbowe
                                 const numericTypes = ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal', 'numeric', 'bit'];
                                 if (numericTypes.some(t => dataType.includes(t))) {
-                                    valueTokens.push(cleanDefault);
+                                    valueTokens.push(`\${${tabIndex++}:${cleanDefault}}`);
                                 } else {
-                                    // Dla pozostałych typów zabezpieczamy znacznikiem "密"
-                                    valueTokens.push(`密${cleanDefault}密`);
+                                    // Typy tekstowe / pozostałe z wartością domyślną
+                                    valueTokens.push(`'\${${tabIndex++}:${cleanDefault}}'`);
                                 }
                                 continue;
                             }
 
-                            // A. Sprawdzanie, czy pole akceptuje NULL (gdy brak specyficznej wartości domyślnej)
+                            // A. Sprawdzanie, czy pole akceptuje NULL
                             const colNullableRaw = String(dbCol.isNullable).toLowerCase();
                             const isNullable = colNullableRaw === 'yes' || colNullableRaw === '1' || colNullableRaw === 'true';
                             
                             if (isNullable) {
-                                valueTokens.push("NULL");
+                                valueTokens.push(`\${${tabIndex++}:NULL}`);
                                 continue;
                             }
 
-                            // B. Jeśli NOT NULL i brak wartości domyślnej -> sprawdzamy typ danych pod kątem sztywnych domyślnych
-                            // Obsługa typu ENUM -> szukamy definicji w dedykowanym, nowym polu columnType
+                            // B. Jeśli NOT NULL i brak wartości domyślnej -> sprawdzamy typy
+                            // Obsługa typu ENUM
                             if (dataType.startsWith('enum')) {
                                 const fullEnumDefinition = ((dbCol as any).columnType || dbCol.type || '');
                                 const enumMatch = fullEnumDefinition.match(/['"]([^'"]+)['"]/);
                                 
                                 if (enumMatch && enumMatch[1]) {
-                                    valueTokens.push(`密${enumMatch[1]}密`);
+                                    valueTokens.push(`'\${${tabIndex++}:${enumMatch[1]}}'`);
                                 } else {
-                                    valueTokens.push("''");
+                                    valueTokens.push(`'\${${tabIndex++}}'`);
                                 }
                                 continue;
                             }
 
-                            // Obsługa typów daty i czasu (DATE, DATETIME, TIMESTAMP)
+                            // Typy daty i czasu
                             if (dataType.startsWith('date') && !dataType.startsWith('datetime')) {
-                                valueTokens.push("'0000-00-00'");
+                                valueTokens.push(`'\${${tabIndex++}:0000-00-00}'`);
                                 continue;
                             }
                             if (dataType.startsWith('datetime') || dataType.startsWith('timestamp')) {
-                                valueTokens.push("'0000-00-00 00:00:00'");
+                                valueTokens.push(`'\${${tabIndex++}:0000-00-00 00:00:00}'`);
                                 continue;
                             }
 
-                            // Obsługa typów liczbowych
+                            // Typy liczbowkowe
                             const numericTypes = ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal', 'numeric', 'bit'];
                             if (numericTypes.some(t => dataType.includes(t))) {
-                                valueTokens.push("0");
+                                valueTokens.push(`\${${tabIndex++}:0}`);
                                 continue;
                             }
 
-                            // -----------------------------------------------------------------
-                            // POPRAWKA: Dynamiczne placeholdery tekstowe na bazie nazw kolumn
-                            // zamiast pustego ciągu znaków '' podstawiamy `密[nazwa_kolumny]密`
-                            // -----------------------------------------------------------------
-                            valueTokens.push(`密[${dbCol.name}]密`);
+                            // Dynamiczne placeholdery tekstowe na bazie nazw kolumn wewnątrz Snippetu
+                            valueTokens.push(`'\${${tabIndex++}:[${dbCol.name}]}'`);
                         }
 
                         if (valueTokens.length > 0) {
-                            let snippetString = `(${valueTokens.join(', ')})`;
-                            
-                            // Bezpieczna zamiana znaczników tymczasowych na apostrofy SQL
-                            snippetString = snippetString.replace(/密/g, "'");
+                            const snippetString = `(${valueTokens.join(', ')})`;
 
                             const completionItem = new vscode.CompletionItem(snippetString, vscode.CompletionItemKind.Snippet);
                             
-                            completionItem.detail = `Default values row`;
-                            completionItem.documentation = new vscode.MarkdownString(`Insert matching default values row:\n\`\`\`sql\n${snippetString}\n\`\`\``);
-                            completionItem.sortText = '00000_' + snippetString;
+                            // KLUCZOWE: Przypisujemy instancję SnippetString zamiast zwykłego ciągu tekstowego
+                            completionItem.insertText = new vscode.SnippetString(snippetString);
+                            
+                            completionItem.detail = `Default values row (Snippet)`;
+                            
+                            // Do dokumentacji generujemy czytelny podgląd bez składni formatowania snippetów VS Code
+                            const previewString = snippetString.replace(/\$\{\d+:?([^}]*)\}/g, '$1');
+                            completionItem.documentation = new vscode.MarkdownString(`Insert matching default values row with Tab Stops:\n\`\`\`sql\n${previewString}\n\`\`\``);
+                            completionItem.sortText = '00000_' + previewString;
 
                             return [completionItem];
                         }
@@ -227,7 +227,6 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                     const filter = parts[parts.length - 1].trim().toLowerCase();
 
                     return columns
-                        // POPRAWKA: Filtrujemy i ukrywamy kolumny wirtualne (VIRTUAL / STORED GENERATED)
                         .filter(col => !String(col.extra || '').toLowerCase().includes('generated'))
                         .filter(col => !filter || col.name.toLowerCase().includes(filter))
                         .map(column => this.createColumnItem(tableName, column));
@@ -254,7 +253,6 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                 const columns = columnsMap[cacheKey] || [];
 
                 if (columns.length > 0) {
-                    // POPRAWKA: Pobieramy nazwy, pomijając kolumny wirtualne (GENERATED)
                     const columnNames = columns
                         .filter(col => !String(col.extra || '').toLowerCase().includes('generated'))
                         .map(col => col.name)
