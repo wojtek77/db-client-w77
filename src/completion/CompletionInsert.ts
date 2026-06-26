@@ -108,7 +108,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                             const dataType = (dbCol.type || '').toLowerCase();
 
                             // -----------------------------------------------------------------
-                            // NOWOŚĆ: Strategia sprawdzania wartości domyślnej (defaultValue) z bazy
+                            // Strategia sprawdzania wartości domyślnej (defaultValue) z bazy
                             // -----------------------------------------------------------------
                             if (dbCol.defaultValue !== null && dbCol.defaultValue !== undefined && String(dbCol.defaultValue).toLowerCase() !== 'null') {
                                 const rawDefault = String(dbCol.defaultValue);
@@ -178,8 +178,11 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                                 continue;
                             }
 
-                            // Domyślnie dla pozostałych typów (varchar, text, char itp.)
-                            valueTokens.push("''");
+                            // -----------------------------------------------------------------
+                            // POPRAWKA: Dynamiczne placeholdery tekstowe na bazie nazw kolumn
+                            // zamiast pustego ciągu znaków '' podstawiamy `密[nazwa_kolumny]密`
+                            // -----------------------------------------------------------------
+                            valueTokens.push(`密[${dbCol.name}]密`);
                         }
 
                         if (valueTokens.length > 0) {
