@@ -50,6 +50,9 @@ tcp_keepalive_time = 60
 ```
 More information [here](https://mariadb.com/docs/server/server-management/install-and-upgrade-mariadb/configuring-mariadb/configuring-mariadb-with-option-files).
 
+## How to use
+Press **Ctrl + Enter** to run SQL.
+
 ![Git Blame screeshot 1](images/screenshot1.png)
 
 ## Support me
