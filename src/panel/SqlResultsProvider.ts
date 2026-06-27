@@ -92,7 +92,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             this._resolveView = undefined;
         }
 
-        // this.updateHtml();
+        this.updateHtml();
         
         // ⭐ REWELACYJNE ZABEZPIECZENIE:
         webviewView.onDidDispose(() => {
