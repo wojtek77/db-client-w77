@@ -9,7 +9,7 @@ export function getHtml(
     const toUri = (file: string) =>
         webview.asWebviewUri(
             vscode.Uri.file(
-                path.join(extensionPath, 'src', 'panel', 'assets', file)
+                path.join(extensionPath, 'media', file)
             )
         );
 
