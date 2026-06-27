@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import { Connection } from './Connection.js';
 import * as path from 'path';
 import * as os from 'os';
@@ -72,7 +73,15 @@ export class ConnectionManager {
     }
     
     private loadConfigs(): Record<string, string> {
-        const configDir = path.join(os.homedir(), '.db_configs');
+        const configuredDir =
+            vscode.workspace
+                .getConfiguration('db-client')
+                .get<string>('dbConfigsDir', '');
+
+        const configDir = configuredDir
+            ? configuredDir
+            : path.join(os.homedir(), '.db_configs');
+        
         const configs: Record<string, string> = {};
 
         if (!fs.existsSync(configDir)) {

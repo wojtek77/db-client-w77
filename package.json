@@ -94,7 +94,18 @@
         "key": "ctrl+shift+f",
         "when": "editorTextFocus && !editorReadonly && resourceExtname == '.sql' && editorHasSelection"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "DB Client",
+      "properties": {
+        "db-client.dbConfigsDir": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Absolute path to the directory where database connection configurations are stored. Leave empty to use the default `.db_configs` directory in the user's home directory. Note: The path must not end with a slash (/) or backslash (\\\\)."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
