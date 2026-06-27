@@ -2,11 +2,17 @@
   "name": "db-client-w77",
   "displayName": "db-client-w77",
   "description": "DB client",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "icon": "DB-client.png",
   "engines": {
     "vscode": "^1.118.0"
+  },
+  "repository": {
+    "url": "https://github.com/wojtek77/db-client-w77"
+  },
+  "bugs": {
+    "url": "https://github.com/wojtek77/db-client-w77/issues"
   },
   "categories": [
     "Other"
