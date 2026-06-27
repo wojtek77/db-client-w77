@@ -2,6 +2,7 @@
   "name": "db-client-w77",
   "displayName": "db-client-w77",
   "description": "DB client",
+  "publisher": "W77",
   "version": "0.1.0",
   "type": "module",
   "icon": "DB-client.png",
