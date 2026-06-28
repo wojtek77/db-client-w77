@@ -3,13 +3,15 @@ import * as path from 'path';
 
 export function getHtml(
     webview: vscode.Webview,
-    extensionPath: string
+    extensionUri: vscode.Uri
 ): string {
 
     const toUri = (file: string) =>
         webview.asWebviewUri(
-            vscode.Uri.file(
-                path.join(extensionPath, 'media', file)
+            vscode.Uri.joinPath(
+                extensionUri,
+                'media',
+                file
             )
         );
 

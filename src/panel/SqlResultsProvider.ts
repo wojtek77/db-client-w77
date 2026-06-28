@@ -51,7 +51,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _connectionName: string = '';
     private _connectionTime: number = 0;
     private _connectionColor: string | null = null;
-    private _extensionPath: string;
+    private _extensionUri: vscode.Uri;
     private _allRows: any[][] = [];
     private _headers: string[] = [];
     private _lastQueryTime = 0;
@@ -69,7 +69,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
     private constructor(context: vscode.ExtensionContext) {
         console.log('construct');
-        this._extensionPath = context.extensionPath;
+        this._extensionUri = context.extensionUri;
         this._context = context;
     }
 
@@ -83,7 +83,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.options = {
             enableScripts: true,
-            localResourceRoots: [vscode.Uri.file(this._extensionPath)]
+            localResourceRoots: [
+                vscode.Uri.joinPath(this._extensionUri, 'media')
+            ]
         };
 
         // Sygnał, że widok został zainicjalizowany
@@ -165,7 +167,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         if (!this._view.webview.html) {
             const html = getHtml(
                 this._view.webview,
-                this._extensionPath
+                this._extensionUri
             );
             this._view.webview.html = html;
             console.log('jest ustawiany od nowa HTML');
