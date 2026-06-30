@@ -94,6 +94,15 @@ export class RecentSqlFiles {
         }
         
         if (isOnlyUpdate || !connectionName) { // jest tylko UPDATE lub od nowa jest ustawiane "connectionName"
+            if (!connectionName) {
+                const answer = await vscode.window.showInformationMessage(
+                    "There is no active DB connection for this file. Would you like to select a connection?",
+                    "Yes", "Cancel"
+                );
+                if (answer !== "Yes") {
+                    throw new Error("No DB connection selected");
+                }
+            }
             const connectionNames = Object.keys(configs);
             connectionName = await vscode.window.showQuickPick(connectionNames, {
                 placeHolder: 'select DB connection',
