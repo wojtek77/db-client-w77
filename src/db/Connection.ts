@@ -3,7 +3,7 @@ import path from 'path';
 import { CnfLoader } from "./CnfLoader.js";
 import * as vscode from 'vscode';
 
-type PoolConfig = Parameters<typeof mariadb.createPool>[0];
+type PoolConfig = Exclude<Parameters<typeof mariadb.createPool>[0], string>;
 
 export class Connection {
     private pool: mariadb.Pool | null = null;
