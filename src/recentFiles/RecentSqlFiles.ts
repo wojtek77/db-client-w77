@@ -94,7 +94,7 @@ export class RecentSqlFiles {
         }
         
         if (isOnlyUpdate || !connectionName) { // jest tylko UPDATE lub od nowa jest ustawiane "connectionName"
-            if (!connectionName) {
+            if (!connectionName && !isOnlyUpdate) { // wywołanie jest tylko od ConnectionManager, nie ma tu zmiany połączenia
                 const answer = await vscode.window.showInformationMessage(
                     "There is no active DB connection for this file. Would you like to select a connection?",
                     "Yes", "Cancel"
