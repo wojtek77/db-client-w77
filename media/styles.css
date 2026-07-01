@@ -125,6 +125,22 @@ html, body {
     font-weight: bold;
     padding: 3px;
     margin: 0;
+    resize: none;
+}
+
+/* Textarea dla kolumn TEXT: stały, przewidywalny rozmiar (ok. 4-5 linii),
+   niezależny od wysokości pojedynczego wiersza siatki */
+.grid-edit-input.grid-edit-input-multiline {
+    height: 110px;
+    white-space: pre-wrap;   /* wymuszone, żeby nadpisać ewentualnie odziedziczony nowrap z .grid-cell */
+    overflow-y: auto;
+}
+
+/* Cały wiersz zawierający edytowaną komórkę TEXT rośnie, żeby zmieściła się textarea */
+.grid-row.editing-row {
+    height: auto;
+    z-index: 5;
+    position: relative;
 }
 
 /* Zielona animacja potwierdzenia aktualizacji (juw masz ją w messageHandler.js) */

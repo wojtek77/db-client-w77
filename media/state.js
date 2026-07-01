@@ -3,6 +3,7 @@
  * @property {string} filename - Nazwa aktualnie załadowanego pliku.
  * @property {Array} currentRows - Tablica z aktualnymi wierszami danych.
  * @property {Array<string>} headers - Tablica z nagłówkami kolumn.
+ * @property {Array<string>} columnTypes - Typy danych kolumn (np. 'varchar', 'text'), równoległe do headers.
  * @property {number} currentPage - Numer aktualnej strony.
  * @property {number} totalPages - Całkowita liczba stron.
  * @property {number} ROWS_PER_PAGE - Maksymalna liczba wierszy na stronę.
@@ -28,6 +29,7 @@ class State {
             State.#globalFiles.set(this.filename, {
                 currentRows: [],
                 headers: [],
+                columnTypes: [],
                 currentPage: 1,
                 totalPages: 1,
                 ROWS_PER_PAGE: 200,

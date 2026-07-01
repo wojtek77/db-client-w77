@@ -6,13 +6,14 @@ import * as path from 'path';
 import * as os from 'os';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
 import { ConnectionColors } from '../db/ConnectionColors.js';
-import { TableColumnsCache } from '../cache/TableColumnsCache.js';
+import { TableColumnsCache, TableRef } from '../cache/TableColumnsCache.js';
 
 interface FileResultState {
     rows: any[][];
     headers: string[];
     sql: string;
     meta: any[];
+    columnTypes: string[];
     connectionName: string;
     connectionTime: number;
     queryTime: number;
@@ -56,6 +57,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _headers: string[] = [];
     private _lastQueryTime = 0;
     private _meta: any[] = [];
+    private _columnTypes: string[] = [];
     private _lastSQL = '';
     private _currentPage = 1;
     private _infoMessage = '';
@@ -197,6 +199,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 sqlFile: this._currentSqlFile,
                 rows: rowsBuffer, // VS Code automatycznie obsłuży to jako transfer binarny
                 headers: this._headers,
+                columnTypes: this._columnTypes,
                 totalRows: this._allRows.length,
                 isLast: (pageNumber === totalPages),
                 currentPage: pageNumber,
@@ -230,6 +233,57 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         //     sentAt: Date.now()
         // });
         // console.timeEnd("⏱️ Całkowity czas Backend");
+    }
+
+    /**
+     * Na podstawie metadanych kolumn (meta z mariadb) ustala rzeczywisty typ danych
+     * każdej kolumny (np. 'varchar', 'text', 'int'), pytając TableColumnsCache
+     * (INFORMATION_SCHEMA.COLUMNS). Dla kolumn, których nie da się przypisać
+     * do konkretnej tabeli (np. wyrażenia, funkcje agregujące), zwraca ''.
+     */
+    private async computeColumnTypes(meta: any[]): Promise<string[]> {
+        if (!meta || meta.length === 0) {
+            return [];
+        }
+
+        const seen = new Set<string>();
+        const tableRefs: TableRef[] = [];
+
+        for (const field of meta) {
+            const table = field.orgTable?.();
+            const schema = field.schema?.();
+
+            if (table && schema) {
+                const key = `${schema}.${table}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    tableRefs.push({ schema, table });
+                }
+            }
+        }
+
+        if (tableRefs.length === 0) {
+            return meta.map(() => '');
+        }
+
+        const tableColumnsService = TableColumnsCache.getInstance();
+        const columnsMap = await tableColumnsService.getCachedColumnsBatch(tableRefs);
+
+        return meta.map((field: any) => {
+            const table = field.orgTable?.();
+            const schema = field.schema?.();
+            const columnName = field.orgName?.();
+
+            if (!table || !schema || !columnName) {
+                return '';
+            }
+
+            const key = tableColumnsService.getTableRefKey({ schema, table });
+            const columns = columnsMap[key] ?? [];
+            const column = columns.find((c) => c.name === columnName);
+
+            return column?.type?.toLowerCase() ?? '';
+        });
     }
 
     private async updateCellInDB(rowIndex: number, columnIndex: number, value: any) {
@@ -395,6 +449,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._headers = headers;
         this._lastSQL = sql;
         this._meta = meta;
+        this._columnTypes = success ? await this.computeColumnTypes(meta) : [];
         this._connectionName = db.getConnectionName();
         this._connectionTime = db.getConnectionTime();
         this._lastQueryTime = queryTime;
@@ -409,6 +464,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             headers: this._headers,
             sql: this._lastSQL,
             meta: this._meta,
+            columnTypes: this._columnTypes,
             connectionName: this._connectionName,
             connectionTime: this._connectionTime,
             queryTime: this._lastQueryTime,
@@ -441,6 +497,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._allRows = state.rows;
         this._headers = state.headers;
         this._meta = state.meta;
+        this._columnTypes = state.columnTypes ?? [];
         this._lastQueryTime = state.queryTime;
         this._connectionName = state.connectionName;
         this._connectionTime = state.connectionTime;

@@ -68,6 +68,7 @@ function initializeGrid(currentRows) {
     gridBody.replaceChildren();
 
     const headers = State.getInstance().headers;
+    const columnTypes = State.getInstance().columnTypes;
     const rowCount = currentRows.length;
     const headerCount = headers.length;
 
@@ -92,6 +93,7 @@ function initializeGrid(currentRows) {
             const cell = document.createElement('div');
             cell.className = 'grid-cell';
             cell._index = {row: i, col: j};
+            cell.dataset.columnType = (columnTypes && columnTypes[j]) ? columnTypes[j] : '';
             // cell._row = i;
             // cell._col = j;
             rowDiv.appendChild(cell);

@@ -3,6 +3,20 @@ function initEditor(vscode) {
     registerEvents(vscode);
 }
 
+// Typy kolumn, dla których edycja odbywa się w polu wieloliniowym (textarea).
+// Wszystko poza tą listą (np. varchar, char, int, decimal, date...) dostaje zwykły <input>.
+const MULTILINE_COLUMN_TYPES = new Set([
+    'text',
+    'tinytext',
+    'mediumtext',
+    'longtext'
+]);
+
+function isMultilineColumnType(columnType) {
+    if (!columnType) {return false;}
+    return MULTILINE_COLUMN_TYPES.has(columnType.toLowerCase());
+}
+
 function registerEvents(vscode) {
     /* edycja komórki */
     document.addEventListener('DOMContentLoaded', () => {
@@ -12,17 +26,27 @@ function registerEvents(vscode) {
         gridBody.addEventListener('dblclick', (event) => {
             const cell = event.target.closest('.grid-cell');
             
-            // Blokujemy nagłówki, LP oraz sytuację gdy input już istnieje
-            if (!cell || cell.classList.contains('lp-cell') || cell.querySelector('input')) {return;}
+            // Blokujemy nagłówki, LP oraz sytuację gdy pole edycji już istnieje
+            if (!cell || cell.classList.contains('lp-cell') || cell.querySelector('input, textarea')) {return;}
 
             const rowIndex = cell._index.row;
             const colIndex = cell._index.col;
             const oldValue = cell.textContent;
+            const columnType = cell.dataset.columnType;
+            const multiline = isMultilineColumnType(columnType);
 
-            const input = document.createElement('input');
-            input.type = 'text';
+            const input = document.createElement(multiline ? 'textarea' : 'input');
+            const row = cell.closest('.grid-row');
+            if (!multiline) {
+                input.type = 'text';
+            } else {
+                input.rows = 4;
+                input.classList.add('grid-edit-input-multiline');
+                // Cały wiersz rośnie, żeby zmieściła się textarea (bez rozjeżdżania innych wierszy)
+                if (row) {row.classList.add('editing-row');}
+            }
             input.value = oldValue;
-            input.className = 'grid-edit-input';
+            input.className += (input.className ? ' ' : '') + 'grid-edit-input';
 
             cell.textContent = '';
             cell.appendChild(input);
@@ -31,6 +55,7 @@ function registerEvents(vscode) {
 
             function saveEdit() {
                 const newValue = input.value;
+                if (row) {row.classList.remove('editing-row');}
                 
                 if (newValue === oldValue) {
                     cell.textContent = oldValue;
@@ -50,12 +75,13 @@ function registerEvents(vscode) {
             }
 
             input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !(multiline && e.shiftKey)) {
                     e.preventDefault();
                     input.blur();
                 }
                 if (e.key === 'Escape') {
                     e.preventDefault();
+                    if (row) {row.classList.remove('editing-row');}
                     cell.textContent = oldValue;
                 }
             });

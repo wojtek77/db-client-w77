@@ -142,6 +142,7 @@ window.addEventListener('message', event => {
         if (msg.headers) {
             State.getInstance().headers = msg.headers;
         }
+        State.getInstance().columnTypes = msg.columnTypes ?? [];
         State.getInstance().connectionName = msg.connectionName;
         State.getInstance().connectionTime = msg.connectionTime;
         State.getInstance().queryTime = msg.queryTime;
