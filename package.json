@@ -6,7 +6,7 @@
   "version": "0.1.4",
   "icon": "DB-client.png",
   "engines": {
-    "vscode": "^1.125.0"
+    "vscode": "^1.118.0"
   },
   "repository": {
     "url": "https://github.com/wojtek77/db-client-w77"
@@ -128,7 +128,7 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.125.0",
+    "@types/vscode": "^1.118.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "24.x",
     "typescript-eslint": "^8.61.1",
