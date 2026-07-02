@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 
 export function getHtml(
     webview: vscode.Webview,
@@ -10,18 +9,12 @@ export function getHtml(
         webview.asWebviewUri(
             vscode.Uri.joinPath(
                 extensionUri,
-                'media',
+                'dist',
                 file
             )
         );
 
     const styleUri = toUri('styles.css');
-    const stateUri = toUri('state.js');
-    const tableRendererUri = toUri('tableRenderer.js');
-    const paginationUri = toUri('pagination.js');
-    const editorUri = toUri('editor.js');
-    const exportUri = toUri('export.js');
-    const messageHandlerUri = toUri('messageHandler.js');
     const appUri = toUri('app.js');
 
     return `
@@ -114,12 +107,6 @@ export function getHtml(
     <div id="gridBody" class="grid-body"></div>
 </div>
 
-<script src="${stateUri}"></script>
-<script src="${tableRendererUri}"></script>
-<script src="${paginationUri}"></script>
-<script src="${editorUri}"></script>
-<script src="${exportUri}"></script>
-<script src="${messageHandlerUri}"></script>
 <script src="${appUri}"></script>
 
 </body>

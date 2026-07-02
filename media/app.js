@@ -1,3 +1,7 @@
-window.vscode = acquireVsCodeApi();
+import { initEditor } from './editor.js';
+import './pagination.js';
+import './export.js';
+import './messageHandler.js';
 
-initEditor(vscode);
+window.vscode = acquireVsCodeApi();
+initEditor(window.vscode);

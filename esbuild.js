@@ -42,11 +42,35 @@ async function main() {
 			esbuildProblemMatcherPlugin,
 		],
 	});
+
+	// Bundluje pliki webview (media/*.js + styles.css) w dwa pliki
+	// wyjściowe w dist zamiast trzymać osiem osobnych plików w media/.
+	const ctxMedia = await esbuild.context({
+		entryPoints: [
+			'media/app.js',
+			'media/styles.css'
+		],
+		bundle: true,
+		format: 'iife',
+		minify: production,
+		sourcemap: !production,
+		sourcesContent: false,
+		platform: 'browser',
+		outdir: 'dist',
+		logLevel: 'silent',
+		plugins: [
+			esbuildProblemMatcherPlugin,
+		],
+	});
+
 	if (watch) {
 		await ctx.watch();
+		await ctxMedia.watch();
 	} else {
 		await ctx.rebuild();
 		await ctx.dispose();
+		await ctxMedia.rebuild();
+		await ctxMedia.dispose();
 	}
 }
 

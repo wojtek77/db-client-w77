@@ -86,7 +86,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [
-                vscode.Uri.joinPath(this._extensionUri, 'media')
+                vscode.Uri.joinPath(this._extensionUri, 'dist')
             ]
         };
 
