@@ -111,11 +111,24 @@ export class RecentSqlFiles {
                     throw new Error("No DB connection selected");
                 }
             }
-            const connectionNames = Object.keys(configs);
-            connectionName = await vscode.window.showQuickPick(connectionNames, {
-                placeHolder: 'select DB connection',
-                ignoreFocusOut: true // Zapobiega zamknięciu menu przy kliknięciu obok
+            
+            const defaultConnectionName = ConnectionManager.getInstance().getCurrentNameConnection();
+            const quickPick = vscode.window.createQuickPick();
+            quickPick.items = Object.keys(configs).map(name => ({
+                label: name,
+                description: name === defaultConnectionName ? '$(star-full) (active connection)' : undefined
+            }));
+            quickPick.placeholder = 'select DB connection';
+            quickPick.ignoreFocusOut = true;
+            // Ustawienie podświetlenia
+            quickPick.activeItems = quickPick.items.filter(item => item.label === defaultConnectionName);
+            // Kompaktowa obsługa wyboru
+            connectionName = await new Promise(res => {
+                quickPick.onDidChangeSelection(sel => { res(sel[0]?.label); quickPick.hide(); });
+                quickPick.onDidHide(() => { res(undefined); quickPick.dispose(); });
+                quickPick.show();
             });
+
             if (!connectionName) {
                 // vscode.window.showErrorMessage('No DB connection selected');
                 throw new Error("No DB connection selected");
