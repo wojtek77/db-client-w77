@@ -151,54 +151,110 @@ export class RecentSqlFiles {
     
     public async openRecentFiles() {
     
-        const sqlFiles = RecentSqlFiles.getInstance().getSqlFiles();
-        
-        // zbierz ścieżki wszystkich otwartych dokumentów w edytorze
-        const openFilePaths = new Set<string>();
-        for (const group of vscode.window.tabGroups.all) {
-            for (const tab of group.tabs) {
-                // Sprawdzamy, czy karta to plik tekstowy
-                if (tab.input instanceof vscode.TabInputText) {
-                    const filePath = tab.input.uri.fsPath;
-                    
-                    // Warunek: interesują nas tylko pliki z rozszerzeniem .sql
-                    if (filePath.toLowerCase().endsWith('.sql')) {
-                        openFilePaths.add(filePath);
+        // funkcja pomocnicza (lokalna) budująca elementy QuickPick na podstawie aktualnego stanu sqlFiles
+        const buildQuickPickItems = () => {
+            const sqlFiles = RecentSqlFiles.getInstance().getSqlFiles();
+
+            // zbierz ścieżki wszystkich otwartych dokumentów w edytorze
+            const openFilePaths = new Set<string>();
+            for (const group of vscode.window.tabGroups.all) {
+                for (const tab of group.tabs) {
+                    // Sprawdzamy, czy karta to plik tekstowy
+                    if (tab.input instanceof vscode.TabInputText) {
+                        const filePath = tab.input.uri.fsPath;
+
+                        // Warunek: interesują nas tylko pliki z rozszerzeniem .sql
+                        if (filePath.toLowerCase().endsWith('.sql')) {
+                            openFilePaths.add(filePath);
+                        }
                     }
                 }
             }
-        }
-        
-        // usuń z kopii listy otwarte pliki SQL
-        for (const filePath of openFilePaths) {
-            sqlFiles.delete(filePath);
-        }
-        
-        // 2. Mapowanie na elementy QuickPickItem w odwróconej kolejności (od końca)
-        // Zamieniamy wpisy mapy na tablicę i odwracamy ją za pomocą .reverse()
-        const quickPickItems = Array.from(sqlFiles.entries())
-            .reverse() 
-            .map(([filePath, connectionName], index) => {
-                // Pobieramy samą nazwę pliku (np. "query.sql")
-                const fileName = path.basename(filePath);
-                
-                const orderNumber = index + 1; 
-                
-                return {
-                    // label: `${orderNumber}. ${fileName} (${connectionName})`, // To co widzi użytkownik
-                    label: `${fileName}`, // To co widzi użytkownik
-                    description: `(${connectionName}) ${orderNumber}.`,                     // Opcjonalnie: podgląd pełnej ścieżki na dole
-                    value: filePath                      // Ukryta wartość, którą chcemy wyciągnąć
-                };
+
+            // usuń z kopii listy otwarte pliki SQL
+            for (const filePath of openFilePaths) {
+                sqlFiles.delete(filePath);
+            }
+
+            // Mapowanie na elementy QuickPickItem w odwróconej kolejności (od końca)
+            // Zamieniamy wpisy mapy na tablicę i odwracamy ją za pomocą .reverse()
+            return Array.from(sqlFiles.entries())
+                .reverse()
+                .map(([filePath, connectionName], index) => {
+                    // Pobieramy samą nazwę pliku (np. "query.sql")
+                    const fileName = path.basename(filePath);
+
+                    const orderNumber = index + 1;
+
+                    return {
+                        // label: `${orderNumber}. ${fileName} (${connectionName})`, // To co widzi użytkownik
+                        label: `${fileName}`, // To co widzi użytkownik
+                        description: `(${connectionName}) ${orderNumber}.`,                     // Opcjonalnie: podgląd pełnej ścieżki na dole
+                        value: filePath                      // Ukryta wartość, którą chcemy wyciągnąć
+                    };
+                });
+        };
+
+        // przycisk (ikona kosza w prawym górnym rogu QuickPick) do przycinania listy
+        const trimButton: vscode.QuickInputButton = {
+            iconPath: new vscode.ThemeIcon('trash'),
+            tooltip: 'Trim list (keep only N most recent files)'
+        };
+
+        const quickPick = vscode.window.createQuickPick<{ label: string; description: string; value: string }>();
+        quickPick.items = buildQuickPickItems();
+        quickPick.placeholder = 'select SQL file';
+        quickPick.ignoreFocusOut = true;
+        quickPick.buttons = [trimButton];
+
+        // obsługa kliknięcia przycisku przycinania listy
+        quickPick.onDidTriggerButton(async (button) => {
+            if (button !== trimButton) {
+                return;
+            }
+
+            // pole input z domyślną wartością 0 (0 = wyczyść całą listę)
+            const input = await vscode.window.showInputBox({
+                title: 'Trim recent SQL files list',
+                prompt: 'Enter the number of most recent files to keep (0 = clear the whole list)',
+                value: '0',
+                ignoreFocusOut: true,
+                validateInput: (value) => {
+                    const num = Number(value);
+                    if (!Number.isInteger(num) || num < 0) {
+                        return 'Please enter an integer >= 0';
+                    }
+                    return undefined;
+                }
             });
 
-        // 3. Wyświetlenie menu użytkownikowi
-        const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
-            placeHolder: 'select SQL file',
-            ignoreFocusOut: true
+            if (input === undefined) {
+                // anulowano - wracamy do listy bez zmian
+                return;
+            }
+
+            const n = Number(input);
+
+            // przycinanie od początku Map (najstarszy wpis jest pierwszy, najnowszy ostatni)
+            const instance = RecentSqlFiles.getInstance();
+            const entries = Array.from(instance.getSqlFiles().entries());
+            const trimmedEntries = n <= 0 ? [] : entries.slice(Math.max(0, entries.length - n));
+            instance.sqlFiles = new Map(trimmedEntries);
+            void instance.persist();
+
+            // odśwież listę widoczną w otwartym QuickPicku
+            quickPick.items = buildQuickPickItems();
+            vscode.window.showInformationMessage(`Recent SQL files list trimmed - kept ${trimmedEntries.length} most recent entries`);
+        });
+
+        // Wyświetlenie menu użytkownikowi
+        const selectedItem = await new Promise<{ label: string; description: string; value: string } | undefined>(res => {
+            quickPick.onDidAccept(() => { res(quickPick.selectedItems[0]); quickPick.hide(); });
+            quickPick.onDidHide(() => { res(undefined); quickPick.dispose(); });
+            quickPick.show();
         });
         
-        // 4. OTWARCIE PLIKU W EDYTORZE
+        // OTWARCIE PLIKU W EDYTORZE
         if (selectedItem) {
             const sqlFile = selectedItem.value;
             // const connectionName = sqlFiles.get(sqlFile);
@@ -212,7 +268,7 @@ export class RecentSqlFiles {
                     preserveFocus: false  // opcjonalnie: od razu aktywuje edytor
                 });
             } catch (error) {
-                vscode.window.showErrorMessage(`Nie można otworzyć pliku: ${error instanceof Error ? error.message : error}`);
+                vscode.window.showErrorMessage(`Could not open file: ${error instanceof Error ? error.message : error}`);
             }
         }
     }
