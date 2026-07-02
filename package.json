@@ -3,7 +3,7 @@
   "displayName": "db-client-w77",
   "description": "DB client",
   "publisher": "W77",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "icon": "DB-client.png",
   "engines": {
     "vscode": "^1.118.0"
