@@ -1,3 +1,5 @@
+import { State } from './state.js';
+
 function nextPage() {
 
     if (State.getInstance().currentPage < State.getInstance().totalPages) {

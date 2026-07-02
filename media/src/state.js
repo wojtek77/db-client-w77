@@ -18,7 +18,7 @@
  * @property {string} errorMessage - Info o błędzie.
  */
 
-class State {
+export class State {
     static #instance = null;
     static #globalFiles = new Map();
 

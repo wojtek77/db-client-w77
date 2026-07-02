@@ -1,3 +1,6 @@
+import { State } from './state.js';
+import { renderHeaders, initializeGrid, restoreGridFromCache, renderPage } from './tableRenderer.js';
+
 let sqlFile;
 let queryTimer = null;
 let queryStartTime = null;

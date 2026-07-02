@@ -1,4 +1,6 @@
-function renderHeaders(pageRows) {
+import { State } from './state.js';
+
+export function renderHeaders(pageRows) {
     console.log('renderHeaders');
     const headerContainer = document.getElementById('gridHeader');
     const headers = State.getInstance().headers;
@@ -61,7 +63,7 @@ function renderHeaders(pageRows) {
     headerContainer.replaceChildren(fragment);
 }
 
-function initializeGrid(currentRows) {
+export function initializeGrid(currentRows) {
     const gridBody = document.getElementById('gridBody');
 
     // 🚀 usuń stare wiersze
@@ -111,14 +113,14 @@ function initializeGrid(currentRows) {
     State.getInstance().cachedGridHtml = rowsHtml;
 }
 
-function restoreGridFromCache() {
+export function restoreGridFromCache() {
     const gridBody = document.getElementById('gridBody');
     gridBody.replaceChildren(
         ...State.getInstance().cachedGridHtml
     );
 }
 
-function renderPage(data) {
+export function renderPage(data) {
     const headers = State.getInstance().headers;
     const rows = State.getInstance().cachedGrid;
     const dataCount = data.length;
