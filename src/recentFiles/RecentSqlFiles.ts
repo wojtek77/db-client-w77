@@ -120,11 +120,9 @@ export class RecentSqlFiles {
             }));
             quickPick.placeholder = 'select DB connection';
             quickPick.ignoreFocusOut = true;
-            // Ustawienie podświetlenia
             quickPick.activeItems = quickPick.items.filter(item => item.label === defaultConnectionName);
-            // Kompaktowa obsługa wyboru
             connectionName = await new Promise(res => {
-                quickPick.onDidChangeSelection(sel => { res(sel[0]?.label); quickPick.hide(); });
+                quickPick.onDidAccept(() => { res(quickPick.selectedItems[0]?.label); quickPick.hide(); });
                 quickPick.onDidHide(() => { res(undefined); quickPick.dispose(); });
                 quickPick.show();
             });
