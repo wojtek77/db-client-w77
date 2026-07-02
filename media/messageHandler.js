@@ -237,6 +237,12 @@ window.addEventListener('message', event => {
         console.log(`🚀 Czas podróży przez postMessage: ${duration} ms`);
         
         stopGridContainer();
+
+        // czyścimy to, co jest aktualnie wyrenderowane w webview
+        document.getElementById('gridHeader').innerHTML = '';
+        document.getElementById('gridBody').innerHTML = '';
+        sqlFile = undefined; // zapomnij, dla jakiego pliku była ostatnio wyrenderowana siatka
+
         updateDbAndTimes();
         updateInfoMessage();
         updateErrorMessage();
