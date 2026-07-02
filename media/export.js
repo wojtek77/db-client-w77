@@ -1,5 +1,3 @@
-import { State } from './state.js';
-
 // otwiera ostatnio użyte pliki SQL
 function openRecentFiles() {
     window.vscode.postMessage({
@@ -39,6 +37,5 @@ function exportToTXT() {
     });
 }
 
-window.openRecentFiles = openRecentFiles;
 window.exportToCSV = exportToCSV;
 window.exportToTXT = exportToTXT;

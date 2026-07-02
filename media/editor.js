@@ -1,4 +1,4 @@
-export function initEditor(vscode) {
+function initEditor(vscode) {
 
     registerEvents(vscode);
 }
