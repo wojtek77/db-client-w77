@@ -25,8 +25,15 @@ export class ConnectionManager {
         this.configs = this.loadConfigs();
     }
 
-    public async getDb() {
-        const connectionName = await RecentSqlFiles.getInstance().getConnectionName();
+    /**
+     * Zwraca połączenie do DB
+     * @param connectionName  nazwa połączenia z DB, jeśli jest podana, nie będzie sprawdzana poprawność nazwy połączenia
+     * @returns 
+     */
+    public async getDb(connectionName = '') {
+        if (!connectionName) {
+            connectionName = await RecentSqlFiles.getInstance().getConnectionName();
+        }
         if (!this.connections[connectionName]) {
             const path = this.configs[connectionName];
             const connection = await Connection.create(path);

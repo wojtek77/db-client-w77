@@ -420,13 +420,15 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
         
         // dzięki temu jeśli nie jest przypisane połączenie do pliku SQL nie wystaruje webview
-        const db = await ConnectionManager.getInstance().getDb();
+        const dBconnectionName = await RecentSqlFiles.getInstance().getConnectionName();
         
         this._queryRunning = true;
         this._view.webview.postMessage({
             command: 'queryStarted',
             startedAt: Date.now()
         });
+        
+        const db = await ConnectionManager.getInstance().getDb(dBconnectionName);
         
         let rows, headers: string[], meta, queryTime, success, errorMessage, infoMessage, flashMessage;
         if (wholeFile) {
