@@ -11,6 +11,7 @@ export class ConnectionManager {
     
     private connections: Record<string, Connection> = {};
     private configs: Record<string, string> = {};
+    private currentNameConnection = '';
     
     
     public static getInstance(): ConnectionManager {
@@ -39,6 +40,7 @@ export class ConnectionManager {
             const connection = await Connection.create(path);
             this.connections[connectionName] = connection;
         }
+        this.currentNameConnection = connectionName;
         return this.connections[connectionName];
     }
 
@@ -77,6 +79,10 @@ export class ConnectionManager {
     
     public getConfigs() {
         return this.configs;
+    }
+    
+    public getCurrentNameConnection() {
+        return this.currentNameConnection;
     }
     
     private loadConfigs(): Record<string, string> {

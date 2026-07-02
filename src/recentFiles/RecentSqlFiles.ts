@@ -93,6 +93,14 @@ export class RecentSqlFiles {
             connectionName = undefined;
         }
         
+        // kiedy wywołanie jest z ConnectionManager (nie jest to zmiana połączenia)
+        // i nie jest ustawione połączenie z DB dla pliku
+        // wtedy zostanie ustawione ostatnio używane połączenie DB
+        // jest to analogiczne działanie do tego co jest w DBeaver
+        if (!isOnlyUpdate && !connectionName) {
+            connectionName = ConnectionManager.getInstance().getCurrentNameConnection();
+        }
+        
         if (isOnlyUpdate || !connectionName) { // jest tylko UPDATE lub od nowa jest ustawiane "connectionName"
             if (!connectionName && !isOnlyUpdate) { // wywołanie jest tylko od ConnectionManager, nie ma tu zmiany połączenia
                 const answer = await vscode.window.showInformationMessage(
