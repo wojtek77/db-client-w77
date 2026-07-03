@@ -93,35 +93,90 @@ function registerEvents(vscode) {
     });
     
     /* zaznaczenie wiersza */
+    /* zaznaczenie wiersza */
     document.addEventListener('DOMContentLoaded', () => {
+
         const gridBody = document.getElementById('gridBody');
-        
-        if (gridBody) {
-            gridBody.addEventListener('click', (event) => {
-                // Szukamy najbliższej komórki (div z klasą .grid-cell)
-                const cell = event.target.closest('.grid-cell');
-                if (!cell) {return;}
-                
-                // Ignorujemy kliknięcia w komórkę LP (numer wiersza), jeśli nie chcesz jej zaznaczać
-                // if (cell.classList.contains('lp-cell')) return;
+        if (!gridBody) {
+            return;
+        }
 
-                // Znajdujemy cały wiersz, w którym znajduje się kliknięta komórka
-                const targetRow = cell.closest('.grid-row');
-                if (!targetRow) {return;}
+        // punkt początkowy zaznaczenia (anchor)
+        let anchorRow = null;
 
-                // 🚀 WYDAJNOŚĆ: Usuwamy klasę 'selected-row' z poprzednio zaznaczonego wiersza
-                const previousSelected = gridBody.querySelector('.selected-row');
-                if (previousSelected) {
-                    previousSelected.classList.remove('selected-row');
+        // zapobiega zaznaczaniu tekstu podczas klikania numerów wierszy
+        gridBody.addEventListener('mousedown', (event) => {
+            if (event.target.closest('.lp-cell')) {
+                event.preventDefault();
+            }
+        });
+
+        gridBody.addEventListener('click', (event) => {
+
+            // reagujemy wyłącznie na kliknięcie numeru wiersza
+            const lpCell = event.target.closest('.lp-cell');
+            if (!lpCell) {
+                return;
+            }
+
+            const targetRow = lpCell.closest('.grid-row');
+            if (!targetRow) {
+                return;
+            }
+
+            const rows = [...gridBody.querySelectorAll('.grid-row')];
+
+            // SHIFT - zaznaczenie zakresu od anchora
+            if (event.shiftKey && anchorRow) {
+
+                if (!event.ctrlKey) {
+                    rows.forEach(r => r.classList.remove('selected-row'));
                 }
 
-                // Dodajemy klasę podświetlenia do nowego wiersza
+                const from = rows.indexOf(anchorRow);
+                const to = rows.indexOf(targetRow);
+
+                if (from !== -1 && to !== -1) {
+
+                    const start = Math.min(from, to);
+                    const end = Math.max(from, to);
+
+                    for (let i = start; i <= end; i++) {
+                        rows[i].classList.add('selected-row');
+                    }
+                }
+
+                return;
+            }
+
+            // CTRL - przełącz zaznaczenie pojedynczego wiersza
+            if (event.ctrlKey) {
+
+                targetRow.classList.toggle('selected-row');
+
+                // kliknięty wiersz staje się nowym anchorem
+                anchorRow = targetRow;
+
+                return;
+            }
+
+            // zwykły klik
+
+            const wasSelected = targetRow.classList.contains('selected-row');
+            const selectedCount = rows.filter(r => r.classList.contains('selected-row')).length;
+
+            rows.forEach(r => r.classList.remove('selected-row'));
+
+            // kliknięcie jedynego zaznaczonego wiersza -> odznaczenie
+            if (!(wasSelected && selectedCount === 1)) {
                 targetRow.classList.add('selected-row');
-                
-                // Log pomocniczy (możesz go usunąć)
-                // console.log(`Selected row with global index: ${targetRow.dataset.rowIndex}`);
-            });
-        }
+                anchorRow = targetRow;
+            } else {
+                anchorRow = null;
+            }
+
+        });
+
     });
     
     /* zmiana połączenia z DB */
