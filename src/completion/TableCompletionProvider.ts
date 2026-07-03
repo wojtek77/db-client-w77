@@ -63,6 +63,14 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         document: vscode.TextDocument,
         position: vscode.Position
     ): Promise<vscode.CompletionItem[]> {
+        
+        let db: Connection;
+        try {
+            db = await ConnectionManager.getInstance().getDb();
+        } catch (err) {
+            console.error('[TableCompletionProvider] Database connection error:', err);
+            return [];
+        }
 
         const linePrefix = document.lineAt(position).text.substring(0, position.character);
         const currentQuery = findCurrentQuery(document.getText(), position.line);
@@ -72,20 +80,16 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         }
 
         let fullText = currentQuery.sql;
-        
+
         // usunięcie komentarzy na początku przed SELECT, INSERT, UPDATE
-        if (REGEX_REMOVE_COMMENT_AT_START.test(fullText)) {
-            fullText = fullText.replace(REGEX_REMOVE_COMMENT_AT_START, '');
+        const commentMatch = fullText.match(REGEX_REMOVE_COMMENT_AT_START);
+        if (commentMatch) {
+            const removedText = commentMatch[0];
+            const removedLines = (removedText.match(/\r?\n/g) || []).length;
+            currentQuery.startLine += removedLines;
+            fullText = fullText.slice(removedText.length);
         }
 
-        let db: Connection;
-        try {
-            db = await ConnectionManager.getInstance().getDb();
-        } catch (err) {
-            console.error('[TableCompletionProvider] Database connection error:', err);
-            return [];
-        }
-        
         const queryStartOffset = document.offsetAt(new vscode.Position(currentQuery.startLine, 0));
         const queryOffset = document.offsetAt(position) - queryStartOffset;
         const sqlBeforeCursor = fullText.substring(0, queryOffset);
