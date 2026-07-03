@@ -1,0 +1,10 @@
+{
+  "scopeName": "comment.injection.sql.hash",
+  "injectionSelector": "L:source.sql",
+  "patterns": [
+    {
+      "name": "comment.line.number-sign.sql",
+      "match": "#.*$"
+    }
+  ]
+}

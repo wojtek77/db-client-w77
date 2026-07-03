@@ -22,6 +22,15 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "grammars": [
+      {
+        "scopeName": "comment.injection.sql.hash",
+        "path": "./syntaxes/sql-hash-comment.tmLanguage.json",
+        "injectTo": [
+          "source.sql"
+        ]
+      }
+    ],
     "viewsContainers": {
       "panel": [
         {
