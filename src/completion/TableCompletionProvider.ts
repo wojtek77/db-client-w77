@@ -8,6 +8,8 @@ import { CompletionInsert } from './CompletionInsert.js';
 import { CompletionUpdate } from './CompletionUpdate.js';
 import { CompletionInterface } from './CompletionInterface.js'; // Import interfejsu
 
+const REGEX_REMOVE_COMMENT_AT_START = /^(?:(?:--|#).*(?:\r?\n|$)+|\/\*[\s\S]*?\*\/)+/;
+
 export class TableCompletionProvider implements vscode.CompletionItemProvider {
     
     private completionSelect: CompletionInterface;
@@ -69,7 +71,12 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
             return [];
         }
 
-        const fullText = currentQuery.sql;
+        let fullText = currentQuery.sql;
+        
+        // usunięcie komentarzy na początku przed SELECT, INSERT, UPDATE
+        if (REGEX_REMOVE_COMMENT_AT_START.test(fullText)) {
+            fullText = fullText.replace(REGEX_REMOVE_COMMENT_AT_START, '');
+        }
 
         let db: Connection;
         try {
