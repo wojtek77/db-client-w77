@@ -5,7 +5,7 @@ import { findCurrentQuery } from "../sql/findCurrentQuery.js";
 export async function runSQLCommand() {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
-        vscode.window.showErrorMessage('Nie masz otwartego edytora z kodem SQL');
+        vscode.window.showErrorMessage('No open editor with SQL code');
         return;
     }
     
@@ -24,7 +24,7 @@ export async function runSQLCommand() {
     }
     const sql = currentQuery.sql;
     if (!sql || sql === '') {
-        vscode.window.showWarningMessage('Nie znaleziono zapytania SQL pod kursorem');
+        vscode.window.showWarningMessage('No SQL query found at cursor');
         return;
     }
     

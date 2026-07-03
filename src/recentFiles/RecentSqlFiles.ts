@@ -41,12 +41,12 @@ export class RecentSqlFiles {
                 const rawData = fs.readFileSync(filePath, 'utf-8');
                 const saved = JSON.parse(rawData) as [string, string][];
                 this.sqlFiles = new Map(saved);
-                console.log('RecentSqlFiles: Przywrócono stan z dysku');
+                console.log('RecentSqlFiles: State restored from disk');
             } else {
                 this.sqlFiles = new Map();
             }
         } catch (err) {
-            console.error('RecentSqlFiles: Błąd podczas odtwarzania stanu:', err);
+            console.error('RecentSqlFiles: Error while restoring state:', err);
             this.sqlFiles = new Map();
         }
     }
@@ -55,7 +55,7 @@ export class RecentSqlFiles {
      * Gwarantowany, synchroniczny zapis danych na dysku podczas zamykania
      */
     public persist(): void {
-        console.log('RecentSqlFiles: Rozpoczęto synchroniczne dispose');
+        console.log('RecentSqlFiles: Started synchronous dispose');
         try {
             const storagePath = this.context.globalStorageUri.fsPath;
             
@@ -69,9 +69,9 @@ export class RecentSqlFiles {
 
             // Blokujący zapis synchroniczny - VS Code nie ubije procesu przed zakończeniem zapisu
             fs.writeFileSync(filePath, dataToSave, 'utf-8');
-            console.log('RecentSqlFiles: Zapisano pomyślnie na dysku');
+            console.log('RecentSqlFiles: Successfully saved to disk');
         } catch (err) {
-            console.error('RecentSqlFiles: Krytyczny błąd zapisu w dispose:', err);
+            console.error('RecentSqlFiles: Critical write error in dispose:', err);
         }
     }
     
@@ -79,7 +79,7 @@ export class RecentSqlFiles {
         // ścieżka do pliku SQL, który jest teraz otwarty w edytorze vscode
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
-            throw new Error("żaden edytor nie jest teraz aktywny");
+            throw new Error("no editor is currently active");
         }
         const sqlFile = editor.document.fileName;
         let connectionName = this.get(sqlFile);

@@ -84,7 +84,7 @@ export class Connection {
                 this.database = config.database ?? '';
                 this.schemaTables = await this.readTableNames(this.conn);
             } catch (err) {
-                console.error('Nie udało się pobrać tabel:', err);
+                console.error('Failed to fetch tables:', err);
             }
             
             return this.connectionTime;
@@ -100,7 +100,7 @@ export class Connection {
      */
     public async reconnect(): Promise<number> {
         if (!this.cachedConfig || !this.connectionName) {
-            throw new Error('Brak wcześniejszej konfiguracji do wykonania reconnect.');
+            throw new Error('No previous configuration available to perform reconnect.');
         }
         // Resetujemy flagę, aby connect nie zakończył się przedwcześnie
         this.connected = false; 
@@ -255,7 +255,7 @@ export class Connection {
         try {
             if (this.conn) {this.conn.end();}
         } catch (err) {
-            console.error('Błąd conn.end():', err);
+            console.error('Error in conn.end():', err);
         } finally {
             this.conn = null;
         }
@@ -263,7 +263,7 @@ export class Connection {
         try {
             if (this.pool) {this.pool.end();}
         } catch (err) {
-            console.error('Błąd pool.end():', err);
+            console.error('Error in pool.end():', err);
         } finally {
             this.pool = null;
         }

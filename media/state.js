@@ -65,7 +65,7 @@ export class State {
      */
     static init(filename) {
         if (!filename) {
-            throw new Error("Nazwa pliku jest wymagana do inicjalizacji.");
+            throw new Error("A filename is required to initialize.");
         }
         State.#instance = new State(filename);
         return State.#instance;

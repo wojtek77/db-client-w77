@@ -119,7 +119,7 @@ function registerEvents(vscode) {
                 targetRow.classList.add('selected-row');
                 
                 // Log pomocniczy (możesz go usunąć)
-                // console.log(`Zaznaczono wiersz o indeksie globalnym: ${targetRow.dataset.rowIndex}`);
+                // console.log(`Selected row with global index: ${targetRow.dataset.rowIndex}`);
             });
         }
     });

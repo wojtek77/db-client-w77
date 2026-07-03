@@ -98,7 +98,7 @@ export class ConnectionManager {
         const configs: Record<string, string> = {};
 
         if (!fs.existsSync(configDir)) {
-            throw new Error(`brak katalogu z plikami *.cnf "${configDir}"`);
+            throw new Error(`missing directory with *.cnf files "${configDir}"`);
         }
 
         const files = fs.readdirSync(configDir);

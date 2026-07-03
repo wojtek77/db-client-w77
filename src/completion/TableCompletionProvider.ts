@@ -38,7 +38,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
             if (err instanceof vscode.CancellationError) {
                 return [];
             }
-            console.error('[TableCompletionProvider] Krytyczny błąd metody:', err);
+            console.error('[TableCompletionProvider] Critical method error:', err);
             return [];
         }
     }
@@ -82,7 +82,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         try {
             db = await ConnectionManager.getInstance().getDb();
         } catch (err) {
-            console.error('[TableCompletionProvider] Błąd połączenia z bazą:', err);
+            console.error('[TableCompletionProvider] Database connection error:', err);
             return [];
         }
         

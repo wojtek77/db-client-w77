@@ -128,11 +128,11 @@ window.addEventListener('message', event => {
     }
 
     if (msg.command === 'appendData') {
-        console.log("--- START PRZETWARZANIA WEBVIEW ---");
+        console.log("--- START WEBVIEW PROCESSING ---");
         
         console.log(msg.sentAt);
         const duration = Date.now() - msg.sentAt;
-        console.log(`🚀 Czas podróży przez postMessage: ${duration} ms`);
+        console.log(`🚀 Travel time via postMessage: ${duration} ms`);
         
         if (!msg.sqlFile) {
             throw new Error("Missing: msg.sqlFile");
@@ -161,39 +161,39 @@ window.addEventListener('message', event => {
         
         const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
         
-        console.time("⏱️ Czas renderHeaders");
+        console.time("⏱️ renderHeaders time");
         if (State.getInstance().headers) {
             renderHeaders(currentRows); // Ta funkcja teraz przeskanuje State.getInstance().currentRows
         }
-        console.timeEnd("⏱️ Czas renderHeaders");
+        console.timeEnd("⏱️ renderHeaders time");
         
         const shape = `${currentRows.length}x${State.getInstance().headers.length}`;
         if (sqlFile && sqlFile === msg.sqlFile) { // kiedy jest powtórne uruchomienie SQL w tym samym pliku
             if (State.getInstance().gridShape !== shape) {
-                console.time("⏱️ Czas initializeGrid");
+                console.time("⏱️ initializeGrid time");
                 initializeGrid(currentRows);
-                console.timeEnd("⏱️ Czas initializeGrid");
+                console.timeEnd("⏱️ initializeGrid time");
                 State.getInstance().currentRows = undefined;
                 State.getInstance().gridShape = shape;
             }
         } else { // kiedy jest nowe uruchomienie pliku lub zmiana pliku
             if (State.getInstance().gridShape === shape) {
-                console.time("⏱️ Czas restoreGridFromCache");
+                console.time("⏱️ restoreGridFromCache time");
                 restoreGridFromCache();
-                console.timeEnd("⏱️ Czas restoreGridFromCache");
+                console.timeEnd("⏱️ restoreGridFromCache time");
             } else {
-                console.time("⏱️ Czas initializeGrid");
+                console.time("⏱️ initializeGrid time");
                 initializeGrid(currentRows);
                 State.getInstance().currentRows = undefined;
-                console.timeEnd("⏱️ Czas initializeGrid");
+                console.timeEnd("⏱️ initializeGrid time");
                 State.getInstance().gridShape = shape;
             }
             sqlFile = msg.sqlFile;
         }
         
-        console.time("⏱️ Czas renderPage");
+        console.time("⏱️ renderPage time");
         renderPage(currentRows);
-        console.timeEnd("⏱️ Czas renderPage");
+        console.timeEnd("⏱️ renderPage time");
         
         if (msg.isLast) {
             // ew. logika na koniec
@@ -201,12 +201,12 @@ window.addEventListener('message', event => {
         
         stopSpinner();
         
-        console.log("--- KONIEC PRZETWARZANIA WEBVIEW ---");
+        console.log("--- END WEBVIEW PROCESSING ---");
     }
 
     if (msg.command === 'showResultsForFile') {
         const duration = Date.now() - msg.sentAt;
-        console.log(`🚀 Czas podróży przez postMessage: ${duration} ms`);
+        console.log(`🚀 Travel time via postMessage: ${duration} ms`);
         
         if (!msg.sqlFile) {
             throw new Error("Missing: msg.sqlFile");
@@ -224,17 +224,17 @@ window.addEventListener('message', event => {
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         
         // renderowanie HTML
-        console.time("⏱️ Czas renderHeaders");
+        console.time("⏱️ renderHeaders time");
         renderHeaders(State.getInstance().currentRows);
-        console.timeEnd("⏱️ Czas renderHeaders");
-        console.time("⏱️ Czas restoreGridFromCache");
+        console.timeEnd("⏱️ renderHeaders time");
+        console.time("⏱️ restoreGridFromCache time");
         restoreGridFromCache();
-        console.timeEnd("⏱️ Czas restoreGridFromCache");
+        console.timeEnd("⏱️ restoreGridFromCache time");
     }
     
     if (msg.command === 'showEmpty') {
         const duration = Date.now() - msg.sentAt;
-        console.log(`🚀 Czas podróży przez postMessage: ${duration} ms`);
+        console.log(`🚀 Travel time via postMessage: ${duration} ms`);
         
         stopGridContainer();
 

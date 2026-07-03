@@ -164,7 +164,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
 
     private updateHtml() {
-        if (!this._view) {throw new Error("brak webview");}
+        if (!this._view) {throw new Error("missing webview");}
         
         if (!this._view.webview.html) {
             const html = getHtml(
@@ -172,7 +172,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 this._extensionUri
             );
             this._view.webview.html = html;
-            console.log('jest ustawiany od nowa HTML');
+            console.log('HTML is being set again');
         }
     }
 
@@ -191,7 +191,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const encoder = new TextEncoder();
         const rowsBuffer = encoder.encode(rowsJsonString); // Zwraca Uint8Array
         
-        console.time("⏱️ Całkowity czas Backend");
+        console.time("⏱️ Total Backend time");
         setImmediate(() => {
             // 3. Wysyłamy
             this._view?.webview.postMessage({
@@ -215,10 +215,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 sentAt: Date.now() // znacznik czasu w ms
             });
         });
-        console.timeEnd("⏱️ Całkowity czas Backend");
+        console.timeEnd("⏱️ Total Backend time");
 
 
-        // console.time("⏱️ Całkowity czas Backend");
+        // console.time("⏱️ Total Backend time");
         // this._view.webview.postMessage({
         //     command: 'appendData',
         //     rows: pageRows,
@@ -232,7 +232,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         //     queryTime: this._lastQueryTime,
         //     sentAt: Date.now()
         // });
-        // console.timeEnd("⏱️ Całkowity czas Backend");
+        // console.timeEnd("⏱️ Total Backend time");
     }
 
     /**
@@ -293,14 +293,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const row = this._allRows[rowIndex];
 
             if (!row) {
-                vscode.window.showErrorMessage(`Nie znaleziono wiersza ${rowIndex}`);
+                vscode.window.showErrorMessage(`Row ${rowIndex} not found`);
                 return;
             }
 
             const field = this._meta[columnIndex];
 
             if (!field) {
-                vscode.window.showErrorMessage(`Nie znaleziono metadanych kolumny ${columnIndex}`);
+                vscode.window.showErrorMessage(`Column metadata for ${columnIndex} not found`);
                 return;
             }
 
@@ -308,7 +308,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const columnName = field.orgName?.();
 
             if (!tableName || !columnName) {
-                vscode.window.showErrorMessage('Nie można określić źródłowej tabeli lub kolumny');
+                vscode.window.showErrorMessage('Unable to determine the source table or column');
                 return;
             }
             
@@ -318,7 +318,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             const schema = field.schema?.();
             if (!schema) {
-                vscode.window.showErrorMessage(`Nie można określić schema dla tabeli ${tableName}`);
+                vscode.window.showErrorMessage(`Unable to determine schema for table ${tableName}`);
                 return;
             }
             
@@ -329,7 +329,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const primaryKeys = tableColumns.filter((c: any) => c.columnKey === 'PRI');
 
             if (primaryKeys.length === 0) {
-                vscode.window.showErrorMessage(`Tabela ${tableName} nie posiada PRIMARY KEY`);
+                vscode.window.showErrorMessage(`Table ${tableName} does not have a PRIMARY KEY`);
                 return;
             }
 
@@ -380,11 +380,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
 
             vscode.window.showInformationMessage(
-                `✅ Zaktualizowano ${tableName}.${columnName}`
+                `✅ Updated ${tableName}.${columnName}`
             );
         } catch (err: any) {
-            console.error('Błąd update:', err);
-            vscode.window.showErrorMessage(`❌ Błąd aktualizacji: ${err.message}`);
+            console.error('Update error:', err);
+            vscode.window.showErrorMessage(`❌ Update error: ${err.message}`);
         }
     }
     
@@ -410,7 +410,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // czekamy asynchronicznie, aż VS Code stworzy widok
             await this.waitForView();
             if (!this._view) {
-                vscode.window.showErrorMessage("Nie udało się otworzyć okna wyników SQL.");
+                vscode.window.showErrorMessage("Failed to open the SQL results window.");
                 return;
             }
             
@@ -587,7 +587,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const headers = this._headers;
 
             if (rows.length === 0) {
-                vscode.window.showWarningMessage('Brak danych do eksportu.');
+                vscode.window.showWarningMessage('No data to export.');
                 return;
             }
 
@@ -622,11 +622,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (uri) {
                 await vscode.workspace.fs.writeFile(uri, Buffer.from(csv, 'utf8'));
                 this.setLastExportPath(uri.fsPath, 'csv');
-                vscode.window.showInformationMessage(`✅ Eksportowano ${rows.length} wierszy do ${uri.fsPath}`);
+                vscode.window.showInformationMessage(`✅ Exported ${rows.length} rows to ${uri.fsPath}`);
             }
         } catch (err: any) {
-            console.error('Błąd eksportu:', err);
-            vscode.window.showErrorMessage(`❌ Błąd eksportu: ${err.message}`);
+            console.error('Export error:', err);
+            vscode.window.showErrorMessage(`❌ Export error: ${err.message}`);
         }
     }
     
@@ -636,7 +636,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const headers = this._headers;
 
             if (rows.length === 0) {
-                vscode.window.showWarningMessage('Brak danych do eksportu.');
+                vscode.window.showWarningMessage('No data to export.');
                 return;
             }
 
@@ -690,11 +690,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (uri) {
                 await vscode.workspace.fs.writeFile(uri, Buffer.from(txt, 'utf8'));
                 this.setLastExportPath(uri.fsPath, 'txt');
-                vscode.window.showInformationMessage(`✅ Eksportowano ${rows.length} wierszy do ${uri.fsPath}`);
+                vscode.window.showInformationMessage(`✅ Exported ${rows.length} rows to ${uri.fsPath}`);
             }
         } catch (err: any) {
-            console.error('Błąd eksportu TXT:', err);
-            vscode.window.showErrorMessage(`❌ Błąd eksportu TXT: ${err.message}`);
+            console.error('TXT export error:', err);
+            vscode.window.showErrorMessage(`❌ TXT export error: ${err.message}`);
         }
     }
     

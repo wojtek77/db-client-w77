@@ -271,7 +271,7 @@ export async function formatSqlCommand(): Promise<void> {
 
     const selection = editor.selection;
     if (selection.isEmpty) {
-        vscode.window.showWarningMessage('Zaznacz fragment SQL do sformatowania.');
+        vscode.window.showWarningMessage('Select a SQL fragment to format.');
         return;
     }
 

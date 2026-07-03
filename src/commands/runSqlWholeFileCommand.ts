@@ -4,7 +4,7 @@ import { SqlResultsProvider } from '../panel/SqlResultsProvider.js';
 export async function runSqlWholeFileCommand() {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
-        vscode.window.showErrorMessage('Nie masz otwartego edytora z kodem SQL');
+        vscode.window.showErrorMessage('No open editor with SQL code');
         return;
     }
 
