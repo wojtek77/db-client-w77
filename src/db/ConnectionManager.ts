@@ -75,6 +75,7 @@ export class ConnectionManager {
             conn.disconnect();
         });
         this.connections = {};
+        this.currentNameConnection = '';
     }
     
     public getConfigs() {
