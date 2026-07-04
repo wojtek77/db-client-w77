@@ -17,6 +17,16 @@ function isMultilineColumnType(columnType) {
     return MULTILINE_COLUMN_TYPES.has(columnType.toLowerCase());
 }
 
+// Przenosi fokus klawiatury z edytora SQL do siatki wyników.
+// Bez tego kliknięcie w wynikach nie zabiera fokusu edytorowi (bo mousedown ma preventDefault
+// dla ochrony przed zaznaczaniem tekstu), przez co np. Ctrl+C trafiał wciąż do edytora.
+function focusGridContainer() {
+    const gridContainer = document.getElementById('gridContainer');
+    if (gridContainer) {
+        gridContainer.focus();
+    }
+}
+
 function registerEvents(vscode) {
     /* edycja komórki */
     document.addEventListener('DOMContentLoaded', () => {
@@ -107,6 +117,8 @@ function registerEvents(vscode) {
         gridBody.addEventListener('mousedown', (event) => {
             if (event.target.closest('.lp-cell')) {
                 event.preventDefault();
+                // przejmujemy fokus klawiatury z edytora SQL, żeby Ctrl+C działał od razu
+                focusGridContainer();
             }
         });
 
@@ -195,6 +207,8 @@ function registerEvents(vscode) {
             const headerCell = event.target.closest('.header-cell');
             if (headerCell && !headerCell.classList.contains('lp-cell')) {
                 event.preventDefault();
+                // przejmujemy fokus klawiatury z edytora SQL, żeby Ctrl+C działał od razu
+                focusGridContainer();
             }
         });
 
@@ -312,6 +326,8 @@ function registerEvents(vscode) {
                 return;
             }
             event.preventDefault();
+            // przejmujemy fokus klawiatury z edytora SQL, żeby Ctrl+C działał od razu
+            focusGridContainer();
         });
 
         function getCell(rowIndex, colIndex) {
@@ -408,6 +424,133 @@ function registerEvents(vscode) {
                 anchorCell = null;
             }
 
+        });
+
+    });
+
+    /* kopiowanie zaznaczenia (wiersze / kolumny / komórki) do schowka */
+    document.addEventListener('DOMContentLoaded', () => {
+
+        const gridBody = document.getElementById('gridBody');
+        if (!gridBody) {
+            return;
+        }
+
+        function cellValue(rowIndex, colIndex) {
+            const rows = gridBody.querySelectorAll('.grid-row');
+            const row = rows[rowIndex];
+            if (!row) {return '';}
+            const cell = row.children[colIndex + 1];
+            return cell ? cell.textContent : '';
+        }
+
+        // zbiera pozycje (row-col) ze wszystkich trzech typów zaznaczenia
+        function collectSelectedPositions() {
+            const positions = new Set();
+
+            // zaznaczone wiersze -> wszystkie kolumny danego wiersza
+            gridBody.querySelectorAll('.grid-row.selected-row').forEach(row => {
+                row.querySelectorAll('.grid-cell:not(.lp-cell)').forEach(cell => {
+                    if (cell._index) {
+                        positions.add(`${cell._index.row}-${cell._index.col}`);
+                    }
+                });
+            });
+
+            // zaznaczone kolumny -> wszystkie wiersze danej kolumny
+            gridBody.querySelectorAll('.grid-cell.selected-col').forEach(cell => {
+                if (cell._index) {
+                    positions.add(`${cell._index.row}-${cell._index.col}`);
+                }
+            });
+
+            // pojedyncze zaznaczone komórki
+            gridBody.querySelectorAll('.grid-cell.selected-cell').forEach(cell => {
+                if (cell._index) {
+                    positions.add(`${cell._index.row}-${cell._index.col}`);
+                }
+            });
+
+            return positions;
+        }
+
+        // buduje tekst w formacie TSV (wklejalny wprost do Excela/Sheets),
+        // odtwarzając prostokąt na podstawie użytych wierszy/kolumn;
+        // pola spoza zaznaczenia (ale w obrębie prostokąta) wychodzą puste
+        function buildClipboardText(positions) {
+            if (positions.size === 0) {
+                return '';
+            }
+
+            const rowsSet = new Set();
+            const colsSet = new Set();
+
+            positions.forEach(key => {
+                const [r, c] = key.split('-').map(Number);
+                rowsSet.add(r);
+                colsSet.add(c);
+            });
+
+            const rowsSorted = [...rowsSet].sort((a, b) => a - b);
+            const colsSorted = [...colsSet].sort((a, b) => a - b);
+
+            const lines = rowsSorted.map(r => {
+                return colsSorted.map(c => {
+                    return positions.has(`${r}-${c}`) ? cellValue(r, c) : '';
+                }).join('\t');
+            });
+
+            return lines.join('\n');
+        }
+
+        function fallbackCopy(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            try {
+                document.execCommand('copy');
+            } catch (e) {
+                // schowek niedostępny - nic nie robimy
+            }
+            document.body.removeChild(textarea);
+        }
+
+        function copyToClipboard(text) {
+            if (!text) {
+                return;
+            }
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+            } else {
+                fallbackCopy(text);
+            }
+        }
+
+        document.addEventListener('keydown', (event) => {
+
+            const isCopyShortcut = (event.ctrlKey || event.metaKey) && (event.key === 'c' || event.key === 'C');
+            if (!isCopyShortcut) {
+                return;
+            }
+
+            // podczas edycji pola (input/textarea) nie przejmujemy Ctrl+C - ma zadziałać zwykłe kopiowanie zaznaczonego tekstu
+            const active = document.activeElement;
+            if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+                return;
+            }
+
+            const positions = collectSelectedPositions();
+            if (positions.size === 0) {
+                return;
+            }
+
+            event.preventDefault();
+            copyToClipboard(buildClipboardText(positions));
         });
 
     });

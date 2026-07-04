@@ -94,7 +94,7 @@ export function getHtml(
 <!-- komunikat o błędach -->
 <p id="errorDisplay" class="error-message"></p>
 
-<div id="gridContainer" class="grid-container">
+<div id="gridContainer" class="grid-container" tabindex="-1">
     <div id="loadingOverlay" class="loading-overlay">
         <div class="spinner"></div>
         <div class="loading-text">Loading data...</div>
