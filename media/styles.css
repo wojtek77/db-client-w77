@@ -108,6 +108,15 @@ html, body {
     background-color: var(--vscode-list-hoverBackground) !important;
 }
 
+/* Styl dla zaznaczonej kolumny (nagłówek + komórki danych) */
+.grid-cell.selected-col {
+    /* Używa koloru tła zaznaczenia z aktualnego motywu VS Code */
+    background-color: var(--vscode-list-activeSelectionBackground) !important;
+
+    /* Zmienia kolor tekstu wewnątrz kolumny, aby był czytelny (kontrastowy) */
+    color: var(--vscode-list-activeSelectionForeground) !important;
+}
+
 /* Styl dla pola edycji komórki */
 .grid-edit-input {
     width: 100%;

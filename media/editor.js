@@ -179,6 +179,119 @@ function registerEvents(vscode) {
 
     });
     
+    /* zaznaczenie kolumny */
+    document.addEventListener('DOMContentLoaded', () => {
+
+        const gridHeader = document.getElementById('gridHeader');
+        const gridBody = document.getElementById('gridBody');
+        if (!gridHeader || !gridBody) {
+            return;
+        }
+
+        // punkt początkowy zaznaczenia (anchor)
+        let anchorCol = null;
+
+        // zapobiega zaznaczaniu tekstu podczas klikania nagłówków kolumn
+        gridHeader.addEventListener('mousedown', (event) => {
+            const headerCell = event.target.closest('.header-cell');
+            if (headerCell && !headerCell.classList.contains('lp-cell')) {
+                event.preventDefault();
+            }
+        });
+
+        function getColumnIndex(headerCell) {
+            const idx = headerCell.dataset.columnIndex;
+            return idx === undefined ? null : parseInt(idx, 10);
+        }
+
+        // zaznacza/odznacza nagłówek kolumny oraz wszystkie komórki danych w tej kolumnie
+        function selectColumn(colIndex, select) {
+            const headerCell = gridHeader.querySelector(`.header-cell[data-column-index="${colIndex}"]`);
+            if (headerCell) {
+                headerCell.classList.toggle('selected-col', select);
+            }
+
+            const rows = gridBody.querySelectorAll('.grid-row');
+            rows.forEach(row => {
+                const cell = row.children[colIndex + 1];
+                if (cell) {
+                    cell.classList.toggle('selected-col', select);
+                }
+            });
+        }
+
+        function clearAllColumns(headerCells) {
+            headerCells.forEach(hc => {
+                const idx = getColumnIndex(hc);
+                if (idx !== null) {
+                    selectColumn(idx, false);
+                }
+            });
+        }
+
+        gridHeader.addEventListener('click', (event) => {
+
+            // reagujemy wyłącznie na kliknięcie nagłówka kolumny (nie LP)
+            const headerCell = event.target.closest('.header-cell');
+            if (!headerCell || headerCell.classList.contains('lp-cell')) {
+                return;
+            }
+
+            const targetCol = getColumnIndex(headerCell);
+            if (targetCol === null) {
+                return;
+            }
+
+            const headerCells = [...gridHeader.querySelectorAll('.header-cell:not(.lp-cell)')];
+
+            // SHIFT - zaznaczenie zakresu od anchora
+            if (event.shiftKey && anchorCol !== null) {
+
+                if (!event.ctrlKey) {
+                    clearAllColumns(headerCells);
+                }
+
+                const start = Math.min(anchorCol, targetCol);
+                const end = Math.max(anchorCol, targetCol);
+
+                for (let i = start; i <= end; i++) {
+                    selectColumn(i, true);
+                }
+
+                return;
+            }
+
+            // CTRL - przełącz zaznaczenie pojedynczej kolumny
+            if (event.ctrlKey) {
+
+                const isSelected = headerCell.classList.contains('selected-col');
+                selectColumn(targetCol, !isSelected);
+
+                // kliknięta kolumna staje się nowym anchorem
+                anchorCol = targetCol;
+
+                return;
+            }
+
+            // zwykły klik
+
+            const wasSelected = headerCell.classList.contains('selected-col');
+            const selectedCount = headerCells.filter(hc => hc.classList.contains('selected-col')).length;
+
+            clearAllColumns(headerCells);
+
+            // kliknięcie jedynej zaznaczonej kolumny -> odznaczenie
+            if (!(wasSelected && selectedCount === 1)) {
+                selectColumn(targetCol, true);
+                anchorCol = targetCol;
+            } else {
+                anchorCol = null;
+            }
+
+        });
+
+    });
+
     /* zmiana połączenia z DB */
     document.addEventListener('DOMContentLoaded', () => {
 
