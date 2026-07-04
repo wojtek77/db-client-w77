@@ -55,11 +55,11 @@ Press **Ctrl + Enter** to run SQL.
 
 ![Git Blame screeshot 1](images/screenshot1.png)
 
-## Support me
-[![ko-fi](images/ko-fi.png)](https://ko-fi.com/w77w77)
-
 ## Other
 Linux users should install `fonts-noto-color-emoji` to see the colors when adding color to a DB connection. Sample installation on Debian:
 `sudo apt install fonts-noto-color-emoji`.
 
 The extension has been tested on Linux and Windows.
+
+## Support me
+[![ko-fi](images/ko-fi.png)](https://ko-fi.com/w77w77)
