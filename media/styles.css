@@ -117,6 +117,14 @@ html, body {
     color: var(--vscode-list-activeSelectionForeground) !important;
 }
 
+/* Styl dla zaznaczonej komórki (zaznaczenie ramką, aby nie gryzło się z zaznaczeniem wiersza/kolumny) */
+.grid-cell.selected-cell {
+    outline: 2px solid var(--vscode-focusBorder);
+    outline-offset: -2px;
+    position: relative;
+    z-index: 1;
+}
+
 /* Styl dla pola edycji komórki */
 .grid-edit-input {
     width: 100%;

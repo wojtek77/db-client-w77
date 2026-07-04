@@ -93,7 +93,6 @@ function registerEvents(vscode) {
     });
     
     /* zaznaczenie wiersza */
-    /* zaznaczenie wiersza */
     document.addEventListener('DOMContentLoaded', () => {
 
         const gridBody = document.getElementById('gridBody');
@@ -286,6 +285,127 @@ function registerEvents(vscode) {
                 anchorCol = targetCol;
             } else {
                 anchorCol = null;
+            }
+
+        });
+
+    });
+
+    /* zaznaczenie komórki */
+    document.addEventListener('DOMContentLoaded', () => {
+
+        const gridBody = document.getElementById('gridBody');
+        if (!gridBody) {
+            return;
+        }
+
+        // punkt początkowy zaznaczenia (anchor)
+        let anchorCell = null; // {row, col}
+
+        // zapobiega zaznaczaniu tekstu podczas klikania komórek (poza trwającą edycją)
+        gridBody.addEventListener('mousedown', (event) => {
+            const cell = event.target.closest('.grid-cell');
+            if (!cell || cell.classList.contains('lp-cell')) {
+                return;
+            }
+            if (cell.querySelector('input, textarea')) {
+                return;
+            }
+            event.preventDefault();
+        });
+
+        function getCell(rowIndex, colIndex) {
+            const rows = gridBody.querySelectorAll('.grid-row');
+            const row = rows[rowIndex];
+            if (!row) {
+                return null;
+            }
+            // +1, bo pierwsza komórka wiersza to LP
+            return row.children[colIndex + 1] || null;
+        }
+
+        function selectCell(rowIndex, colIndex, select) {
+            const cell = getCell(rowIndex, colIndex);
+            if (cell) {
+                cell.classList.toggle('selected-cell', select);
+            }
+        }
+
+        function clearAllCells() {
+            gridBody.querySelectorAll('.grid-cell.selected-cell').forEach(c => {
+                c.classList.remove('selected-cell');
+            });
+        }
+
+        gridBody.addEventListener('click', (event) => {
+
+            // reagujemy wyłącznie na kliknięcie komórki z danymi (nie LP)
+            const cell = event.target.closest('.grid-cell');
+            if (!cell || cell.classList.contains('lp-cell')) {
+                return;
+            }
+
+            // trwa edycja tej komórki - klik ma ustawić kursor w polu tekstowym, a nie zaznaczać
+            if (cell.querySelector('input, textarea')) {
+                return;
+            }
+
+            // pomijamy drugi klik podwójnego kliknięcia (on uruchamia edycję komórki)
+            if (event.detail > 1) {
+                return;
+            }
+
+            const targetIndex = cell._index;
+            if (!targetIndex) {
+                return;
+            }
+
+            // SHIFT - zaznaczenie prostokątnego zakresu od anchora
+            if (event.shiftKey && anchorCell) {
+
+                if (!event.ctrlKey) {
+                    clearAllCells();
+                }
+
+                const rowStart = Math.min(anchorCell.row, targetIndex.row);
+                const rowEnd = Math.max(anchorCell.row, targetIndex.row);
+                const colStart = Math.min(anchorCell.col, targetIndex.col);
+                const colEnd = Math.max(anchorCell.col, targetIndex.col);
+
+                for (let r = rowStart; r <= rowEnd; r++) {
+                    for (let c = colStart; c <= colEnd; c++) {
+                        selectCell(r, c, true);
+                    }
+                }
+
+                return;
+            }
+
+            // CTRL - przełącz zaznaczenie pojedynczej komórki
+            if (event.ctrlKey) {
+
+                const isSelected = cell.classList.contains('selected-cell');
+                selectCell(targetIndex.row, targetIndex.col, !isSelected);
+
+                // kliknięta komórka staje się nowym anchorem
+                anchorCell = targetIndex;
+
+                return;
+            }
+
+            // zwykły klik
+
+            const wasSelected = cell.classList.contains('selected-cell');
+            const selectedCount = gridBody.querySelectorAll('.grid-cell.selected-cell').length;
+
+            clearAllCells();
+
+            // kliknięcie jedynej zaznaczonej komórki -> odznaczenie
+            if (!(wasSelected && selectedCount === 1)) {
+                selectCell(targetIndex.row, targetIndex.col, true);
+                anchorCell = targetIndex;
+            } else {
+                anchorCell = null;
             }
 
         });
