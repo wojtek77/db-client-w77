@@ -1,0 +1,87 @@
+{
+    "SELECT": {
+        "prefix": "select",
+        "description": "SELECT with WHERE / GROUP BY / HAVING / ORDER BY / LIMIT",
+        "body": [
+            "SELECT ${1:*}",
+            "FROM ${2:table_name}",
+            "WHERE ${3:1}",
+            "GROUP BY ${4:id}",
+            "HAVING ${5:1}",
+            "ORDER BY ${6:id}",
+            "LIMIT ${7:1}"
+        ]
+    },
+    "SELECT Simple": {
+        "prefix": "select-simple",
+        "description": "SELECT with WHERE only",
+        "body": [
+            "SELECT *",
+            "FROM ${1:table_name}",
+            "WHERE ${2:1}"
+        ]
+    },
+    "INSERT": {
+        "prefix": "insert",
+        "description": "INSERT",
+        "body": [
+            "INSERT INTO ${1:table_name} (${2:column})",
+            "VALUES (${3:value})"
+        ]
+    },
+    "UPDATE JOIN": {
+        "prefix": "update",
+        "description": "UPDATE with JOIN",
+        "body": [
+            "UPDATE LOW_PRIORITY IGNORE ${1:table_name1} ${2:t1}",
+            "INNER JOIN ${3:table_name2} ${4:t2} ON ${4}.id = ${2}.id",
+            "SET ${5:column} = ${6:value}",
+            "WHERE ${7:0}"
+        ]
+    },
+    "UPDATE Simple": {
+        "prefix": "update-simple",
+        "description": "UPDATE Simple",
+        "body": [
+            "UPDATE ${1:table_name}",
+            "SET ${2:column} = ${3:value}",
+            "WHERE ${4:0}"
+        ]
+    },
+    "DELETE JOIN": {
+        "prefix": "delete",
+        "description": "DELETE with JOIN",
+        "body": [
+            "DELETE LOW_PRIORITY QUICK IGNORE ${1:alias}",
+            "FROM ${2:table_name1} ${1}",
+            "INNER JOIN ${3:table_name2} ${4:t2} ON ${4}.${5:id} = ${1}.${6}",
+            "WHERE ${7:0}"
+        ]
+    },
+    "DELETE Simple": {
+        "prefix": "delete-simple",
+        "description": "DELETE Simple",
+        "body": [
+            "DELETE",
+            "FROM ${1:table_name}",
+            "WHERE ${2:0}"
+        ]
+    },
+    "REPLACE": {
+        "prefix": "replace",
+        "description": "REPLACE INTO",
+        "body": [
+            "REPLACE INTO ${1:table_name} (${2:column})",
+            "VALUES (${3:value})"
+        ]
+    },
+    "INSERT ON DUPLICATE KEY UPDATE": {
+        "prefix": "insert-update",
+        "description": "INSERT ... ON DUPLICATE KEY UPDATE",
+        "body": [
+            "INSERT INTO ${1:table_name} (${2:column})",
+            "VALUES (${3:value})",
+            "ON DUPLICATE KEY UPDATE ${2} = VALUES(${2})"
+        ]
+    }
+}
