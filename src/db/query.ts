@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import { ConnectionManager } from './ConnectionManager.js';
 import { Connection } from './Connection.js';
 import { SqlUtil } from '../sql/SqlUtil.js';
@@ -188,6 +189,14 @@ export async function getTableColumnsBatch(
 
         const rows =
             await db.query(sql, params);
+        
+        if (rows && rows.length > 0) {
+            console.log(`Executed SQL, completion data for: ` + JSON.stringify(params));
+        } else {
+            const err = `Executed SQL, completion data, NO ROWS SQL: ` + JSON.stringify(params);
+            console.error(err);
+            vscode.window.showErrorMessage(err);
+        }
 
         return rows.map(
             (row: any) => ({
