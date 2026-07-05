@@ -1,46 +1,60 @@
-# DB Client W77
+# MariaDB & MySQL Database Client for VS Code
 
-## Description
-It is an extension for VS Code that works like MariaDB client.
+A high-performance **Database Client** extension for VS Code designed specifically for **MariaDB** and **MySQL**. Manage your databases, run queries, and edit data seamlessly without leaving your editor.
 
-## Features
-- High performance.
-- Schema, table, and field name suggestions when writing SQL.
-- Data editing capabilities.
-- List of recently used SQL files.
-- Ability to select a color for a specific DB connection.
-- "Kill query" for break long query.
-- Code formatting and more.
+---
 
-## How to install
-1. In your home directory, create a directory called ".db_configs."
-2. Place the database settings file in it, e.g.:
+## ⚡ Key Features
 
+- **Blazing Fast Performance:** Lightweight and optimized for quick database interactions.
+- **Intelligent SQL Autocomplete:** Smart suggestions for schemas, tables, and field names as you type.
+- **Inline Data Editing:** View and update your database records directly within the editor.
+- **Recent Files History:** Quickly reopen and access your recently used SQL scripts.
+- **Connection Color Coding:** Assign distinct colors to different database connections to avoid running queries on the wrong server.
+- **Query Killer:** Instantly abort long-running or stuck queries with the "Kill Query" feature.
+- **SQL Code Formatting:** Keep your SQL scripts clean and organized automatically.
+
+---
+
+## ⚙️ How to Install & Configure
+
+The extension securely reads your database connections using standard MariaDB option files (`.cnf`).
+
+### Step 1: Create configuration directory
+In your user home directory, create a folder named `.db_configs`:
+- **Linux/macOS:** `~/.db_configs/`
+- **Windows:** `C:\Users\<YourUsername>\.db_configs\`
+
+### Step 2: Add your database settings
+Place your connection configuration files inside the `.db_configs` directory. You can create multiple files for different servers. Here are examples of how to configure them:
+
+#### Example 1: Local Socket Connection (`local.cnf`)
 ```ini
-# Example "local.cnf"
 [client]
 socket = /run/mysqld/mysqld.sock
 user = root
 password = root
-database =
+database = 
 skip-ssl = true
 reconnect = false
 compress = false
 ```
+
+#### Example 2: Reusing/Inheriting Settings (`local-xxx.cnf`)
 ```ini
-# Example "local-xxx.cnf"
 !include ~/.db_configs/local.cnf
 
 [client]
 database = xxx
 ```
+
+#### Example 3: External Remote Server (`external.cnf`)
 ```ini
-# Example "external.cnf"
 [client]
 host = <host>
 user = <user>
 password = <password>
-database = <name of database>
+database = <name_of_database>
 skip-ssl = true
 reconnect = true
 compress = true
@@ -48,18 +62,35 @@ compress = true
 [mysqld]
 tcp_keepalive_time = 60
 ```
-More information [here](https://mariadb.com/docs/server/server-management/install-and-upgrade-mariadb/configuring-mariadb/configuring-mariadb-with-option-files).
 
-## How to use
-Press **Ctrl + Enter** to run SQL.
+> 💡 Need more details on configuration? Check the official [MariaDB Option Files Documentation](https://mariadb.com/docs/server/server-management/install-and-upgrade-mariadb/configuring-mariadb/configuring-mariadb-with-option-files).
 
-![Git Blame screeshot 1](images/screenshot1.png)
+---
 
-## Other
-Linux users should install `fonts-noto-color-emoji` to see the colors when adding color to a DB connection. Sample installation on Debian:
-`sudo apt install fonts-noto-color-emoji`.
+## 🚀 How to Use
 
-The extension has been tested on Linux and Windows.
+1. Open or create any file with a `.sql` extension.
+2. Type your database query.
+3. Press **`Ctrl + Enter`** to execute the SQL query immediately.
 
-## Support me
+![Database Client Execution](images/screenshot1.png)
+
+---
+
+## 🐧 OS Specific Notes
+
+### Linux Users
+To see colors correctly when assigning a color to a specific DB connection, you should install the Noto Color Emoji font.
+* **Debian / Ubuntu:**
+  ```bash
+  sudo apt install fonts-noto-color-emoji
+  ```
+
+### Platform Support
+This extension has been fully tested and verified on both **Linux** and **Windows** environments.
+
+---
+
+## ☕ Support the Project
+
 [![ko-fi](images/ko-fi.png)](https://ko-fi.com/w77w77)
