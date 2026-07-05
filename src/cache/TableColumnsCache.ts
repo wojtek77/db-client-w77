@@ -99,6 +99,20 @@ export class TableColumnsCache {
             result[key] = tableColumns;
         }
 
+        // Tabele, dla których baza nie zwróciła żadnych kolumn (np. literówka
+        // w nazwie / tabela nie istnieje) też zapisujemy do cache jako pustą
+        // tablicę. Dzięki temu przy kolejnym zapytaniu o tę samą
+        // (connection, schema, table) trafimy w cache zamiast bez końca
+        // odpytywać bazę o coś, czego i tak tam nie ma.
+        for (const tableRef of missing) {
+            const key = this.getTableRefKey(tableRef);
+            if (key in grouped) {
+                continue;
+            }
+            this.setCachedEntry(connectionName, tableRef.schema, tableRef.table, []);
+            result[key] = [];
+        }
+
         return result;
     }
 
