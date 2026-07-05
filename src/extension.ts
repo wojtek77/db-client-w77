@@ -15,8 +15,6 @@ let stopTimeout: NodeJS.Timeout | undefined;
 
 
 export async function activate(context: vscode.ExtensionContext) {
-    console.log(new Date().toLocaleTimeString('pl-PL', { hour12: false }));
-    
     // wczytanie listy plików SQL z dysku
     RecentSqlFiles.getInstance(context).restore();
     
@@ -47,8 +45,6 @@ export async function activate(context: vscode.ExtensionContext) {
         // otwarto pierwszy SQL editor
         if (previousSqlEditors === 0 && currentSqlEditors > 0) {
 
-            console.log('First SQL editor opened');
-
             if (!isExtensionRunning()) {
                 await startExtension(context);
             }
@@ -65,8 +61,6 @@ export async function activate(context: vscode.ExtensionContext) {
                         ).length === 0;
 
                     if (stillNoEditors) {
-
-                        console.log('All SQL editors closed');
 
                         if (isExtensionRunning()) {
                             stopExtension(true);

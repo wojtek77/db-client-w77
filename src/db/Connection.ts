@@ -84,7 +84,7 @@ export class Connection {
                 this.database = config.database ?? '';
                 this.schemaTables = await this.readTableNames(this.conn);
             } catch (err) {
-                console.error('Failed to fetch tables:', err);
+                console.error('Failed to fetch tables after start connection:', err);
             }
             
             return this.connectionTime;

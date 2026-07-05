@@ -41,7 +41,6 @@ export class RecentSqlFiles {
                 const rawData = fs.readFileSync(filePath, 'utf-8');
                 const saved = JSON.parse(rawData) as [string, string][];
                 this.sqlFiles = new Map(saved);
-                console.log('RecentSqlFiles: State restored from disk');
             } else {
                 this.sqlFiles = new Map();
             }
@@ -55,7 +54,6 @@ export class RecentSqlFiles {
      * Gwarantowany, synchroniczny zapis danych na dysku podczas zamykania
      */
     public persist(): void {
-        console.log('RecentSqlFiles: Started synchronous dispose');
         try {
             const storagePath = this.context.globalStorageUri.fsPath;
             
@@ -69,7 +67,6 @@ export class RecentSqlFiles {
 
             // Blokujący zapis synchroniczny - VS Code nie ubije procesu przed zakończeniem zapisu
             fs.writeFileSync(filePath, dataToSave, 'utf-8');
-            console.log('RecentSqlFiles: Successfully saved to disk');
         } catch (err) {
             console.error('RecentSqlFiles: Critical write error in dispose:', err);
         }

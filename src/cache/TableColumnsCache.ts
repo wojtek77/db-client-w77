@@ -107,7 +107,6 @@ export class TableColumnsCache {
      */
     public clearTableColumnsCache(): void {
         this.tableColumnsCache = {};
-        console.log('clearTableColumnsCache');
     }
 
     /**

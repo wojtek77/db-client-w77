@@ -70,7 +70,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _queryRunning = false;
 
     private constructor(context: vscode.ExtensionContext) {
-        console.log('construct');
         this._extensionUri = context.extensionUri;
         this._context = context;
     }
@@ -80,7 +79,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ) {
-        console.log('start resolveWebviewView');
         this._view = webviewView;
 
         webviewView.webview.options = {
@@ -172,7 +170,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 this._extensionUri
             );
             this._view.webview.html = html;
-            console.log('HTML is being set again');
         }
     }
 
@@ -183,7 +180,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const end = start + this.ROWS_PER_PAGE;
         const pageRows = this._allRows.slice(start, end);
         const totalPages = Math.ceil(this._allRows.length / this.ROWS_PER_PAGE);
-        console.log('sendPage', start, end);
         
         // 1. Konwertujemy wiersze na string JSON
         const rowsJsonString = JSON.stringify(pageRows);
@@ -191,7 +187,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const encoder = new TextEncoder();
         const rowsBuffer = encoder.encode(rowsJsonString); // Zwraca Uint8Array
         
-        console.time("⏱️ Total Backend time");
         setImmediate(() => {
             // 3. Wysyłamy
             this._view?.webview.postMessage({
@@ -215,24 +210,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 sentAt: Date.now() // znacznik czasu w ms
             });
         });
-        console.timeEnd("⏱️ Total Backend time");
-
-
-        // console.time("⏱️ Total Backend time");
-        // this._view.webview.postMessage({
-        //     command: 'appendData',
-        //     rows: pageRows,
-        //     headers: this._headers,
-        //     totalRows: this._allRows.length,
-        //     isLast: (pageNumber === totalPages),
-        //     currentPage: pageNumber,
-        //     totalPages: totalPages,
-        //     connectionName: this._connectionName,
-        //     connectionTime: this._connectionTime,
-        //     queryTime: this._lastQueryTime,
-        //     sentAt: Date.now()
-        // });
-        // console.timeEnd("⏱️ Total Backend time");
     }
 
     /**
@@ -312,10 +289,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 return;
             }
             
-            // console.log();
-            // console.log(Object.getPrototypeOf(field));
-            // console.table(field);
-
             const schema = field.schema?.();
             if (!schema) {
                 vscode.window.showErrorMessage(`Unable to determine schema for table ${tableName}`);
@@ -399,7 +372,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
 
     public async executeQuery(sql: string, sqlFile: string, wholeFile = false) {
-        console.log('executeQuery');
         this._currentSqlFile = sqlFile;
         
         // czasami widok może nie istnieć, np. przy pierwszym uruchomieniu SQL lub kiedy plik .sql został zamknięty
