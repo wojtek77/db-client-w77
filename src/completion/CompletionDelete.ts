@@ -172,7 +172,10 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
         // 2. Obsługa klauzuli DELETE / FROM (Podpowiedzi TABEL i SCHEMATÓW przed klauzulą WHERE)
         
         // Przypadek A: Kursor po kropce struktury bazy, np. `DELETE FROM zak_system.|`
-        if (linePrefix.includes('.') && !linePrefix.match(REGEX_ALIAS_DOT)) {
+        // Uwaga: REGEX_ALIAS_DOT celowo NIE jest tu używane — w tej sekcji (przed WHERE)
+        // kropka zawsze oznacza `schema.tabela`, nigdy alias kolumny, więc nie trzeba
+        // (i nie da się poprawnie) odróżniać jej od aliasu jak w sekcji WHERE/JOIN ON.
+        if (linePrefix.includes('.')) {
             const schemaTableMatch = linePrefix.match(REGEX_DELETE_SCHEMA_TABLE);
             if (schemaTableMatch) {
                 const schema = schemaTableMatch[1];
