@@ -33,12 +33,6 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
-    "snippets": [
-      {
-        "language": "sql",
-        "path": "./snippets/sql.json"
-      }
-    ],
     "grammars": [
       {
         "scopeName": "comment.injection.sql.hash",

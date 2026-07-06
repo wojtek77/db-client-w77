@@ -7,6 +7,7 @@ import { CompletionSelect } from './CompletionSelect.js';
 import { CompletionInsert } from './CompletionInsert.js';
 import { CompletionUpdate } from './CompletionUpdate.js';
 import { CompletionInterface } from './CompletionInterface.js'; // Import interfejsu
+import { getTopLevelSqlSnippets } from './sqlSnippets.js';
 
 const REGEX_REMOVE_COMMENT_AT_START = /^(?:(?:--|#).*(?:\r?\n|$)+|\/\*[\s\S]*?\*\/)+/;
 
@@ -64,18 +65,20 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         position: vscode.Position
     ): Promise<vscode.CompletionItem[]> {
         
+        const linePrefix = document.lineAt(position).text.substring(0, position.character);
+        const currentQuery = findCurrentQuery(document.getText(), position.line);
+
+        if (!currentQuery) {
+            // Pusta linia = start nowego zapytania -> pokaż snippety SELECT/INSERT/...
+            // (nie wymaga połączenia z bazą, więc sprawdzamy to przed getDb())
+            return getTopLevelSqlSnippets();
+        }
+
         let db: Connection;
         try {
             db = await ConnectionManager.getInstance().getDb();
         } catch (err) {
             console.error('[TableCompletionProvider] Database connection error:', err);
-            return [];
-        }
-
-        const linePrefix = document.lineAt(position).text.substring(0, position.character);
-        const currentQuery = findCurrentQuery(document.getText(), position.line);
-
-        if (!currentQuery) {
             return [];
         }
 
