@@ -6,6 +6,7 @@ import { Connection } from '../db/Connection.js';
 import { CompletionSelect } from './CompletionSelect.js';
 import { CompletionInsert } from './CompletionInsert.js';
 import { CompletionUpdate } from './CompletionUpdate.js';
+import { CompletionDelete } from './CompletionDelete.js';
 import { CompletionInterface } from './CompletionInterface.js'; // Import interfejsu
 import { getTopLevelSqlSnippets } from './sqlSnippets.js';
 
@@ -16,12 +17,14 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
     private completionSelect: CompletionInterface;
     private completionInsert: CompletionInterface;
     private completionUpdate: CompletionInterface;
+    private completionDelete: CompletionInterface;
     
     public constructor() {
         const tableColumnsCache = TableColumnsCache.getInstance();
         this.completionSelect = new CompletionSelect(tableColumnsCache);
         this.completionInsert = new CompletionInsert(tableColumnsCache);
         this.completionUpdate = new CompletionUpdate(tableColumnsCache);
+        this.completionDelete = new CompletionDelete(tableColumnsCache);
     }
 
     public async provideCompletionItems(
@@ -101,6 +104,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
             case 'select': return this.completionSelect.complete(linePrefix, fullText, db, sqlBeforeCursor);
             case 'insert': return this.completionInsert.complete(linePrefix, fullText, db, sqlBeforeCursor);
             case 'update': return this.completionUpdate.complete(linePrefix, fullText, db, sqlBeforeCursor);
+            case 'delete': return this.completionDelete.complete(linePrefix, fullText, db, sqlBeforeCursor);
             default: return [];
         }
     }
