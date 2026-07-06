@@ -473,9 +473,9 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(labels.includes('email'), 'missing email after users. in ORDER BY');
     });
 
-    // ── Puste wyniki ──────────────────────────────────────────────────────────
+    // ── Pusta linia → snippety top-level ─────────────────────────────────────
 
-    test('returns [] when cursor is on an empty line', async () => {
+    test('returns top-level SQL snippets when cursor is on an empty line', async () => {
         const sql = 'SELECT * FROM users;\n\nSELECT 1;';
         // offset pola pustej linii (\n po pierwszym \n)
         const cursorOffset = 'SELECT * FROM users;\n'.length;
@@ -483,7 +483,13 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
             getDefaultDatabaseTables: () => ['users'],
             getSchemas:               () => [],
         });
-        assert.strictEqual(items.length, 0, 'expected 0 suggestions on an empty line');
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('SELECT'), 'expected SELECT snippet on an empty line');
+        assert.ok(labels.includes('INSERT'), 'expected INSERT snippet on an empty line');
+        assert.ok(
+            items.every(item => item.kind === vscode.CompletionItemKind.Snippet),
+            'expected only snippet-kind items on an empty line',
+        );
     });
 });
 
