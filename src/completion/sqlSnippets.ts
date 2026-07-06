@@ -46,6 +46,25 @@ const TOP_LEVEL_SNIPPETS: SqlSnippet[] = [
         )
     },
     {
+        label: 'INSERT ON DUPLICATE KEY UPDATE',
+        prefix: 'insert-update',
+        description: 'INSERT ... ON DUPLICATE KEY UPDATE',
+        snippet: new vscode.SnippetString(
+            'INSERT INTO ${1:table_name} (${2:column})\n' +
+            'VALUES (${3:value})\n' +
+            'ON DUPLICATE KEY UPDATE ${2} = VALUES(${2})'
+        )
+    },
+    {
+        label: 'REPLACE',
+        prefix: 'replace',
+        description: 'REPLACE INTO',
+        snippet: new vscode.SnippetString(
+            'REPLACE INTO ${1:table_name} (${2:column})\n' +
+            'VALUES (${3:value})'
+        )
+    },
+    {
         label: 'UPDATE JOIN',
         prefix: 'update',
         description: 'UPDATE with JOIN',
@@ -86,25 +105,6 @@ const TOP_LEVEL_SNIPPETS: SqlSnippet[] = [
             'FROM ${1:table_name}\n' +
             'WHERE ${2:0}'
         )
-    },
-    {
-        label: 'REPLACE',
-        prefix: 'replace',
-        description: 'REPLACE INTO',
-        snippet: new vscode.SnippetString(
-            'REPLACE INTO ${1:table_name} (${2:column})\n' +
-            'VALUES (${3:value})'
-        )
-    },
-    {
-        label: 'INSERT ON DUPLICATE KEY UPDATE',
-        prefix: 'insert-update',
-        description: 'INSERT ... ON DUPLICATE KEY UPDATE',
-        snippet: new vscode.SnippetString(
-            'INSERT INTO ${1:table_name} (${2:column})\n' +
-            'VALUES (${3:value})\n' +
-            'ON DUPLICATE KEY UPDATE ${2} = VALUES(${2})'
-        )
     }
 ];
 
@@ -113,12 +113,12 @@ const TOP_LEVEL_SNIPPETS: SqlSnippet[] = [
  * Wywoływać tylko wtedy, gdy currentQuery === null (pusta linia).
  */
 export function getTopLevelSqlSnippets(): vscode.CompletionItem[] {
-    return TOP_LEVEL_SNIPPETS.map(s => {
+    return TOP_LEVEL_SNIPPETS.map((s, index) => {
         const item = new vscode.CompletionItem(s.label, vscode.CompletionItemKind.Snippet);
         item.insertText = s.snippet;
         item.detail = s.description;
         item.filterText = s.prefix;
-        item.sortText = `0_${s.prefix}`;
+        item.sortText = '0_' + index.toString().padStart(3, '0');
         return item;
     });
 }
