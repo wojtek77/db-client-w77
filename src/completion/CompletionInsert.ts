@@ -13,8 +13,13 @@ const REGEX_ALL_COLUMNS_TRIGGER = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(
 // Wykrywa, czy kursor znajduje się wewnątrz bloku nawiasów definicji kolumn, np. "insert into agency (id, na|"
 const REGEX_INSIDE_PARENTHESIS = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s*\(([^)]*)$/i;
 
-// Bezpieczny wzorzec do przeszukania całego zapytania przed kursorem w celu znalezienia tabeli i nawiasu kolumn
+// Bezpieczny wzorzec do przeszukania całego zapytania przed kursem w celu znalezienia tabeli i nawiasu kolumn
 const REGEX_EXTRACT_TABLE_AND_COLUMNS = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s*\(([^)]+)\)\s*$/i;
+
+// NOWE: Wykrywanie kontekstu ON DUPLICATE KEY UPDATE i wyciąganie z niego końcówki
+const REGEX_ON_DUPLICATE_CONTEXT = /\bon\s+duplicate\s+key\s+update\s+([\s\S]*)$/i;
+const REGEX_GLOBAL_TABLE_EXTRACT = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\b/i;
+const REGEX_INSIDE_VALUES_FUNCTION = /\bvalues\s*\(\s*(\w*)$/i;
 
 export class CompletionInsert extends CompletionAbstract implements CompletionInterface {
 
@@ -32,6 +37,59 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
         }
 
         const defaultSchema = db.getDatabase();
+
+        // =========================================================================
+        // NOWE: Obsługa sekcji ON DUPLICATE KEY UPDATE
+        // =========================================================================
+        const duplicateMatch = sqlBeforeCursor.match(REGEX_ON_DUPLICATE_CONTEXT);
+        if (duplicateMatch) {
+            // Przeszukujemy cały tekst przed kursem, aby znaleźć tabelę docelową INSERT
+            const tableMatch = sqlBeforeCursor.match(REGEX_GLOBAL_TABLE_EXTRACT);
+            if (tableMatch) {
+                const matchedSchema = tableMatch[1];
+                const tableName = tableMatch[2];
+                const schema = matchedSchema || defaultSchema || '';
+
+                if (schema && tableName) {
+                    const tableRef = { schema, table: tableName };
+                    const columnsMap = await this.tableColumnsService.getCachedColumnsBatch([tableRef]);
+                    const cacheKey = this.tableColumnsService.getTableRefKey(tableRef);
+                    const columns = columnsMap[cacheKey] || [];
+
+                    if (columns.length > 0) {
+                        // Sprawdzamy czy kursor znajduje się wewnątrz funkcji VALUES(...) np. "VALUES(|"
+                        const valuesFuncMatch = linePrefix.match(REGEX_INSIDE_VALUES_FUNCTION);
+                        
+                        if (valuesFuncMatch) {
+                            // Sytuacja: ON DUPLICATE KEY UPDATE id = VALUES(|)
+                            const filter = valuesFuncMatch[1].toLowerCase();
+                            return columns
+                                .filter(col => !String(col.extra || '').toLowerCase().includes('generated'))
+                                .filter(col => !filter || col.name.toLowerCase().includes(filter))
+                                .map(column => this.createColumnItem(tableName, column));
+                        } else {
+                            // Sytuacja: ON DUPLICATE KEY UPDATE |
+                            const lastWordMatch = linePrefix.match(/(\w+)$/);
+                            const filter = lastWordMatch ? lastWordMatch[1].toLowerCase() : '';
+
+                            return columns
+                                .filter(col => !String(col.extra || '').toLowerCase().includes('generated'))
+                                .filter(col => !filter || col.name.toLowerCase().includes(filter))
+                                .map(column => {
+                                    const item = this.createColumnItem(tableName, column);
+                                    // Sugerujemy od razu pełną konstrukcję jako snippet: column = VALUES(column)
+                                    // ale pozostawiamy prosty insertText, jeśli użytkownik wpisał już znak równości (obsłużone filtrem)
+                                    if (!linePrefix.trim().endsWith('=')) {
+                                        item.insertText = new vscode.SnippetString(`${column.name} = VALUES(\${1:${column.name}})`);
+                                        item.detail = `Update column with VALUES()`;
+                                    }
+                                    return item;
+                                });
+                        }
+                    }
+                }
+            }
+        }
 
         // =========================================================================
         // 1. Podpowiadanie słowa kluczowego VALUES (również w nowej linii, np. "v|")
@@ -82,7 +140,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                             .map(field => field.trim().toLowerCase());
 
                         const valueTokens: string[] = [];
-                        let tabIndex = 1; // Licznik punktów zatrzymania tabulatora ($1, $2...)
+                        let tabIndex = 1;
 
                         for (const fieldName of targetFields) {
                             const dbCol = dbColumns.find(c => c.name.toLowerCase() === fieldName);
@@ -94,13 +152,11 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
 
                             const colExtra = String(dbCol.extra || '').toLowerCase();
 
-                            // OCHRONA: Kolumna wirtualna
                             if (colExtra.includes('generated')) {
                                 valueTokens.push(`\${${tabIndex++}:DEFAULT}`);
                                 continue;
                             }
 
-                            // POPRAWKA: Kolumna z auto_increment
                             if (colExtra.includes('auto_increment')) {
                                 valueTokens.push(`\${${tabIndex++}:NULL}`);
                                 continue;
@@ -108,14 +164,10 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
 
                             const dataType = (dbCol.type || '').toLowerCase();
 
-                            // -----------------------------------------------------------------
-                            // Strategia sprawdzania wartości domyślnej (defaultValue) z bazy
-                            // -----------------------------------------------------------------
                             if (dbCol.defaultValue !== null && dbCol.defaultValue !== undefined && String(dbCol.defaultValue).toLowerCase() !== 'null') {
                                 const rawDefault = String(dbCol.defaultValue);
                                 const rawDefaultLower = rawDefault.toLowerCase();
 
-                                // Funkcje wbudowane (np. current_timestamp()) - bez apostrofów
                                 const isSqlFunction = [
                                     'current_timestamp', 'now()', 'uuid()', 'current_date', 'current_time'
                                 ].some(f => rawDefaultLower.includes(f));
@@ -127,18 +179,15 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
 
                                 const cleanDefault = rawDefault.replace(/^['"]|['"]$/g, '');
 
-                                // Typy liczbowe
                                 const numericTypes = ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal', 'numeric', 'bit'];
                                 if (numericTypes.some(t => dataType.includes(t))) {
                                     valueTokens.push(`\${${tabIndex++}:${cleanDefault}}`);
                                 } else {
-                                    // Typy tekstowe / pozostałe z wartością domyślną
                                     valueTokens.push(`'\${${tabIndex++}:${cleanDefault}}'`);
                                 }
                                 continue;
                             }
 
-                            // A. Sprawdzanie, czy pole akceptuje NULL
                             const colNullableRaw = String(dbCol.isNullable).toLowerCase();
                             const isNullable = colNullableRaw === 'yes' || colNullableRaw === '1' || colNullableRaw === 'true';
                             
@@ -147,8 +196,6 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                                 continue;
                             }
 
-                            // B. Jeśli NOT NULL i brak wartości domyślnej -> sprawdzamy typy
-                            // Obsługa typu ENUM
                             if (dataType.startsWith('enum')) {
                                 const fullEnumDefinition = ((dbCol as any).columnType || dbCol.type || '');
                                 const enumMatch = fullEnumDefinition.match(/['"]([^'"]+)['"]/);
@@ -161,7 +208,6 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                                 continue;
                             }
 
-                            // Typy daty i czasu
                             if (dataType.startsWith('date') && !dataType.startsWith('datetime')) {
                                 valueTokens.push(`'\${${tabIndex++}:0000-00-00}'`);
                                 continue;
@@ -171,28 +217,21 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                                 continue;
                             }
 
-                            // Typy liczbowkowe
                             const numericTypes = ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal', 'numeric', 'bit'];
                             if (numericTypes.some(t => dataType.includes(t))) {
                                 valueTokens.push(`\${${tabIndex++}:0}`);
                                 continue;
                             }
 
-                            // Dynamiczne placeholdery tekstowe na bazie nazw kolumn wewnątrz Snippetu
                             valueTokens.push(`'\${${tabIndex++}:[${dbCol.name}]}'`);
                         }
 
                         if (valueTokens.length > 0) {
                             const snippetString = `(${valueTokens.join(', ')})`;
-
                             const completionItem = new vscode.CompletionItem(snippetString, vscode.CompletionItemKind.Snippet);
-                            
-                            // KLUCZOWE: Przypisujemy instancję SnippetString zamiast zwykłego ciągu tekstowego
                             completionItem.insertText = new vscode.SnippetString(snippetString);
-                            
                             completionItem.detail = `Default values row (Snippet)`;
                             
-                            // Do dokumentacji generujemy czytelny podgląd bez składni formatowania snippetów VS Code
                             const previewString = snippetString.replace(/\$\{\d+:?([^}]*)\}/g, '$1');
                             completionItem.documentation = new vscode.MarkdownString(`Insert matching default values row with Tab Stops:\n\`\`\`sql\n${previewString}\n\`\`\``);
                             completionItem.sortText = '00000_' + previewString;
@@ -217,7 +256,6 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
 
             if (schema && tableName) {
                 const tableRef = { schema, table: tableName };
-                
                 const columnsMap = await this.tableColumnsService.getCachedColumnsBatch([tableRef]);
                 const cacheKey = this.tableColumnsService.getTableRefKey(tableRef);
                 const columns = columnsMap[cacheKey] || [];
@@ -247,7 +285,6 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
 
             if (schema && tableName) {
                 const tableRef = { schema, table: tableName };
-                
                 const columnsMap = await this.tableColumnsService.getCachedColumnsBatch([tableRef]);
                 const cacheKey = this.tableColumnsService.getTableRefKey(tableRef);
                 const columns = columnsMap[cacheKey] || [];
@@ -259,11 +296,9 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                         .join(', ');
                         
                     const snippetString = `(${columnNames})`;
-
                     const completionItem = new vscode.CompletionItem(snippetString, vscode.CompletionItemKind.Snippet);
                     completionItem.detail = `All columns of table ${tableName}`;
                     completionItem.documentation = new vscode.MarkdownString(`Insert column list:\n\`\`\`sql\n${snippetString}\n\`\`\``);
-                    
                     completionItem.sortText = '00000_' + snippetString;
 
                     return [completionItem];
