@@ -9,6 +9,7 @@ import { CompletionUpdate } from './CompletionUpdate.js';
 import { CompletionDelete } from './CompletionDelete.js';
 import { CompletionInterface } from './CompletionInterface.js'; // Import interfejsu
 import { getTopLevelSqlSnippets } from './sqlSnippets.js';
+import { CompletionReplace } from './CompletionReplace.js';
 
 const REGEX_REMOVE_COMMENT_AT_START = /^(?:(?:--|#).*(?:\r?\n|$)+|\/\*[\s\S]*?\*\/)+/;
 
@@ -18,6 +19,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
     private completionInsert: CompletionInterface;
     private completionUpdate: CompletionInterface;
     private completionDelete: CompletionInterface;
+    private completionReplace: CompletionInterface;
     
     public constructor() {
         const tableColumnsCache = TableColumnsCache.getInstance();
@@ -25,6 +27,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         this.completionInsert = new CompletionInsert(tableColumnsCache);
         this.completionUpdate = new CompletionUpdate(tableColumnsCache);
         this.completionDelete = new CompletionDelete(tableColumnsCache);
+        this.completionReplace = new CompletionReplace(tableColumnsCache);
     }
 
     public async provideCompletionItems(
@@ -100,11 +103,13 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         const queryOffset = document.offsetAt(position) - queryStartOffset;
         const sqlBeforeCursor = fullText.substring(0, queryOffset);
         
-        switch (fullText.slice(0, 6).toLowerCase()) {
+        const firstWord = fullText.match(/^\w+/)?.[0]?.toLowerCase() || '';
+        switch (firstWord) {
             case 'select': return this.completionSelect.complete(linePrefix, fullText, db, sqlBeforeCursor);
             case 'insert': return this.completionInsert.complete(linePrefix, fullText, db, sqlBeforeCursor);
             case 'update': return this.completionUpdate.complete(linePrefix, fullText, db, sqlBeforeCursor);
             case 'delete': return this.completionDelete.complete(linePrefix, fullText, db, sqlBeforeCursor);
+            case 'replace': return this.completionReplace.complete(linePrefix, fullText, db, sqlBeforeCursor);
             default: return [];
         }
     }
