@@ -92,7 +92,7 @@ const TOP_LEVEL_SNIPPETS: SqlSnippet[] = [
         snippet: new vscode.SnippetString(
             'DELETE LOW_PRIORITY QUICK IGNORE ${1:alias}\n' +
             'FROM ${2:table_name1} ${1}\n' +
-            'INNER JOIN ${3:table_name2} ${4:t2} ON ${4}.${5:id} = ${1}.${6}\n' +
+            'INNER JOIN ${3:table_name2} ${4:t2} ON ${4}.${5:column} = ${1}.${6:column}\n' +
             'WHERE ${7:0}'
         )
     },
