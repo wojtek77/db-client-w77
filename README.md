@@ -1,18 +1,22 @@
 # MariaDB & MySQL Database Client for VS Code
 
-A high-performance **Database Client** extension for VS Code designed specifically for **MariaDB** and **MySQL**. Manage your databases, run queries, and edit data seamlessly without leaving your editor.
+Fast **MariaDB & MySQL database client** for **Visual Studio Code** with intelligent SQL autocomplete, schema browsing, query execution, inline data editing and SQL formatting.
 
 ---
 
-## ⚡ Key Features
+## Features
 
-- **Blazing Fast Performance:** Lightweight and optimized for quick database interactions.
-- **Intelligent SQL Autocomplete:** Smart suggestions for schemas, tables, and field names as you type.
-- **Inline Data Editing:** View and update your database records directly within the editor.
-- **Recent Files History:** Quickly reopen and access your recently used SQL scripts.
-- **Connection Color Coding:** Assign distinct colors to different database connections to avoid running queries on the wrong server.
-- **Query Killer:** Instantly abort long-running or stuck queries with the "Kill Query" feature.
-- **SQL Code Formatting:** Keep your SQL scripts clean and organized automatically.
+- ⚡ Fast and lightweight DB client
+- 🧠 SQL IntelliSense, autocomplete and snippets (`Ctrl+Space`)
+- 📂 Schema, table and column suggestions (`Ctrl+Space`)
+- 🔧 MariaDB & MySQL function suggestions (`Ctrl+Space`)
+- ▶️ Execute current query (`Ctrl+Enter`)
+- ▶️ Execute entire SQL file (`Alt+X`)
+- ✏️ Inline table data editing
+- 🎨 SQL formatter (`Ctrl+Shift+F`)
+- 📋 Recent SQL files (`F3`)
+- 🎨 Connection color indicators
+- 🛑 Kill long-running queries
 
 ---
 
@@ -26,7 +30,7 @@ In your user home directory, create a folder named `.db_configs`:
 - **Windows:** `C:\Users\<YourUsername>\.db_configs\`
 
 ### Step 2: Add your database settings
-Place your connection configuration files inside the `.db_configs` directory. You can create multiple files for different servers. Here are examples of how to configure them:
+Place one or more connection configuration files in the `.db_configs` directory. You can create multiple files for different servers. Here are examples of how to configure them:
 
 #### Example 1: Local Socket Connection (`local.cnf`)
 ```ini
@@ -69,25 +73,39 @@ tcp_keepalive_time = 60
 
 ## 🚀 How to Use
 
+#### Run SQL
+
 1. Open or create any file with a `.sql` extension.
 2. Type your database query.
-3. Press **`Ctrl + Enter`** to execute the SQL query immediately.
+3. Press **`Ctrl + Enter`** to execute the current SQL query.
+
+#### Snippets
+
+1. Place the cursor at the beginning of a new line.
+2. Press `Ctrl + Space`.
+3. Select the SQL snippet you want to insert.
+
+![Database Client Execution](images/screenshot2.png)
+
+#### Change DB connection and DB color
 
 ![Database Client Execution](images/screenshot1.png)
 
 ---
 
-## 🐧 OS Specific Notes
+## 🐧 OS Support
 
-### Linux Users
-To see colors correctly when assigning a color to a specific DB connection, you should install the Noto Color Emoji font.
+#### Supported Platforms
+✅ Linux
+
+✅ Windows
+
+#### Linux Notes
+To see colors correctly when assigning a color to a database connection, install the Noto Color Emoji font.
 * **Debian / Ubuntu:**
   ```bash
   sudo apt install fonts-noto-color-emoji
   ```
-
-### Platform Support
-This extension has been fully tested and verified on both **Linux** and **Windows** environments.
 
 ---
 

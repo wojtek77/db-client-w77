@@ -1,7 +1,7 @@
 {
   "name": "db-client-w77",
   "displayName": "MariaDB & MySQL Database Client",
-  "description": "High-performance MariaDB and MySQL client for VS Code. Enjoy schema suggestions, SQL autocomplete, data editing, and quick query formatting.",
+  "description": "Fast MariaDB & MySQL client for VS Code with SQL autocomplete, IntelliSense, schema explorer, query execution, data editing and SQL formatting.",
   "publisher": "W77",
   "version": "0.1.19",
   "icon": "DB-client.png",
@@ -15,18 +15,29 @@
     "url": "https://github.com/wojtek77/db-client-w77/issues"
   },
   "categories": [
-    "Other",
-    "Data Science"
+    "Programming Languages",
+    "Other"
   ],
   "keywords": [
-    "database-client",
     "mariadb",
     "mysql",
-    "sql-client",
-    "query-runner",
     "sql",
     "database",
-    "db"
+    "database-client",
+    "sql-client",
+    "sql-editor",
+    "query",
+    "query-runner",
+    "autocomplete",
+    "intellisense",
+    "schema",
+    "table",
+    "columns",
+    "database-tool",
+    "mysql-client",
+    "mariadb-client",
+    "data-editor",
+    "sql-formatter"
   ],
   "activationEvents": [
     "onLanguage:sql"
