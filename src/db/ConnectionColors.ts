@@ -13,7 +13,7 @@ export const COLOR_OPTIONS: ColorOption[] = [
     { label: '🟢 Green',      color: '#98c379' },
     { label: '🔵 Blue',       color: '#61afef' },
     { label: '🟣 Purple',     color: '#c678dd' },
-    { label: '🩷 Pink',       color: '#ff79c6' },
+    { label: '🌸 Pink',       color: '#ff79c6' },
     { label: '⬛ Gray',       color: '#abb2bf' },
 ];
 
