@@ -8,7 +8,13 @@ import { CompletionInterface } from './CompletionInterface.js';
 
 const REGEX_SCHEMA_TABLE = /\b(?:from|join)\s+(\w+)\.(\w*)$/i;
 const REGEX_FROM_OBJECT = /\b(?:from|join)\s+(\w*)$/i;
-const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)\.$/;
+// Uwaga: grupa 2 (\w*) obsługuje przypadek, gdy po `alias.` jest już częściowo
+// wpisana nazwa kolumny, np. `l.date_ent|`. Bez tego regex dopasowywał się tylko
+// gdy kursor stał bezpośrednio po kropce (`l.|`), a przy dalszym pisaniu tracił
+// kontekst aliasu i wpadał w ogólną gałąź zwracającą kolumny ze WSZYSTKICH tabel
+// zapytania (patrz addColumnsFromQueryTables) — stąd np. `l.date_entered` mogło
+// pokazywać podpowiedzi tej kolumny również z innych tabel w zapytaniu.
+const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)\.(\w*)$/;
 
 export class CompletionSelect extends CompletionAbstract implements CompletionInterface {
     
@@ -150,10 +156,12 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             return result;
         }
 
-        /* Alias lub pełna nazwa tabeli (np. s. lub public.contacts.) */
+        /* Alias lub pełna nazwa tabeli (np. s. lub public.contacts.), opcjonalnie
+           z już częściowo wpisaną nazwą kolumny (np. s.na lub public.contacts.na) */
         const aliasMatch = linePrefix.match(REGEX_ALIAS_DOT);
         if (aliasMatch) {
             const alias = aliasMatch[1];
+            const columnFilter = aliasMatch[2].toLowerCase();
             const parts = alias.split('.');
 
             if (parts.length === 2) {
@@ -167,7 +175,9 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 const columnsMap = await this.tableColumnsService.getCachedColumnsBatch([{ schema, table }]);
                 const columns = columnsMap[this.tableColumnsService.getTableRefKey({ schema, table })] ?? [];
 
-                return columns.map((column: TableColumn) => this.createColumnItem(table, column));
+                return columns
+                    .filter((column: TableColumn) => !columnFilter || column.name.toLowerCase().includes(columnFilter))
+                    .map((column: TableColumn) => this.createColumnItem(table, column));
             }
 
             let tableRef: TableRef | null = null;
@@ -204,7 +214,9 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             );
             const columns = columnsMap[this.tableColumnsService.getTableRefKey(tableRef)] ?? [];
 
-            return columns.map((column: TableColumn) => this.createColumnItem(tableRef!.table, column));
+            return columns
+                .filter((column: TableColumn) => !columnFilter || column.name.toLowerCase().includes(columnFilter))
+                .map((column: TableColumn) => this.createColumnItem(tableRef!.table, column));
         }
 
         /* SELECT, WHERE, GROUP BY, ORDER BY <Ctrl+Space> */
