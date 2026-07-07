@@ -163,7 +163,10 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
         // 2. Obsługa samej klauzuli UPDATE (Podpowiedzi TABEL i SCHEMATÓW przed klauzulą SET)
         
         // Przypadek A: Kursor po kropce struktury bazy, np. `UPDATE zak_system.|`
-        if (linePrefix.includes('.') && !linePrefix.match(REGEX_ALIAS_DOT)) {
+        // Uwaga: REGEX_ALIAS_DOT celowo NIE jest tu używane — w tej sekcji (przed SET)
+        // kropka zawsze oznacza `schema.tabela`, nigdy alias kolumny, więc nie trzeba
+        // (i nie da się poprawnie) odróżniać jej od aliasu jak w sekcji SET/WHERE/JOIN ON.
+        if (linePrefix.includes('.')) {
             const schemaTableMatch = linePrefix.match(REGEX_UPDATE_SCHEMA_TABLE);
             if (schemaTableMatch) {
                 const schema = schemaTableMatch[1];
