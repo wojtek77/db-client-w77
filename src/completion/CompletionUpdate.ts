@@ -45,7 +45,16 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
             
             // --- BUDOWANIE PEŁNEJ LISTY TABEL W ZAPYTANIU ---
             // A. Pobieramy tabele z klauzul JOIN za pomocą standardowego parsera
-            const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db);
+            //    (allTableRefs jest ZAWĘŻONE do zasięgu widoczności kursora — to ono
+            //    decyduje, co pokazujemy jako podpowiedzi)
+            const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db, sqlBeforeCursor.length);
+
+            // Prefetch/cache-warming — batch obejmujący WSZYSTKIE tabele w tekście,
+            // niezależnie od zasięgu kursora. Dzięki temu przesunięcie kursora do innego
+            // zakresu (np. do wnętrza podzapytania) nie wymaga kolejnego zapytania do bazy —
+            // kolumny są już w cache z wcześniejszego batcha. Ta lista NIE jest używana do
+            // budowania listy podpowiedzi, tylko do rozgrzania cache.
+            const allTableRefsForPrefetch = findQueryTables(fullText, defaultSchema ?? '', db);
             
             // B. Multi-table UPDATE (Obsługa tabel po przecinku oraz tabeli głównej)
             const updateSetRegex = /\bupdate\s+([\s\S]*?)\s+set/i;
@@ -87,6 +96,8 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
                         }
 
                         // Dodajemy tabelę do listy referencji, jeśli jeszcze nie została tam dodana
+                        // (do OBU list — findQueryTables szuka tylko FROM/JOIN, więc tabele z samej
+                        // klauzuli UPDATE t1, t2 SET nigdy tam nie trafią same z siebie)
                         const exists = allTableRefs.some(
                             ref => ref.schema.toLowerCase() === schema.toLowerCase() && 
                                    ref.table.toLowerCase() === table.toLowerCase()
@@ -94,6 +105,7 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
                         
                         if (!exists) {
                             allTableRefs.push({ schema, table });
+                            allTableRefsForPrefetch.push({ schema, table });
                         }
                     }
                 }
@@ -122,9 +134,9 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
                     };
                 }
 
-                // Pobieramy kolumny batchem dla zidentyfikowanej tabeli
+                // Pobieramy kolumny batchem (rozgrzewając cache dla CAŁEGO zapytania)
                 const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(
-                    allTableRefs.length > 0 ? allTableRefs : [matchedTableRef]
+                    allTableRefsForPrefetch.length > 0 ? allTableRefsForPrefetch : [matchedTableRef]
                 );
                 const cacheKey = this.tableColumnsService.getTableRefKey(matchedTableRef);
                 const columns = columnsMap[cacheKey] ?? [];
@@ -141,9 +153,10 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
             const lastWord = words[words.length - 1].toLowerCase();
             const filter = ['set', 'where', 'on', 'and', 'or'].includes(lastWord) ? '' : lastWord;
 
-            // Pobieramy kolumny ze wszystkich zidentyfikowanych tabel
+            // Pobieramy kolumny (rozgrzewając cache dla CAŁEGO zapytania), ale wyświetlamy
+            // tylko tabele w zasięgu widoczności kursora (allTableRefs jest zawężone)
             if (allTableRefs.length > 0) {
-                const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(allTableRefs);
+                const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(allTableRefsForPrefetch);
                 for (const ref of allTableRefs) {
                     const cacheKey = this.tableColumnsService.getTableRefKey(ref);
                     const columns = columnsMap[cacheKey] ?? [];

@@ -64,7 +64,14 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
             
             // --- BUDOWANIE PEŁNEJ LISTY TABEL W ZAPYTANIU ---
             // A. Pobieramy tabele za pomocą standardowego parsera
-            const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db);
+            //    (allTableRefs jest ZAWĘŻONE do zasięgu widoczności kursora — to ono
+            //    decyduje, co pokazujemy jako podpowiedzi)
+            const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db, sqlBeforeCursor.length);
+
+            // Prefetch/cache-warming — batch obejmujący WSZYSTKIE tabele w tekście,
+            // niezależnie od zasięgu kursora, żeby przesunięcie kursora do innego zakresu
+            // (np. do wnętrza podzapytania) nie wymagało kolejnego zapytania do bazy.
+            const allTableRefsForPrefetch = findQueryTables(fullText, defaultSchema ?? '', db);
 
             // B. Obsługa tabel wymienionych po przecinku po klauzuli FROM (Multi-table DELETE)
             const deleteWhereMatch = fullText.match(REGEX_DELETE_FROM_CLAUSE);
@@ -96,6 +103,7 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
                         }
 
                         // Dodajemy tabelę do listy referencji, jeśli jeszcze nie została tam uwzględniona
+                        // (do OBU list, na wypadek gdyby standardowy parser jej nie złapał)
                         const exists = allTableRefs.some(
                             ref => ref.schema.toLowerCase() === schema.toLowerCase() && 
                                    ref.table.toLowerCase() === table.toLowerCase()
@@ -103,6 +111,7 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
                         
                         if (!exists) {
                             allTableRefs.push({ schema, table });
+                            allTableRefsForPrefetch.push({ schema, table });
                         }
                     }
                 }
@@ -131,9 +140,9 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
                     };
                 }
 
-                // Pobieramy kolumny batchem dla zidentyfikowanej tabeli
+                // Pobieramy kolumny batchem (rozgrzewając cache dla CAŁEGO zapytania)
                 const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(
-                    allTableRefs.length > 0 ? allTableRefs : [matchedTableRef]
+                    allTableRefsForPrefetch.length > 0 ? allTableRefsForPrefetch : [matchedTableRef]
                 );
                 const cacheKey = this.tableColumnsService.getTableRefKey(matchedTableRef);
                 const columns = columnsMap[cacheKey] ?? [];
@@ -150,9 +159,10 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
             const lastWord = words[words.length - 1].toLowerCase();
             const filter = ['where', 'on', 'and', 'or'].includes(lastWord) ? '' : lastWord;
 
-            // Pobieramy kolumny ze wszystkich zidentyfikowanych tabel
+            // Pobieramy kolumny (rozgrzewając cache dla CAŁEGO zapytania), ale wyświetlamy
+            // tylko tabele w zasięgu widoczności kursora (allTableRefs jest zawężone)
             if (allTableRefs.length > 0) {
-                const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(allTableRefs);
+                const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(allTableRefsForPrefetch);
                 for (const ref of allTableRefs) {
                     const cacheKey = this.tableColumnsService.getTableRefKey(ref);
                     const columns = columnsMap[cacheKey] ?? [];

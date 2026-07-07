@@ -46,12 +46,18 @@ export function makeFakeDb(overrides: Partial<FakeDb> = {}): FakeDb {
 /**
  * Uruchamia TableCompletionProvider z podmienionym ConnectionManager
  * i getCachedColumnsBatch, bez potrzeby biblioteki do mockowania.
+ *
+ * `onBatchCall`, jeśli podany, jest wołany przy KAŻDYM wywołaniu getCachedColumnsBatch
+ * z listą nazw tabel przekazanych w tym wywołaniu — przydatne do sprawdzenia, czy
+ * pobieranie kolumn (cache-warming) faktycznie obejmuje całe zapytanie jednym batchem,
+ * niezależnie od tego, ile z tych tabel trafia ostatecznie do listy podpowiedzi.
  */
 export async function getCompletions(
     content:      string,
     cursorOffset: number,
     dbOverrides:  Partial<FakeDb> = {},
     columnsStub:  Record<string, TableColumn[]> = {},
+    onBatchCall?: (tables: string[]) => void,
 ): Promise<vscode.CompletionItem[]> {
 
     const db = makeFakeDb(dbOverrides);
@@ -67,7 +73,10 @@ export async function getCompletions(
     const origGetCachedColumnsBatch = columnsServiceInstance.getCachedColumnsBatch.bind(columnsServiceInstance);
 
     // Nadpisujemy metodę na instancji, aby zwracała dane testowe (stub)
-    columnsServiceInstance.getCachedColumnsBatch = async () => columnsStub;
+    columnsServiceInstance.getCachedColumnsBatch = async (refs: { table: string }[]) => {
+        onBatchCall?.(refs.map(r => r.table));
+        return columnsStub;
+    };
 
     try {
         const document = await vscode.workspace.openTextDocument({

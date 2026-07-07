@@ -78,7 +78,7 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             // Sprawdzamy czy kursor jest wewnątrz nawiasów funkcji, np. GROUP_CONCAT(|)
             // Jeśli tak, pomijamy analizę SELECT i od razu serwujemy kolumny z tabel zapytania
             if (this.isCursorInsideFunctionCall(sqlBeforeCursor, havingIndex)) {
-                await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db);
+                await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);
                 return result;
             }
 
@@ -106,9 +106,9 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
 
             // Wspólna metoda: Ładujemy kolumny z tabel na podstawie gwiazdek
             if (shouldLoadAllTables) {
-                await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db);
+                await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);
             } else if (specificAliasesToLoad.size > 0) {
-                await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, specificAliasesToLoad);
+                await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor, specificAliasesToLoad);
             }
 
             for (const fn of SQL_FUNCTIONS) {
@@ -207,7 +207,11 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 };
             }
 
-            // Pre-fetch kolumn dla wszystkich tabel w zapytaniu (w tym JOIN-ów) — wypełnia cache jednym batchem
+            // Pre-fetch kolumn dla wszystkich tabel w zapytaniu (w tym JOIN-ów) — wypełnia cache jednym
+            // batchem. Celowo BEZ ograniczenia zasięgiem (cursorOffset) — sugestia i tak buduje się
+            // wyłącznie z jednego konkretnego `tableRef` ustalonego wyżej, więc scoping nic by tu nie
+            // poprawił, a jedynie zmniejszyłby ten batch i wymusił dodatkowe zapytania do bazy przy
+            // późniejszym przejściu kursora do innego zakresu (np. wnętrza podzapytania).
             const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db);
             const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(
                 allTableRefs.length > 0 ? allTableRefs : [tableRef]
@@ -224,7 +228,7 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             const result: vscode.CompletionItem[] = [];
 
             // Wspólna metoda: Ładujemy wszystkie kolumny dla klauzul strukturalnych
-            await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db);
+            await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);
 
             for (const fn of SQL_FUNCTIONS) {
                 result.push(this.createFunctionItem(fn));

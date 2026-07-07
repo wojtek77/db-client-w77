@@ -110,6 +110,142 @@ suite('findQueryTables', () => {
             findQueryTables('SELECT 1 + 1', 'public', fakeDb).length, 0,
         );
     });
+
+    // ── cursorOffset → zasięg widoczności (podzapytania) ─────────────────────
+    // Regresja: findQueryTables kiedyś zwracał tabele z CAŁEGO tekstu zapytania,
+    // bez względu na zagnieżdżenie w nawiasach — tabela użyta tylko wewnątrz
+    // podzapytania w WHERE ... IN (...) "wyciekała" do sugestii kolumn głównego
+    // zapytania. Parametr cursorOffset ogranicza wynik do tabel widocznych
+    // z danej pozycji (własny poziom + poziomy nadrzędne, jak przy skorelowanych
+    // podzapytaniach — nigdy poziomy "siostrzane"). Zob. findQueryTables.ts.
+
+    test('without cursorOffset, still returns tables from nested subqueries (stare zachowanie / brak filtrowania)', () => {
+        const sql = "SELECT * FROM leads l WHERE l.id IN (SELECT a.id FROM accounts a)";
+        const tables = findQueryTables(sql, 'public', fakeDb).map(r => r.table);
+        assert.ok(tables.includes('leads'),    'missing leads');
+        assert.ok(tables.includes('accounts'), 'missing accounts (no scoping requested)');
+    });
+
+    test('with cursorOffset at top level, excludes tables used only inside a WHERE...IN subquery', () => {
+        const sql = "SELECT * FROM leads l WHERE l.id IN (SELECT a.id FROM accounts a)";
+        const cursorOffset = sql.indexOf('SELECT *') + 'SELECT *'.length; // tuż po "SELECT *", poziom główny
+        const tables = findQueryTables(sql, 'public', fakeDb, cursorOffset).map(r => r.table);
+        assert.ok(tables.includes('leads'),     'missing leads (top-level table)');
+        assert.ok(!tables.includes('accounts'), 'accounts should not leak from the WHERE...IN subquery');
+    });
+
+    test('with cursorOffset at top level, excludes the table used inside a FROM (subquery) AS alias', () => {
+        const sql = "SELECT * FROM (SELECT a.id FROM accounts a) AS sub";
+        const cursorOffset = sql.indexOf('SELECT *') + 'SELECT *'.length;
+        const tables = findQueryTables(sql, 'public', fakeDb, cursorOffset).map(r => r.table);
+        assert.ok(!tables.includes('accounts'), 'accounts should not leak from the derived-table subquery');
+    });
+
+    test('with cursorOffset inside a subquery, still sees the outer table (correlated subquery)', () => {
+        const sql = "SELECT * FROM orders o WHERE o.user_id IN (SELECT u.id FROM users u WHERE )";
+        const cursorOffset = sql.lastIndexOf('WHERE )') + 'WHERE '.length; // wewnątrz podzapytania
+        const tables = findQueryTables(sql, 'public', fakeDb, cursorOffset).map(r => r.table);
+        assert.ok(tables.includes('orders'), 'missing outer table orders (correlated subquery should see it)');
+        assert.ok(tables.includes('users'),  'missing subquery\'s own table users');
+    });
+
+    test('with cursorOffset inside one subquery, excludes a sibling subquery\'s table', () => {
+        const sql = "SELECT * FROM leads l WHERE l.a IN (SELECT x.id FROM foo x WHERE ) AND l.b IN (SELECT y.id FROM bar y)";
+        const cursorOffset = sql.indexOf('WHERE )') + 'WHERE '.length; // wewnątrz podzapytania z "foo"
+        const tables = findQueryTables(sql, 'public', fakeDb, cursorOffset).map(r => r.table);
+        assert.ok(tables.includes('leads'), 'missing top-level table leads');
+        assert.ok(tables.includes('foo'),   'missing own subquery table foo');
+        assert.ok(!tables.includes('bar'),  'bar is a sibling subquery table and should not leak');
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TableCompletionProvider — zasięg widoczności tabel przy podzapytaniach
+// ─────────────────────────────────────────────────────────────────────────────
+
+suite('TableCompletionProvider — subquery scoping', () => {
+
+    test('does not suggest columns from a table used only inside a WHERE...IN subquery', async () => {
+        // Dokładne odtworzenie zgłoszonego przypadku: `date_entered` istnieje
+        // zarówno w `leads`, jak i w `accounts`, ale `accounts` występuje
+        // WYŁĄCZNIE wewnątrz podzapytania w WHERE. Ctrl+Space w głównym SELECT
+        // powinien pokazać tylko kolumny z `leads`.
+        const sql = "SELECT  FROM leads l WHERE l.account_id IN (SELECT a.id, a.date_entered FROM accounts a WHERE a.name LIKE '%test%')";
+        const cursorOffset = 'SELECT '.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.leads': [
+                makeColumn('id',           'int', 'PRI'),
+                makeColumn('date_entered', 'datetime'),
+            ],
+            'public.accounts': [
+                makeColumn('id',           'int', 'PRI'),
+                makeColumn('name',         'varchar'),
+                makeColumn('date_entered', 'datetime'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('date_entered'), 'missing date_entered from leads');
+        assert.ok(!labels.includes('name'),        'name from accounts (subquery-only table) should not leak');
+        // date_entered powinno wystąpić dokładnie raz (z leads), a nie dwa razy (leads + accounts)
+        assert.strictEqual(labels.filter(l => l === 'date_entered').length, 1, 'date_entered should appear only once');
+    });
+
+    test('does not suggest raw columns of a table hidden inside a FROM (subquery) AS alias', async () => {
+        const sql = 'SELECT  FROM (SELECT a.id, a.name FROM accounts a) AS sub WHERE sub.id = 1';
+        const cursorOffset = 'SELECT '.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.accounts': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('name', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('name'), 'accounts.name should not leak through the derived table');
+    });
+
+    // Regresja: samo ograniczenie tego, co POKAZUJEMY jako podpowiedzi, nie może
+    // zawężać też tego, co POBIERAMY z bazy/cache. Gdyby tak było, każde przesunięcie
+    // kursora do innego zakresu zapytania (np. z głównego SELECT-a do wnętrza
+    // podzapytania) wymagałoby osobnego zapytania do bazy zamiast trafienia w cache
+    // rozgrzany wcześniejszym batchem. Zob. CompletionAbstract.ts (addColumnsFromQueryTables).
+    test('fetches columns for ALL tables in the query in a single batch, even when only some are shown', async () => {
+        const sql = "SELECT  FROM leads l WHERE l.account_id IN (SELECT a.id, a.date_entered FROM accounts a WHERE a.name LIKE '%test%')";
+        const cursorOffset = 'SELECT '.length;
+        const batchCalls: string[][] = [];
+
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {
+            'public.leads': [
+                makeColumn('id',           'int', 'PRI'),
+                makeColumn('date_entered', 'datetime'),
+            ],
+            'public.accounts': [
+                makeColumn('id',           'int', 'PRI'),
+                makeColumn('name',         'varchar'),
+                makeColumn('date_entered', 'datetime'),
+            ],
+        }, (tables) => batchCalls.push(tables));
+
+        assert.strictEqual(batchCalls.length, 1, 'expected exactly one getCachedColumnsBatch call (single round-trip)');
+        assert.ok(batchCalls[0].includes('leads'),    'batch fetch should include leads');
+        assert.ok(batchCalls[0].includes('accounts'), 'batch fetch should include accounts too, even though it is not shown (cache-warming)');
+
+        // Mimo szerokiego batcha, lista podpowiedzi nadal poprawnie zawężona
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('name'), 'accounts.name should still not be suggested at the top level');
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

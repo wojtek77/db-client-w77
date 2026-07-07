@@ -16,19 +16,37 @@ export abstract class CompletionAbstract {
     /**
      * Wspólna metoda wyciągająca tabele z zapytania, pobierająca ich kolumny z cache
      * oraz uzupełniająca przekazaną listę wynikową (opcjonalnie filtrując po aliasach).
+     *
+     * `sqlBeforeCursor` służy do ograniczenia tabel POKAZYWANYCH JAKO PODPOWIEDZI do
+     * zasięgu widoczności kursora — tabele z "obcych" podzapytań (np. z innej gałęzi
+     * WHERE ... IN (...) niż ta, w której aktualnie edytujemy) nie powinny podpowiadać
+     * swoich kolumn w głównym zapytaniu. Zob. findQueryTables.ts.
+     *
+     * Sam batch pobierający kolumny z cache/bazy celowo NIE jest ograniczany zasięgiem —
+     * pobieramy jednym zapytaniem kolumny wszystkich tabel z CAŁEGO tekstu zapytania
+     * (rozgrzewając cache), a dopiero z tego wyniku wybieramy tylko te tabele, które są
+     * w zasięgu kursora. Dzięki temu, gdy użytkownik przesunie kursor do innego zakresu
+     * (np. do wnętrza podzapytania), kolumny tamtej tabeli są już w cache i nie trzeba
+     * wysyłać kolejnego zapytania do bazy — tak jak to działało przed wprowadzeniem
+     * ograniczenia zasięgiem.
      */
     protected async addColumnsFromQueryTables(
         resultList: vscode.CompletionItem[],
         fullText: string,
         defaultSchema: string | undefined,
         db: Connection,
+        sqlBeforeCursor: string,
         allowedAliases?: Set<string>
     ): Promise<void> {
-        // Dodano operator ?? '', aby zamienić undefined na pusty string
-        const tableRefs = findQueryTables(fullText, defaultSchema ?? '', db);
-        const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(tableRefs);
+        // Zasięg widoczności — tylko te tabele trafią do listy podpowiedzi
+        const scopedTableRefs = findQueryTables(fullText, defaultSchema ?? '', db, sqlBeforeCursor.length);
 
-        for (const tableRef of tableRefs) {
+        // Prefetch/cache-warming — jeden batch obejmujący WSZYSTKIE tabele w tekście,
+        // niezależnie od zasięgu (patrz komentarz metody)
+        const allTableRefsForPrefetch = findQueryTables(fullText, defaultSchema ?? '', db);
+        const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(allTableRefsForPrefetch);
+
+        for (const tableRef of scopedTableRefs) {
             if (allowedAliases) {
                 const patterns = [
                     new RegExp(`from\\s+(?:(\\w+)\\s*\\.\\s*)?${tableRef.table}\\s+(?:as\\s+)?([a-zA-Z0-9_]+)\\b`, 'i'),
