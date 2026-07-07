@@ -211,6 +211,58 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(labels.includes('email'), 'missing email after schema.table.');
     });
 
+    // Regresja: REGEX_ALIAS_DOT kiedyś dopasowywał się TYLKO gdy kropka była
+    // ostatnim znakiem (np. `u.|`). Gdy po kropce była już częściowo wpisana
+    // nazwa kolumny (np. `u.em|`), kontekst aliasu był tracony i kod wpadał w
+    // ogólną gałąź zwracającą kolumny ze WSZYSTKICH tabel zapytania — więc jeśli
+    // kolumna o tej samej nazwie istniała w innej tabeli z JOIN-a (albo nawet w
+    // podzapytaniu), pojawiała się w podpowiedziach duplikat z niewłaściwej
+    // tabeli. Zob. CompletionSelect.ts.
+    test('filters columns after alias dot by a partially typed column name (u.em)', async () => {
+        const sql = 'SELECT u.em FROM users u';
+        const cursorOffset = sql.indexOf('u.em') + 'u.em'.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [
+                makeColumn('id',    'int', 'PRI'),
+                makeColumn('email', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('email'), 'missing email for "u.em"');
+        assert.ok(!labels.includes('id'),   'id should not match filter "em"');
+    });
+
+    test('does not leak a same-named column from another joined table when a partial name is typed after the alias', async () => {
+        // Odtworzenie zgłoszonego przypadku: `date_entered` istnieje zarówno w
+        // `leads`, jak i w `accounts` (dołączonej przez JOIN), a kursor stoi
+        // po `l.date_entered` (nie tuż po kropce). Podpowiedź powinna pokazać
+        // kolumnę WYŁĄCZNIE z `leads` (tabeli aliasu `l`), nie z `accounts`.
+        const sql = 'SELECT l.date_entered FROM leads l JOIN accounts a ON a.id = l.account_id';
+        const cursorOffset = sql.indexOf('l.date_entered') + 'l.date_entered'.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.leads': [
+                makeColumn('id',           'int', 'PRI'),
+                makeColumn('date_entered', 'datetime'),
+            ],
+            'public.accounts': [
+                makeColumn('id',           'int', 'PRI'),
+                makeColumn('date_entered', 'datetime'),
+            ],
+        });
+        assert.strictEqual(items.length, 1, 'expected exactly one suggestion (date_entered from leads only)');
+        assert.strictEqual(labelOf(items[0]), 'date_entered');
+    });
+
     // ── SELECT <Ctrl+Space> → kolumny + funkcje SQL ───────────────────────────
 
     test('suggests columns and SQL functions in the SELECT clause', async () => {
