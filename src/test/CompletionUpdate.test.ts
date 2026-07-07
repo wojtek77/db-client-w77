@@ -35,6 +35,10 @@ suite('CompletionUpdate — table / schema suggestions (before SET)', () => {
     });
 
     test('suggests tables after "UPDATE schema."', async () => {
+        // Regresja: warunek `!linePrefix.match(REGEX_ALIAS_DOT)` w CompletionUpdate.ts
+        // kiedyś zawsze blokował tę gałąź, bo REGEX_ALIAS_DOT dopasowuje się też do
+        // samego "schema." (nie tylko do aliasu kolumny). Zob. CompletionUpdate.ts,
+        // sekcja "Przypadek A" — poprawiono analogicznie do CompletionDelete.ts.
         const sql = 'UPDATE public.';
         const items = await getCompletions(sql, sql.length, {
             getTables:                (schema) => schema === 'public' ? ['users', 'orders'] : [],
@@ -44,6 +48,16 @@ suite('CompletionUpdate — table / schema suggestions (before SET)', () => {
         const labels = items.map(labelOf);
         assert.ok(labels.includes('users'),  'missing users after UPDATE public.');
         assert.ok(labels.includes('orders'), 'missing orders after UPDATE public.');
+    });
+
+    test('filters tables after "UPDATE schema." by the typed prefix', async () => {
+        const sql = 'UPDATE public.us';
+        const items = await getCompletions(sql, sql.length, {
+            getTables: (schema) => schema === 'public' ? ['users', 'orders'] : [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),   'missing users for "public.us"');
+        assert.ok(!labels.includes('orders'), 'orders should not match "public.us"');
     });
 
     test('ignores modifiers like LOW_PRIORITY / IGNORE when suggesting tables', async () => {

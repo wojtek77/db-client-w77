@@ -184,6 +184,10 @@ suite('CompletionInsert — VALUES keyword and default value snippets', () => {
 suite('CompletionInsert — ON DUPLICATE KEY UPDATE', () => {
 
     test('suggests columns to update, with a "col = VALUES(col)" snippet', async () => {
+        // Regresja: gdy to zapytanie jest ostatnią linią dokumentu (jak tutaj),
+        // findCurrentQuery kiedyś ucinało spację po "UPDATE " swoim końcowym
+        // `.trim()`, przez co REGEX_ON_DUPLICATE_CONTEXT (wymagający \s+ po
+        // "update") nie łapał kontekstu i provider zwracał []. Zob. findCurrentQuery.ts.
         const sql = "INSERT INTO users (id, email) VALUES (1, 'a@a.com') ON DUPLICATE KEY UPDATE ";
         const items = await getCompletions(sql, sql.length, {
             getDatabase: () => 'public',

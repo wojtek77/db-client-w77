@@ -46,6 +46,24 @@ suite('findCurrentQuery', () => {
         assert.strictEqual(findCurrentQuery(sql, 0)!.sql, 'SELECT 1');
         assert.strictEqual(findCurrentQuery(sql, 2)!.sql, 'SELECT 2');
     });
+
+    // Regresja: wcześniej końcowe `.trim()` ucinało spację wpisaną tuż przed
+    // kursorem, gdy zapytanie znajdowało się na samym końcu dokumentu. To psuło
+    // np. detekcję kontekstu "ON DUPLICATE KEY UPDATE " w CompletionInsert (patrz
+    // CompletionInsert.test.ts). Końcowe białe znaki muszą być zachowane —
+    // przycinane mogą być tylko wiodące (potrzebne do dopasowania pierwszego
+    // słowa zapytania).
+    test('preserves trailing whitespace typed right before the cursor', () => {
+        const r = findCurrentQuery('INSERT INTO users SET ', 0);
+        assert.ok(r);
+        assert.strictEqual(r!.sql, 'INSERT INTO users SET ');
+    });
+
+    test('still strips leading whitespace/indentation', () => {
+        const r = findCurrentQuery('    SELECT * FROM users', 0);
+        assert.ok(r);
+        assert.strictEqual(r!.sql, 'SELECT * FROM users');
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
