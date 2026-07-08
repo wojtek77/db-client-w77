@@ -116,6 +116,10 @@ window.addEventListener('message', event => {
         
         startSpinner();
         spinner.style.borderTopColor = '#ffb937';
+
+        // nowe zapytanie -> poprzednie zaznaczenie wierszy przestaje mieć sens
+        const deleteBtn = document.getElementById('deleteRowsBtn');
+        if (deleteBtn) {deleteBtn.style.display = 'none';}
     }
 
     if (msg.command === 'queryFinished') {
@@ -197,6 +201,18 @@ window.addEventListener('message', event => {
         
         if (msg.isLast) {
             // ew. logika na koniec
+        }
+
+        if (msg.clearSelection) {
+            const gridBody = document.getElementById('gridBody');
+            if (gridBody) {
+                gridBody.querySelectorAll('.grid-row.selected-row').forEach(
+                    row => row.classList.remove('selected-row')
+                );
+            }
+
+            const deleteBtn = document.getElementById('deleteRowsBtn');
+            if (deleteBtn) {deleteBtn.style.display = 'none';}
         }
         
         stopSpinner();

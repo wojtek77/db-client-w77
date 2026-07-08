@@ -9,6 +9,7 @@ export function initEditor(vscode) {
         initConnectionButton(vscode);
         initCancelButton(vscode);
         initConnectionColorButton(vscode);
+        initDeleteRowsButton(vscode);
 
     });
 }
@@ -167,6 +168,7 @@ function initRowSelection() {
                 }
             }
 
+            updateDeleteButtonVisibility(rows);
             return;
         }
 
@@ -178,6 +180,7 @@ function initRowSelection() {
             // kliknięty wiersz staje się nowym anchorem
             anchorRow = targetRow;
 
+            updateDeleteButtonVisibility(rows);
             return;
         }
 
@@ -196,6 +199,50 @@ function initRowSelection() {
             anchorRow = null;
         }
 
+        updateDeleteButtonVisibility(rows);
+    });
+}
+
+/* pokazuje ikonę kosza tylko wtedy, gdy przynajmniej jeden wiersz jest zaznaczony */
+function updateDeleteButtonVisibility(rows) {
+    const deleteBtn = document.getElementById('deleteRowsBtn');
+    if (!deleteBtn) {
+        return;
+    }
+
+    const hasSelection = rows.some(r => r.classList.contains('selected-row'));
+    deleteBtn.style.display = hasSelection ? 'inline-block' : 'none';
+}
+
+/* obsługa kliknięcia ikony kosza - wysyła indeksy zaznaczonych wierszy do rozszerzenia */
+function initDeleteRowsButton(vscode) {
+    const deleteBtn = document.getElementById('deleteRowsBtn');
+    const gridBody = document.getElementById('gridBody');
+    if (!deleteBtn || !gridBody) {
+        return;
+    }
+
+    deleteBtn.addEventListener('click', () => {
+        const selectedRows = [...gridBody.querySelectorAll('.grid-row.selected-row')];
+        if (selectedRows.length === 0) {
+            return;
+        }
+
+        const rowIndexes = selectedRows
+            .map(row => {
+                const dataCell = row.querySelector('.grid-cell:not(.lp-cell)');
+                return dataCell && dataCell._index ? dataCell._index.row : null;
+            })
+            .filter(rowIndex => rowIndex !== null);
+
+        if (rowIndexes.length === 0) {
+            return;
+        }
+
+        vscode.postMessage({
+            command: 'deleteRows',
+            rowIndexes
+        });
     });
 }
 

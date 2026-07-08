@@ -112,6 +112,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 await this.updateCellInDB(msg.rowIndex, msg.columnIndex, msg.value);
             }
             
+            if (msg.command === 'deleteRows') {
+                await this.deleteRowsInDB(msg.rowIndexes);
+            }
+            
             if (msg.command === 'changeConnection') {
                 await this.changeConnection();
             }
@@ -173,7 +177,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private sendPage(pageNumber: number) {
+    private sendPage(pageNumber: number, clearSelection = false) {
         if (!this._view) {return;}
         
         const start = (pageNumber - 1) * this.ROWS_PER_PAGE;
@@ -204,6 +208,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 queryTime: this._lastQueryTime,
                 connectionColor: this._connectionColor,
                 infoMessage: this._infoMessage,
+                clearSelection,
                 flashMessage: this._flashMessage,
                 errorMessage: this._errorMessage,
                 isEncoded: true,
@@ -267,7 +272,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         try {
             const db = await ConnectionManager.getInstance().getDb();
 
-            const row = this._allRows[rowIndex];
+            // rowIndex przychodzi z webview jako indeks w obrębie aktualnie wyrenderowanej
+            // strony (0..ROWS_PER_PAGE-1) - doliczamy offset bieżącej strony, żeby trafić
+            // we właściwy wiersz w this._allRows (które trzyma pełny wynik zapytania)
+            const globalIndex = (this._currentPage - 1) * this.ROWS_PER_PAGE + rowIndex;
+            const row = this._allRows[globalIndex];
 
             if (!row) {
                 vscode.window.showErrorMessage(`Row ${rowIndex} not found`);
@@ -341,7 +350,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             
             await db.query(updateSQL, [value, ...whereValues]);
 
-            this._allRows[rowIndex][columnIndex] = value;
+            this._allRows[globalIndex][columnIndex] = value;
 
             if (this._view) {
                 this._view.webview.postMessage({
@@ -358,6 +367,141 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         } catch (err: any) {
             console.error('Update error:', err);
             vscode.window.showErrorMessage(`❌ Update error: ${err.message}`);
+        }
+    }
+
+    private async deleteRowsInDB(rowIndexes: number[]) {
+        if (!rowIndexes || rowIndexes.length === 0) {
+            return;
+        }
+
+        try {
+            // rowIndexes przychodzą jako indeksy w obrębie aktualnie wyrenderowanej strony -
+            // doliczamy offset bieżącej strony (tak samo jak w updateCellInDB)
+            const globalIndexes = rowIndexes.map(
+                (rowIndex) => (this._currentPage - 1) * this.ROWS_PER_PAGE + rowIndex
+            );
+
+            const rows = globalIndexes.map((idx) => this._allRows[idx]).filter(Boolean);
+
+            if (rows.length === 0) {
+                vscode.window.showErrorMessage('Selected rows not found');
+                return;
+            }
+
+            const field = this._meta[0];
+            if (!field) {
+                vscode.window.showErrorMessage('Unable to determine the source table');
+                return;
+            }
+
+            const tableName = field.orgTable?.();
+            const schema = field.schema?.();
+
+            if (!tableName || !schema) {
+                vscode.window.showErrorMessage('Unable to determine the source table or schema');
+                return;
+            }
+
+            const tableColumnsService = TableColumnsCache.getInstance();
+            const columnsMap = await tableColumnsService.getCachedColumnsBatch([{schema, table: tableName}]);
+            const tableColumns = columnsMap[tableColumnsService.getTableRefKey({schema, table: tableName})] ?? [];
+
+            const primaryKeys = tableColumns.filter((c: any) => c.columnKey === 'PRI');
+
+            if (primaryKeys.length === 0) {
+                vscode.window.showErrorMessage(`Table ${tableName} does not have a PRIMARY KEY`);
+                return;
+            }
+
+            // indeks każdej kolumny PK w obrębie wyników SELECT (this._meta / wiersz danych)
+            const pkIndexes: number[] = [];
+            for (const pk of primaryKeys) {
+                const pkIndex = this._meta.findIndex((m: any) => {
+                    return (
+                        m.orgTable?.() === tableName &&
+                        m.orgName?.() === pk.name
+                    );
+                });
+
+                if (pkIndex === -1) {
+                    vscode.window.showErrorMessage(
+                        `Brak PRIMARY KEY '${pk.name}' w wynikach SELECT`
+                    );
+                    return;
+                }
+
+                pkIndexes.push(pkIndex);
+            }
+
+            // wartości PK dla każdego zaznaczonego wiersza, w tej samej kolejności co primaryKeys
+            const pkValueTuples = rows.map((row) => pkIndexes.map((idx) => row[idx]));
+
+            const confirmLabel = 'Delete';
+            const answer = await vscode.window.showWarningMessage(
+                `Delete ${rows.length} row(s) from ${tableName}?`,
+                { modal: true },
+                confirmLabel
+            );
+
+            if (answer !== confirmLabel) {
+                return;
+            }
+
+            const pkColumnNames = primaryKeys.map((pk: any) => `\`${pk.name}\``);
+
+            let deleteSQL: string;
+            let deleteValues: any[];
+
+            if (pkColumnNames.length === 1) {
+                // pojedyncza kolumna PK - jeden DELETE z WHERE pk IN (?, ?, ...)
+                const placeholders = pkValueTuples.map(() => '?').join(', ');
+                deleteSQL = `
+                    DELETE FROM \`${schema}\`.\`${tableName}\`
+                    WHERE ${pkColumnNames[0]} IN (${placeholders})
+                `;
+                deleteValues = pkValueTuples.map((tuple) => tuple[0]);
+            } else {
+                // PK złożony - WHERE (pk1, pk2) IN ((?,?), (?,?), ...)
+                const tuplePlaceholder = `(${pkColumnNames.map(() => '?').join(', ')})`;
+                const placeholders = pkValueTuples.map(() => tuplePlaceholder).join(', ');
+                deleteSQL = `
+                    DELETE FROM \`${schema}\`.\`${tableName}\`
+                    WHERE (${pkColumnNames.join(', ')}) IN (${placeholders})
+                `;
+                deleteValues = pkValueTuples.flat();
+            }
+
+            const db = await ConnectionManager.getInstance().getDb();
+
+            await db.startTransaction();
+            try {
+                await db.query(deleteSQL, deleteValues);
+                await db.commit();
+            } catch (err) {
+                await db.rollback();
+                throw err;
+            }
+
+            // backend jest źródłem prawdy - usuwamy skasowane wiersze z lokalnego cache
+            const deletedGlobalIndexes = new Set(globalIndexes);
+            this._allRows = this._allRows.filter((_, idx) => !deletedGlobalIndexes.has(idx));
+
+            // jeśli usunięto ostatnie wiersze na ostatniej stronie, cofamy się do istniejącej strony
+            const totalPages = Math.max(1, Math.ceil(this._allRows.length / this.ROWS_PER_PAGE));
+            if (this._currentPage > totalPages) {
+                this._currentPage = totalPages;
+            }
+
+            this.sendPage(this._currentPage, true);
+
+            const displayValues = pkValueTuples.map((tuple) => tuple.join(', ')).join('; ');
+            vscode.window.showInformationMessage(
+                `✅ Deleted from ${tableName}: ${displayValues}`
+            );
+        } catch (err: any) {
+            console.error('Delete error:', err);
+            vscode.window.showErrorMessage(`❌ Delete error: ${err.message}`);
         }
     }
     

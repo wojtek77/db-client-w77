@@ -217,6 +217,23 @@ html, body {
     display: none;
 }
 
+.tools {
+    display: flex;
+    align-items: center;
+}
+
+.delete-rows-btn {
+    display: none;
+    cursor: pointer;
+    font-size: 15px;
+    color: #c62828;
+    margin-left: 6px;
+}
+
+.delete-rows-btn:hover {
+    opacity: 0.75;
+}
+
 .btn {
     padding: 1px 3px;
     margin-left: 3px;

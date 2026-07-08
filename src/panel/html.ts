@@ -50,6 +50,10 @@ export function getHtml(
         <span id="flashMessage"></span>
     </div>
 
+    <div class="tools">
+        <span id="deleteRowsBtn" class="delete-rows-btn" title="Delete selected rows">🗑</span>
+    </div>
+
     <span class="btn" onclick="openRecentFiles()">
         Recent files
     </span>
