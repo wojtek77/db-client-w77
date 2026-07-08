@@ -54,7 +54,7 @@ export function getHtml(
         <span id="generateInsertBtn" class="tools-btn generate-insert-btn" title="Generate INSERT SQL">➕</span>
         <span id="generateUpdateBtn" class="tools-btn generate-update-btn" title="Generate UPDATE SQL">✏️</span>
         <span id="generateDeleteBtn" class="tools-btn generate-delete-btn" title="Generate DELETE SQL">➖</span>
-        <span id="deleteRowsBtn" class="tools-btn delete-rows-btn" title="Delete selected rows">🗑</span>
+        <span id="deleteRowsBtn" class="tools-btn delete-rows-btn" title="Delete selected rows">❌</span>
     </div>
 
     <span class="btn" onclick="openRecentFiles()">

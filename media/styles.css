@@ -226,7 +226,7 @@ html, body {
     display: none;
     cursor: pointer;
     font-size: 15px;
-    margin-left: 6px;
+    margin-left: 0.5em;
 }
 
 .tools-btn:hover {
@@ -234,6 +234,7 @@ html, body {
 }
 
 .delete-rows-btn {
+    margin-left: 1em;
     color: #c62828;
 }
 
