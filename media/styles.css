@@ -222,16 +222,19 @@ html, body {
     align-items: center;
 }
 
-.delete-rows-btn {
+.tools-btn {
     display: none;
     cursor: pointer;
     font-size: 15px;
-    color: #c62828;
     margin-left: 6px;
 }
 
-.delete-rows-btn:hover {
+.tools-btn:hover {
     opacity: 0.75;
+}
+
+.delete-rows-btn {
+    color: #c62828;
 }
 
 .btn {

@@ -7,6 +7,7 @@ import * as os from 'os';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
 import { ConnectionColors } from '../db/ConnectionColors.js';
 import { TableColumnsCache, TableRef } from '../cache/TableColumnsCache.js';
+import { formatSqlValue } from '../sql/formatSqlValue.js';
 
 interface FileResultState {
     rows: any[][];
@@ -114,6 +115,18 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             
             if (msg.command === 'deleteRows') {
                 await this.deleteRowsInDB(msg.rowIndexes);
+            }
+
+            if (msg.command === 'generateInsert') {
+                await this.generateInsertSQL(msg.rowIndexes);
+            }
+
+            if (msg.command === 'generateUpdate') {
+                await this.generateUpdateSQL(msg.rowIndexes);
+            }
+
+            if (msg.command === 'generateDelete') {
+                await this.generateDeleteSQL(msg.rowIndexes);
             }
             
             if (msg.command === 'changeConnection') {
@@ -337,8 +350,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 whereValues.push(row[pkIndex]);
             }
 
+            const qualifiedTable = db.getDatabase()
+                ? `\`${tableName}\``
+                : `\`${schema}\`.\`${tableName}\``;
+
             const updateSQL = `
-                UPDATE \`${schema}\`.\`${tableName}\`
+                UPDATE ${qualifiedTable}
                 SET \`${columnName}\` = ?
                 WHERE ${whereParts.join(' AND ')}
             `;
@@ -454,6 +471,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             const pkColumnNames = primaryKeys.map((pk: any) => `\`${pk.name}\``);
 
+            const db = await ConnectionManager.getInstance().getDb();
+            const qualifiedTable = db.getDatabase()
+                ? `\`${tableName}\``
+                : `\`${schema}\`.\`${tableName}\``;
+
             let deleteSQL: string;
             let deleteValues: any[];
 
@@ -461,7 +483,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 // pojedyncza kolumna PK - jeden DELETE z WHERE pk IN (?, ?, ...)
                 const placeholders = pkValueTuples.map(() => '?').join(', ');
                 deleteSQL = `
-                    DELETE FROM \`${schema}\`.\`${tableName}\`
+                    DELETE FROM ${qualifiedTable}
                     WHERE ${pkColumnNames[0]} IN (${placeholders})
                 `;
                 deleteValues = pkValueTuples.map((tuple) => tuple[0]);
@@ -470,13 +492,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 const tuplePlaceholder = `(${pkColumnNames.map(() => '?').join(', ')})`;
                 const placeholders = pkValueTuples.map(() => tuplePlaceholder).join(', ');
                 deleteSQL = `
-                    DELETE FROM \`${schema}\`.\`${tableName}\`
+                    DELETE FROM ${qualifiedTable}
                     WHERE (${pkColumnNames.join(', ')}) IN (${placeholders})
                 `;
                 deleteValues = pkValueTuples.flat();
             }
-
-            const db = await ConnectionManager.getInstance().getDb();
 
             await db.startTransaction();
             try {
@@ -506,6 +526,224 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         } catch (err: any) {
             console.error('Delete error:', err);
             vscode.window.showErrorMessage(`❌ Delete error: ${err.message}`);
+        }
+    }
+
+    /**
+     * Wspólny kontekst potrzebny do generowania INSERT/UPDATE/DELETE:
+     * nazwa tabeli/schemy, kolumny faktycznie widoczne w wynikach SELECT
+     * (bez kolumn wyliczanych typu COUNT(*)), oraz które z nich są PRIMARY KEY.
+     * Nie wykonuje żadnego dodatkowego zapytania do bazy - tabela/PK są
+     * rozpoznawane z metadanych (this._meta) + cache kolumn tabeli.
+     */
+    private async resolveTableContext(): Promise<{
+        tableName: string;
+        schema: string;
+        qualifiedTable: string;
+        columns: { index: number; name: string; field: any }[];
+        primaryKeys: { index: number; name: string; field: any }[];
+    } | null> {
+        const firstField = this._meta[0];
+        if (!firstField) {
+            vscode.window.showErrorMessage('Unable to determine the source table');
+            return null;
+        }
+
+        const tableName = firstField.orgTable?.();
+        const schema = firstField.schema?.();
+
+        if (!tableName || !schema) {
+            vscode.window.showErrorMessage('Unable to determine the source table or schema');
+            return null;
+        }
+
+        const qualifiedTable = await this.qualifyTableName(schema, tableName);
+
+        // tylko kolumny faktycznie należące do tej tabeli (bez wyliczanych, np. COUNT(*))
+        const columns = this._meta
+            .map((m: any, index: number) => ({ index, name: m.orgName?.(), field: m }))
+            .filter((c) => c.name && c.field.orgTable?.() === tableName);
+
+        const tableColumnsService = TableColumnsCache.getInstance();
+        const columnsMap = await tableColumnsService.getCachedColumnsBatch([{schema, table: tableName}]);
+        const tableColumns = columnsMap[tableColumnsService.getTableRefKey({schema, table: tableName})] ?? [];
+
+        const primaryKeyNames = new Set(
+            tableColumns.filter((c: any) => c.columnKey === 'PRI').map((c: any) => c.name)
+        );
+
+        if (primaryKeyNames.size === 0) {
+            vscode.window.showErrorMessage(`Table ${tableName} does not have a PRIMARY KEY`);
+            return null;
+        }
+
+        const primaryKeys = columns.filter((c) => primaryKeyNames.has(c.name));
+
+        if (primaryKeys.length !== primaryKeyNames.size) {
+            vscode.window.showErrorMessage(`Brak wszystkich kolumn PRIMARY KEY w wynikach SELECT`);
+            return null;
+        }
+
+        return { tableName, schema, qualifiedTable, columns, primaryKeys };
+    }
+
+    /**
+     * Buduje nazwę tabeli do użycia w SQL: `schema`.`table`, jeśli połączenie
+     * nie ma ustawionej domyślnej bazy (database=''), albo samo `table`,
+     * jeśli połączenie już łączy się z konkretną bazą (wtedy prefiks schemy
+     * jest zbędny i tylko zaśmieca wygenerowany/wykonywany SQL).
+     */
+    private async qualifyTableName(schema: string, tableName: string): Promise<string> {
+        const db = await ConnectionManager.getInstance().getDb();
+        const connectionDatabase = db.getDatabase();
+
+        return connectionDatabase
+            ? `\`${tableName}\``
+            : `\`${schema}\`.\`${tableName}\``;
+    }
+
+    /** Zwraca wiersze (z this._allRows) odpowiadające page-relative rowIndexes z webview. */
+    private resolveSelectedRows(rowIndexes: number[]): any[][] {
+        return rowIndexes
+            .map((rowIndex) => (this._currentPage - 1) * this.ROWS_PER_PAGE + rowIndex)
+            .map((globalIndex) => this._allRows[globalIndex])
+            .filter(Boolean);
+    }
+
+    private async generateInsertSQL(rowIndexes: number[]) {
+        try {
+            if (!rowIndexes || rowIndexes.length === 0) {return;}
+
+            const context = await this.resolveTableContext();
+            if (!context) {return;}
+
+            const rows = this.resolveSelectedRows(rowIndexes);
+            if (rows.length === 0) {
+                vscode.window.showErrorMessage('Selected rows not found');
+                return;
+            }
+
+            const { columns, qualifiedTable } = context;
+            const columnNames = columns.map((c) => `\`${c.name}\``).join(', ');
+
+            const valuesLines = rows.map((row) => {
+                const values = columns.map((c) => formatSqlValue(row[c.index], c.field));
+                return `(${values.join(', ')})`;
+            });
+
+            const sql =
+                `INSERT INTO ${qualifiedTable} (${columnNames})\n` +
+                `VALUES\n${valuesLines.join(',\n')};\n`;
+
+            await this.saveAndCopySql(sql, 'insert');
+        } catch (err: any) {
+            console.error('Generate INSERT error:', err);
+            vscode.window.showErrorMessage(`❌ Generate INSERT error: ${err.message}`);
+        }
+    }
+
+    private async generateUpdateSQL(rowIndexes: number[]) {
+        try {
+            if (!rowIndexes || rowIndexes.length === 0) {return;}
+
+            const context = await this.resolveTableContext();
+            if (!context) {return;}
+
+            const rows = this.resolveSelectedRows(rowIndexes);
+            if (rows.length === 0) {
+                vscode.window.showErrorMessage('Selected rows not found');
+                return;
+            }
+
+            const { columns, primaryKeys, qualifiedTable } = context;
+            const pkIndexSet = new Set(primaryKeys.map((pk) => pk.index));
+            const setColumns = columns.filter((c) => !pkIndexSet.has(c.index));
+
+            const statements = rows.map((row) => {
+                const setParts = setColumns.map(
+                    (c) => `\`${c.name}\` = ${formatSqlValue(row[c.index], c.field)}`
+                );
+                const whereParts = primaryKeys.map(
+                    (pk) => `\`${pk.name}\` = ${formatSqlValue(row[pk.index], pk.field)}`
+                );
+
+                return (
+                    `UPDATE ${qualifiedTable}\n` +
+                    `SET ${setParts.join(', ')}\n` +
+                    `WHERE ${whereParts.join(' AND ')};`
+                );
+            });
+
+            const sql = statements.join('\n\n') + '\n';
+
+            await this.saveAndCopySql(sql, 'update');
+        } catch (err: any) {
+            console.error('Generate UPDATE error:', err);
+            vscode.window.showErrorMessage(`❌ Generate UPDATE error: ${err.message}`);
+        }
+    }
+
+    private async generateDeleteSQL(rowIndexes: number[]) {
+        try {
+            if (!rowIndexes || rowIndexes.length === 0) {return;}
+
+            const context = await this.resolveTableContext();
+            if (!context) {return;}
+
+            const rows = this.resolveSelectedRows(rowIndexes);
+            if (rows.length === 0) {
+                vscode.window.showErrorMessage('Selected rows not found');
+                return;
+            }
+
+            const { primaryKeys, qualifiedTable } = context;
+            const pkColumnNames = primaryKeys.map((pk) => `\`${pk.name}\``);
+
+            let sql: string;
+
+            if (pkColumnNames.length === 1) {
+                const pk = primaryKeys[0];
+                const values = rows.map((row) => formatSqlValue(row[pk.index], pk.field));
+                sql = `DELETE FROM ${qualifiedTable}\nWHERE ${pkColumnNames[0]} IN (${values.join(', ')});\n`;
+            } else {
+                const tuples = rows.map((row) => {
+                    const values = primaryKeys.map((pk) => formatSqlValue(row[pk.index], pk.field));
+                    return `(${values.join(', ')})`;
+                });
+                sql =
+                    `DELETE FROM ${qualifiedTable}\n` +
+                    `WHERE (${pkColumnNames.join(', ')}) IN (${tuples.join(', ')});\n`;
+            }
+
+            await this.saveAndCopySql(sql, 'delete');
+        } catch (err: any) {
+            console.error('Generate DELETE error:', err);
+            vscode.window.showErrorMessage(`❌ Generate DELETE error: ${err.message}`);
+        }
+    }
+
+    /** Kopiuje wygenerowany SQL do schowka i - opcjonalnie - zapisuje na dysk (ten sam mechanizm co exportToTXT/CSV). */
+    private async saveAndCopySql(sql: string, kind: 'insert' | 'update' | 'delete') {
+        await vscode.env.clipboard.writeText(sql);
+
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const fileName = `${kind}_${timestamp}.sql`;
+
+        const lastPath = this.getLastExportPath('sql');
+        const defaultDir = lastPath ? path.dirname(lastPath) : path.join(os.homedir(), 'Desktop');
+        const defaultUri = vscode.Uri.file(path.join(defaultDir, fileName));
+
+        const uri = await vscode.window.showSaveDialog({
+            defaultUri,
+            filters: { 'SQL files': ['sql'] }
+        });
+
+        if (uri) {
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(sql, 'utf8'));
+            this.setLastExportPath(uri.fsPath, 'sql');
+            vscode.window.showInformationMessage(`✅ ${kind.toUpperCase()} SQL saved to ${uri.fsPath} (also copied to clipboard)`);
+        } else {
+            vscode.window.showInformationMessage(`✅ ${kind.toUpperCase()} SQL copied to clipboard`);
         }
     }
     

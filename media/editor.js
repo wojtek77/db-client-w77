@@ -10,6 +10,7 @@ export function initEditor(vscode) {
         initCancelButton(vscode);
         initConnectionColorButton(vscode);
         initDeleteRowsButton(vscode);
+        initGenerateSqlButtons(vscode);
 
     });
 }
@@ -203,15 +204,24 @@ function initRowSelection() {
     });
 }
 
-/* pokazuje ikonę kosza tylko wtedy, gdy przynajmniej jeden wiersz jest zaznaczony */
+/* pokazuje ikony w .tools (kosz, generowanie SQL) tylko wtedy, gdy przynajmniej jeden wiersz jest zaznaczony */
 function updateDeleteButtonVisibility(rows) {
-    const deleteBtn = document.getElementById('deleteRowsBtn');
-    if (!deleteBtn) {
-        return;
-    }
-
     const hasSelection = rows.some(r => r.classList.contains('selected-row'));
-    deleteBtn.style.display = hasSelection ? 'inline-block' : 'none';
+    document.querySelectorAll('.tools-btn').forEach(btn => {
+        btn.style.display = hasSelection ? 'inline-block' : 'none';
+    });
+}
+
+/* zbiera indeksy aktualnie zaznaczonych wierszy (page-relative, tak jak przy edycji komórki) */
+function collectSelectedRowIndexes(gridBody) {
+    const selectedRows = [...gridBody.querySelectorAll('.grid-row.selected-row')];
+
+    return selectedRows
+        .map(row => {
+            const dataCell = row.querySelector('.grid-cell:not(.lp-cell)');
+            return dataCell && dataCell._index ? dataCell._index.row : null;
+        })
+        .filter(rowIndex => rowIndex !== null);
 }
 
 /* obsługa kliknięcia ikony kosza - wysyła indeksy zaznaczonych wierszy do rozszerzenia */
@@ -223,18 +233,7 @@ function initDeleteRowsButton(vscode) {
     }
 
     deleteBtn.addEventListener('click', () => {
-        const selectedRows = [...gridBody.querySelectorAll('.grid-row.selected-row')];
-        if (selectedRows.length === 0) {
-            return;
-        }
-
-        const rowIndexes = selectedRows
-            .map(row => {
-                const dataCell = row.querySelector('.grid-cell:not(.lp-cell)');
-                return dataCell && dataCell._index ? dataCell._index.row : null;
-            })
-            .filter(rowIndex => rowIndex !== null);
-
+        const rowIndexes = collectSelectedRowIndexes(gridBody);
         if (rowIndexes.length === 0) {
             return;
         }
@@ -244,6 +243,36 @@ function initDeleteRowsButton(vscode) {
             rowIndexes
         });
     });
+}
+
+/* obsługa ikon generowania SQL (INSERT/UPDATE/DELETE) - ta sama logika co kosz, inna komenda */
+function initGenerateSqlButtons(vscode) {
+    const gridBody = document.getElementById('gridBody');
+    if (!gridBody) {
+        return;
+    }
+
+    const buttons = [
+        { id: 'generateInsertBtn', command: 'generateInsert' },
+        { id: 'generateUpdateBtn', command: 'generateUpdate' },
+        { id: 'generateDeleteBtn', command: 'generateDelete' }
+    ];
+
+    for (const { id, command } of buttons) {
+        const btn = document.getElementById(id);
+        if (!btn) {
+            continue;
+        }
+
+        btn.addEventListener('click', () => {
+            const rowIndexes = collectSelectedRowIndexes(gridBody);
+            if (rowIndexes.length === 0) {
+                return;
+            }
+
+            vscode.postMessage({ command, rowIndexes });
+        });
+    }
 }
 
 /* zaznaczenie kolumny */

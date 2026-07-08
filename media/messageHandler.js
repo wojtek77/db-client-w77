@@ -118,8 +118,7 @@ window.addEventListener('message', event => {
         spinner.style.borderTopColor = '#ffb937';
 
         // nowe zapytanie -> poprzednie zaznaczenie wierszy przestaje mieć sens
-        const deleteBtn = document.getElementById('deleteRowsBtn');
-        if (deleteBtn) {deleteBtn.style.display = 'none';}
+        document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
     }
 
     if (msg.command === 'queryFinished') {
@@ -211,8 +210,7 @@ window.addEventListener('message', event => {
                 );
             }
 
-            const deleteBtn = document.getElementById('deleteRowsBtn');
-            if (deleteBtn) {deleteBtn.style.display = 'none';}
+            document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
         }
         
         stopSpinner();
