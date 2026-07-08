@@ -1,5 +1,6 @@
 import { TableColumnsCache, TableRef } from '../cache/TableColumnsCache.js';
 import { Connection } from '../db/Connection.js';
+import { maskStringLiterals } from './maskStringLiterals.js';
 
 /**
  * Zwraca stos pozycji otwierających nawiasów `(`, które są jeszcze niezamknięte
@@ -11,28 +12,15 @@ import { Connection } from '../db/Connection.js';
  * na wspólnej długości (patrz isAncestorScope) — dzięki temu można odróżnić
  * dwa niezależne podzapytania na tym samym poziomie głębokości.
  */
-function computeParenStack(sql: string, uptoIndex: number): number[] {
+export function computeParenStack(sql: string, uptoIndex: number): number[] {
     const stack: number[] = [];
-    let inString = false;
-    let stringChar = '';
     const end = Math.min(uptoIndex, sql.length);
+    const masked = maskStringLiterals(sql.slice(0, end));
 
-    for (let i = 0; i < end; i++) {
-        const ch = sql[i];
-
-        if (inString) {
-            if (ch === stringChar) {
-                inString = false;
-            }
-            continue;
-        }
-
-        if (ch === '\'' || ch === '"' || ch === '`') {
-            inString = true;
-            stringChar = ch;
-        } else if (ch === '(') {
+    for (let i = 0; i < masked.length; i++) {
+        if (masked[i] === '(') {
             stack.push(i);
-        } else if (ch === ')') {
+        } else if (masked[i] === ')') {
             stack.pop();
         }
     }

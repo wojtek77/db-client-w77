@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Connection } from '../db/Connection.js';
-import { findQueryTables } from '../sql/findQueryTables.js';
+import { findQueryTables, computeParenStack } from '../sql/findQueryTables.js';
+import { maskStringLiterals } from '../sql/maskStringLiterals.js';
 import { TableColumn, TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatColumnType } from './columnFormatter.js';
 import { SqlFunction } from './sqlFunctions.js';
@@ -129,42 +130,12 @@ export abstract class CompletionAbstract {
     protected isCursorInsideFunctionCall(sqlBeforeCursor: string, clauseIndex: number): boolean {
         if (clauseIndex === -1) { return false; }
         const fromClause = sqlBeforeCursor.slice(clauseIndex);
-        let depth = 0;
-        let inString = false;
-        let stringChar = '';
-        for (const ch of fromClause) {
-            if (inString) {
-                if (ch === stringChar) { inString = false; }
-                continue;
-            }
-            if (ch === "'" || ch === '"' || ch === '`') {
-                inString = true;
-                stringChar = ch;
-            } else if (ch === '(') {
-                depth++;
-            } else if (ch === ')') {
-                depth--;
-            }
-        }
-        return depth > 0;
+        return computeParenStack(fromClause, fromClause.length).length > 0;
     }
 
     protected extractSelectPartAtCursorLevel(sqlBeforeCursor: string): string {
-        const cursorDepth = this.depthAtEnd(sqlBeforeCursor);
-        let depth = 0;
-        let blockStart = 0;
-
-        for (let i = 0; i < sqlBeforeCursor.length; i++) {
-            const ch = sqlBeforeCursor[i];
-            if (ch === '(') {
-                depth++;
-                if (depth === cursorDepth) {
-                    blockStart = i + 1;
-                }
-            } else if (ch === ')') {
-                depth--;
-            }
-        }
+        const stack = computeParenStack(sqlBeforeCursor, sqlBeforeCursor.length);
+        const blockStart = stack.length > 0 ? stack[stack.length - 1] + 1 : 0;
 
         const block = sqlBeforeCursor.slice(blockStart);
         const flat = this.flattenSubqueries(block);
@@ -186,11 +157,12 @@ export abstract class CompletionAbstract {
     }
 
     protected extractHavingCandidates(selectPart: string): string[] {
+        const masked = maskStringLiterals(selectPart);
         const entries: string[] = [];
         let depth = 0;
         let start = 0;
         for (let i = 0; i < selectPart.length; i++) {
-            const ch = selectPart[i];
+            const ch = masked[i];
             if (ch === '(') { depth++; }
             else if (ch === ')') { depth--; }
             else if (ch === ',' && depth === 0) {
@@ -229,16 +201,31 @@ export abstract class CompletionAbstract {
     }
     
     private flattenSubqueries(sql: string): string {
-        const pass = sql.replace(/\([^()]*\)/g, match => ' '.repeat(match.length));
-        return pass === sql ? sql : this.flattenSubqueries(pass);
-    }
-    
-    private depthAtEnd(sql: string): number {
-        let d = 0;
-        for (const ch of sql) {
-            if (ch === '(') { d++; }
-            else if (ch === ')') { d--; }
+        let text = sql;
+        let masked = maskStringLiterals(sql);
+
+        for (;;) {
+            const regex = /\([^()]*\)/g;
+            let m: RegExpExecArray | null;
+            let lastIndex = 0;
+            let nextText = '';
+            let nextMasked = '';
+            let changed = false;
+
+            while ((m = regex.exec(masked)) !== null) {
+                changed = true;
+                const blank = ' '.repeat(m[0].length);
+                nextText += text.slice(lastIndex, m.index) + blank;
+                nextMasked += masked.slice(lastIndex, m.index) + blank;
+                lastIndex = m.index + m[0].length;
+            }
+
+            if (!changed) { return text; }
+
+            nextText += text.slice(lastIndex);
+            nextMasked += masked.slice(lastIndex);
+            text = nextText;
+            masked = nextMasked;
         }
-        return d;
     }
 }

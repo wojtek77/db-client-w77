@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { maskStringLiterals } from '../sql/maskStringLiterals.js';
 
 const SELECT_WRAP_AT = 120;
 const SUBQUERY_LARGE = 80;  // subquery >= tej długości idzie na nową linię
@@ -79,15 +80,17 @@ function normalize(sql: string): string {
 // ─── Podział kolumn SELECT respektujący nawiasy ───────────────────────────────
 
 function splitColumns(text: string): string[] {
+    const masked = maskStringLiterals(text);
     const cols: string[] = [];
-    let depth = 0, col = '';
-    for (const ch of text) {
-        if (ch === '(') { depth++; col += ch; }
-        else if (ch === ')') { depth--; col += ch; }
-        else if (ch === ',' && depth === 0) { cols.push(col.trim()); col = ''; }
-        else { col += ch; }
+    let depth = 0, start = 0;
+    for (let i = 0; i < text.length; i++) {
+        const ch = masked[i];
+        if (ch === '(') { depth++; }
+        else if (ch === ')') { depth--; }
+        else if (ch === ',' && depth === 0) { cols.push(text.slice(start, i).trim()); start = i + 1; }
     }
-    if (col.trim()) { cols.push(col.trim()); }
+    const last = text.slice(start).trim();
+    if (last) { cols.push(last); }
     return cols;
 }
 
@@ -95,10 +98,11 @@ function splitColumns(text: string): string[] {
 
 function extractParen(col: string): { inner: string; suffix: string } | null {
     if (!col.startsWith('(')) { return null; }
+    const masked = maskStringLiterals(col);
     let depth = 0, closeIdx = -1;
-    for (let i = 0; i < col.length; i++) {
-        if (col[i] === '(') { depth++; }
-        else if (col[i] === ')') { depth--; if (depth === 0) { closeIdx = i; break; } }
+    for (let i = 0; i < masked.length; i++) {
+        if (masked[i] === '(') { depth++; }
+        else if (masked[i] === ')') { depth--; if (depth === 0) { closeIdx = i; break; } }
     }
     if (closeIdx === -1) { return null; }
     return { inner: col.slice(1, closeIdx).trim(), suffix: col.slice(closeIdx + 1).trim() };
@@ -109,12 +113,13 @@ function extractParen(col: string): { inner: string; suffix: string } | null {
 interface ClauseMatch { index: number; rawLen: number; keyword: string; }
 
 function findClauses(sql: string): ClauseMatch[] {
+    const masked = maskStringLiterals(sql);
     const dep: number[] = new Array(sql.length).fill(0);
     let d = 0;
     for (let i = 0; i < sql.length; i++) {
-        if (sql[i] === '(') { d++; }
+        if (masked[i] === '(') { d++; }
         dep[i] = d;
-        if (sql[i] === ')') { d--; }
+        if (masked[i] === ')') { d--; }
     }
     const pattern = CLAUSE_KEYWORDS.map(k => k.replace(/ /g, '\\s+')).join('|');
     // Dodajemy wzorzec na placeholdery komentarzy
