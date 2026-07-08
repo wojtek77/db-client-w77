@@ -361,8 +361,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 });
             }
 
+            const pkDisplay = primaryKeys
+                .map((pk: any, i: number) => `${pk.name} = ${whereValues[i]}`)
+                .join(', ');
+
             vscode.window.showInformationMessage(
-                `✅ Updated ${tableName}.${columnName}`
+                `✅ Updated ${tableName}.${columnName} (${pkDisplay})`
             );
         } catch (err: any) {
             console.error('Update error:', err);
