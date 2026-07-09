@@ -43,6 +43,7 @@ export function renderHeaders(pageRows) {
     if (gridContainer) {
         gridContainer.style.setProperty('--grid-columns', gridTemplate);
     }
+    State.getInstance().cachedGridTemplate = gridTemplate;
     
     // Budujemy nagłówki HTML
     const fragment = document.createDocumentFragment();
@@ -61,6 +62,23 @@ export function renderHeaders(pageRows) {
     }
     
     headerContainer.replaceChildren(fragment);
+    State.getInstance().cachedHeaderHtml = [...headerContainer.children];
+}
+
+/**
+ * Przywraca nagłówek z cache danego pliku (razem z klasą 'selected-col',
+ * bo to te same węzły DOM, które tam trafiły). Używane przy przełączaniu
+ * między plikami/zakładkami, żeby nie przebudowywać nagłówka od zera
+ * i nie zgubić zaznaczenia kolumny.
+ */
+export function restoreHeaderFromCache() {
+    const headerContainer = document.getElementById('gridHeader');
+    headerContainer.replaceChildren(...State.getInstance().cachedHeaderHtml);
+
+    const gridContainer = document.querySelector('.grid-container');
+    if (gridContainer && State.getInstance().cachedGridTemplate) {
+        gridContainer.style.setProperty('--grid-columns', State.getInstance().cachedGridTemplate);
+    }
 }
 
 export function initializeGrid(currentRows) {

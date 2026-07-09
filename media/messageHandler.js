@@ -1,5 +1,5 @@
 import { State } from './state.js';
-import { renderHeaders, initializeGrid, restoreGridFromCache, renderPage } from './tableRenderer.js';
+import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage } from './tableRenderer.js';
 import { cancelAllColumnEdits, reapplyAllColumnEdits } from './editor.js';
 
 let sqlFile;
@@ -172,15 +172,16 @@ window.addEventListener('message', event => {
         
         const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
         
-        console.time("⏱️ renderHeaders time");
-        if (State.getInstance().headers) {
-            renderHeaders(currentRows); // Ta funkcja teraz przeskanuje State.getInstance().currentRows
-        }
-        console.timeEnd("⏱️ renderHeaders time");
-        
-        const shape = `${currentRows.length}x${State.getInstance().headers.length}`;
+        const shape = `${currentRows.length}x${State.getInstance().headers.join('|')}`;
+
         if (sqlFile && sqlFile === msg.sqlFile) { // kiedy jest powtórne uruchomienie SQL w tym samym pliku
+            // header DOM już jest poprawny (ten sam plik, poprzednie renderHeaders) -
+            // przebudowujemy go tylko, gdy realnie zmienił się kształt albo nazwy kolumn
             if (State.getInstance().gridShape !== shape) {
+                console.time("⏱️ renderHeaders time");
+                renderHeaders(currentRows);
+                console.timeEnd("⏱️ renderHeaders time");
+
                 console.time("⏱️ initializeGrid time");
                 initializeGrid(currentRows);
                 console.timeEnd("⏱️ initializeGrid time");
@@ -188,11 +189,20 @@ window.addEventListener('message', event => {
                 State.getInstance().gridShape = shape;
             }
         } else { // kiedy jest nowe uruchomienie pliku lub zmiana pliku
+            // header DOM mógł do tej pory należeć do innego, poprzednio otwartego pliku,
+            // więc gdy korzystamy z cache tego pliku, przywracamy też JEGO nagłówek z cache
+            // (a nie zostawiamy nagłówek poprzednio widocznego pliku)
             if (State.getInstance().gridShape === shape) {
+                console.time("⏱️ restoreHeaderFromCache time");
+                restoreHeaderFromCache();
+                console.timeEnd("⏱️ restoreHeaderFromCache time");
                 console.time("⏱️ restoreGridFromCache time");
                 restoreGridFromCache();
                 console.timeEnd("⏱️ restoreGridFromCache time");
             } else {
+                console.time("⏱️ renderHeaders time");
+                renderHeaders(currentRows);
+                console.timeEnd("⏱️ renderHeaders time");
                 console.time("⏱️ initializeGrid time");
                 initializeGrid(currentRows);
                 State.getInstance().currentRows = undefined;
@@ -255,9 +265,9 @@ window.addEventListener('message', event => {
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         
         // renderowanie HTML
-        console.time("⏱️ renderHeaders time");
-        renderHeaders(State.getInstance().currentRows);
-        console.timeEnd("⏱️ renderHeaders time");
+        console.time("⏱️ restoreHeaderFromCache time");
+        restoreHeaderFromCache();
+        console.timeEnd("⏱️ restoreHeaderFromCache time");
         console.time("⏱️ restoreGridFromCache time");
         restoreGridFromCache();
         console.timeEnd("⏱️ restoreGridFromCache time");

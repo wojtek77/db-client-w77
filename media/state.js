@@ -9,6 +9,8 @@
  * @property {number} ROWS_PER_PAGE - Maksymalna liczba wierszy na stronę.
  * @property {Array} cachedGrid - Tablica węzłów DIV jako array
  * @property {Array} cachedGridHtml - Tablica węzłów DIV jako HTML
+ * @property {Array} cachedHeaderHtml - Tablica węzłów DIV nagłówka (razem z LP), zachowuje
+ *   też stan zaznaczenia kolumny (klasa 'selected-col') przy przełączaniu między plikami.
  * @property {string} gridShape - Ilość wierszy i ilość kolumn np. "2x1".
  * @property {string} connectionName - Nazwa połączenia z DB.
  * @property {string} connectionTime - Czas połączenia z DB.
@@ -40,6 +42,8 @@ export class State {
                 ROWS_PER_PAGE: 200,
                 cachedGrid: [],
                 cachedGridHtml: [],
+                cachedHeaderHtml: [],
+                cachedGridTemplate: '',
                 gridShape: '',
                 connectionName: '-------',
                 connectionTime: '---',
