@@ -141,7 +141,6 @@ window.addEventListener('message', event => {
     if (msg.command === 'appendData') {
         console.log("--- START WEBVIEW PROCESSING ---");
         
-        console.log(msg.sentAt);
         const duration = Date.now() - msg.sentAt;
         console.log(`🚀 Travel time via postMessage: ${duration} ms`);
         
