@@ -72,13 +72,13 @@ export function getHtml(
 
     <div class="pagination">
 
-        <span class="btn" onclick="firstPage()" id="firstBtn">
+        <button class="btn" onclick="firstPage()" id="firstBtn">
             ⏮
-        </span>
+        </button>
 
-        <span class="btn" onclick="prevPage()" id="prevBtn">
+        <button class="btn" onclick="prevPage()" id="prevBtn">
             ◀
-        </span>
+        </button>
 
         <span class="page-info">
             page
@@ -87,13 +87,13 @@ export function getHtml(
             <span id="totalPages">1</span>
         </span>
 
-        <span class="btn" onclick="nextPage()" id="nextBtn">
+        <button class="btn" onclick="nextPage()" id="nextBtn">
             ▶
-        </span>
+        </button>
 
-        <span class="btn" onclick="lastPage()" id="lastBtn">
+        <button class="btn" onclick="lastPage()" id="lastBtn">
             ⏭
-        </span>
+        </button>
 
     </div>
 
