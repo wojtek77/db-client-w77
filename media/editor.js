@@ -95,9 +95,7 @@ function initCellEditing(vscode) {
                 return;
             }
 
-            const headerCell = document.querySelector(
-                `.header-cell[data-column-index="${colIndex}"]`
-            );
+            const headerCell = State.getInstance().cachedHeaderHtml?.[colIndex + 1];
             const isColumnSelected = headerCell && headerCell.classList.contains('selected-col');
 
             if (isColumnSelected) {
@@ -247,7 +245,8 @@ function initRowSelection() {
             return;
         }
 
-        const rows = [...gridBody.querySelectorAll('.grid-row')];
+        // rows w tej samej kolejności co w DOM, ale bez ponownego przeszukiwania go
+        const rows = State.getInstance().cachedGridHtml;
 
         // SHIFT - zaznaczenie zakresu od anchora
         if (event.shiftKey && anchorRow) {
@@ -256,10 +255,10 @@ function initRowSelection() {
                 rows.forEach(r => r.classList.remove('selected-row'));
             }
 
-            const from = rows.indexOf(anchorRow);
-            const to = rows.indexOf(targetRow);
+            const from = anchorRow._rowIndex;
+            const to = targetRow._rowIndex;
 
-            if (from !== -1 && to !== -1) {
+            if (from !== undefined && to !== undefined) {
 
                 const start = Math.min(from, to);
                 const end = Math.max(from, to);
@@ -319,11 +318,8 @@ function collectSelectedRowIndexes(gridBody) {
     const selectedRows = [...gridBody.querySelectorAll('.grid-row.selected-row')];
 
     return selectedRows
-        .map(row => {
-            const dataCell = row.querySelector('.grid-cell:not(.lp-cell)');
-            return dataCell && dataCell._index ? dataCell._index.row : null;
-        })
-        .filter(rowIndex => rowIndex !== null);
+        .map(row => row._rowIndex)
+        .filter(rowIndex => rowIndex !== undefined);
 }
 
 /* obsługa kliknięcia ikony kosza - wysyła indeksy zaznaczonych wierszy do rozszerzenia */
@@ -406,14 +402,14 @@ function initColumnSelection() {
 
     // zaznacza/odznacza nagłówek kolumny oraz wszystkie komórki danych w tej kolumnie
     function selectColumn(colIndex, select) {
-        const headerCell = gridHeader.querySelector(`.header-cell[data-column-index="${colIndex}"]`);
+        const headerCell = State.getInstance().cachedHeaderHtml?.[colIndex + 1];
         if (headerCell) {
             headerCell.classList.toggle('selected-col', select);
         }
 
-        const rows = gridBody.querySelectorAll('.grid-row');
-        rows.forEach(row => {
-            const cell = row.children[colIndex + 1];
+        const rows = State.getInstance().cachedGrid;
+        rows.forEach(rowCells => {
+            const cell = rowCells[colIndex + 1];
             if (cell) {
                 cell.classList.toggle('selected-col', select);
             }
@@ -428,12 +424,9 @@ function initColumnSelection() {
     }
 
     function clearAllColumns(headerCells) {
-        headerCells.forEach(hc => {
-            const idx = getColumnIndex(hc);
-            if (idx !== null) {
-                selectColumn(idx, false);
-            }
-        });
+        // headerCells pochodzi z cachedHeaderHtml.slice(1), więc pozycja w tablicy
+        // JEST indeksem kolumny - nie trzeba już parsować dataset.columnIndex
+        headerCells.forEach((hc, idx) => selectColumn(idx, false));
     }
 
     gridHeader.addEventListener('click', (event) => {
@@ -449,7 +442,8 @@ function initColumnSelection() {
             return;
         }
 
-        const headerCells = [...gridHeader.querySelectorAll('.header-cell:not(.lp-cell)')];
+        // pomijamy indeks 0 (LP) - reszta jest w tej samej kolejności co kolumny
+        const headerCells = State.getInstance().cachedHeaderHtml.slice(1);
 
         // SHIFT - zaznaczenie zakresu od anchora
         if (event.shiftKey && anchorCol !== null) {
@@ -524,13 +518,8 @@ function initCellSelection() {
     });
 
     function getCell(rowIndex, colIndex) {
-        const rows = gridBody.querySelectorAll('.grid-row');
-        const row = rows[rowIndex];
-        if (!row) {
-            return null;
-        }
         // +1, bo pierwsza komórka wiersza to LP
-        return row.children[colIndex + 1] || null;
+        return State.getInstance().cachedGrid?.[rowIndex]?.[colIndex + 1] ?? null;
     }
 
     function selectCell(rowIndex, colIndex, select) {
@@ -629,10 +618,7 @@ function initClipboard() {
     }
 
     function cellValue(rowIndex, colIndex) {
-        const rows = gridBody.querySelectorAll('.grid-row');
-        const row = rows[rowIndex];
-        if (!row) {return '';}
-        const cell = row.children[colIndex + 1];
+        const cell = State.getInstance().cachedGrid?.[rowIndex]?.[colIndex + 1];
         return cell ? cell.textContent : '';
     }
 

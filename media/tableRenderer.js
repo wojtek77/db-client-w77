@@ -99,6 +99,10 @@ export function initializeGrid(currentRows) {
     for (let i = 0; i < rowCount; ++i) {
         const rowDiv = document.createElement('div');
         rowDiv.className = 'grid-row';
+        // podobnie jak przy komórkach (cell._index), zapamiętujemy indeks wiersza
+        // bezpośrednio na węźle DOM - pozwala to później odczytać "który to wiersz"
+        // bez przeszukiwania DOM (querySelector/indexOf)
+        rowDiv._rowIndex = i;
 
         const cells = [];
 
@@ -157,9 +161,8 @@ export function applyColumnPreview(columnIndex, value) {
         });
     }
 
-    const headerCell = document.querySelector(
-        `.header-cell[data-column-index="${columnIndex}"]`
-    );
+    // +1 bo indeks 0 w cachedHeaderHtml to kolumna LP (tak samo jak w cachedGrid)
+    const headerCell = State.getInstance().cachedHeaderHtml?.[columnIndex + 1];
     if (headerCell) {headerCell.classList.add('column-edit-pending');}
 }
 
@@ -188,9 +191,7 @@ export function clearColumnPreview(columnIndex) {
         });
     }
 
-    const headerCell = document.querySelector(
-        `.header-cell[data-column-index="${columnIndex}"]`
-    );
+    const headerCell = State.getInstance().cachedHeaderHtml?.[columnIndex + 1];
     if (headerCell) {headerCell.classList.remove('column-edit-pending');}
 }
 
