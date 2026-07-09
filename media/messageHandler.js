@@ -1,5 +1,6 @@
 import { State } from './state.js';
 import { renderHeaders, initializeGrid, restoreGridFromCache, renderPage } from './tableRenderer.js';
+import { cancelAllColumnEdits, reapplyAllColumnEdits } from './editor.js';
 
 let sqlFile;
 let queryTimer = null;
@@ -119,6 +120,13 @@ window.addEventListener('message', event => {
 
         // nowe zapytanie -> poprzednie zaznaczenie wierszy przestaje mieć sens
         document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
+
+        // nowe zapytanie (ctrl+enter) -> anuluj ewentualną niezapisaną edycję kolumny(kolumn)
+        try {
+            cancelAllColumnEdits();
+        } catch (e) {
+            // State nie był jeszcze zainicjalizowany (pierwsze uruchomienie) - nic do anulowania
+        }
     }
 
     if (msg.command === 'queryFinished') {
@@ -211,6 +219,15 @@ window.addEventListener('message', event => {
             }
 
             document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
+
+            // dane zostały odświeżone z backendu (np. po udanym zapisie kolumny) ->
+            // znika czerwone podświetlenie i przycisk zapisu
+            cancelAllColumnEdits();
+        } else {
+            // zwykłe odświeżenie danych (np. zmiana strony) -> jeśli są jakieś
+            // niezapisane edycje kolumn, trzeba ponownie nałożyć ich podgląd,
+            // bo renderPage() właśnie nadpisał komórki prawdziwymi wartościami z backendu
+            reapplyAllColumnEdits();
         }
         
         stopSpinner();
@@ -257,6 +274,12 @@ window.addEventListener('message', event => {
         document.getElementById('gridBody').innerHTML = '';
         sqlFile = undefined; // zapomnij, dla jakiego pliku była ostatnio wyrenderowana siatka
 
+        try {
+            cancelAllColumnEdits();
+        } catch (e) {
+            // State nie był jeszcze zainicjalizowany - nic do anulowania
+        }
+
         updateDbAndTimes();
         updateInfoMessage();
         updateErrorMessage();
@@ -279,5 +302,11 @@ window.addEventListener('message', event => {
             cell.classList.add('updated-cell');
             setTimeout(() => cell.classList.remove('updated-cell'), 500);
         });
+    }
+
+    if (msg.command === 'columnEditsCancelled') {
+        // użytkownik odrzucił prompt potwierdzenia w backendzie (albo wystąpił błąd
+        // zapisu) -> nic nie zostało zmienione w bazie, cofamy wizualny podgląd
+        cancelAllColumnEdits();
     }
 });

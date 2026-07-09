@@ -16,6 +16,11 @@
  * @property {string} connectionColor - Kolor dla połącznia DB.
  * @property {string} infoMessage - Dodatkowa informacja np. ilość zmienionych rekordów.
  * @property {string} errorMessage - Info o błędzie.
+ * @property {Object.<number, string>} pendingColumnEdits - Oczekujące (jeszcze niezapisane
+ *   do backendu) zbiorcze edycje CAŁYCH kolumn. Klucz to indeks kolumny (columnIndex),
+ *   wartość to nowa wartość ustawiona przez użytkownika. Wspiera wiele kolumn naraz.
+ *   To tylko podgląd w webview - prawdziwe dane (State.currentRows) pozostają nietknięte,
+ *   dopóki użytkownik nie potwierdzi zapisu przyciskiem "Save".
  */
 
 export class State {
@@ -42,6 +47,7 @@ export class State {
                 connectionColor: null,
                 infoMessage: '',
                 errorMessage: '',
+                pendingColumnEdits: {},
             });
         }
 

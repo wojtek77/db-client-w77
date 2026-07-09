@@ -120,6 +120,62 @@ export function restoreGridFromCache() {
     );
 }
 
+/**
+ * Nakłada WIZUALNY podgląd nowej wartości na CAŁĄ kolumnę (nagłówek + wszystkie
+ * komórki danych na bieżącej stronie). To tylko widok - nie rusza State.currentRows
+ * ani żadnych danych backendu. Działa bezpośrednio na węzłach z cachedGrid, więc
+ * jest tanie i nie wymaga przebudowy siatki.
+ * @param {number} columnIndex
+ * @param {string} value
+ */
+export function applyColumnPreview(columnIndex, value) {
+    const rows = State.getInstance().cachedGrid;
+    if (rows) {
+        rows.forEach((rowCells) => {
+            const cell = rowCells[columnIndex + 1];
+            if (!cell) {return;}
+            cell.textContent = value;
+            cell.classList.add('column-edit-pending');
+        });
+    }
+
+    const headerCell = document.querySelector(
+        `.header-cell[data-column-index="${columnIndex}"]`
+    );
+    if (headerCell) {headerCell.classList.add('column-edit-pending');}
+}
+
+/**
+ * Zdejmuje podgląd z kolumny: usuwa podświetlenie i przywraca prawdziwą wartość
+ * komórki na podstawie State.currentRows (czyli ostatnich danych faktycznie
+ * potwierdzonych przez backend - one nigdy nie były modyfikowane podglądem).
+ * @param {number} columnIndex
+ */
+export function clearColumnPreview(columnIndex) {
+    const rows = State.getInstance().cachedGrid;
+    const currentRows = State.getInstance().currentRows;
+
+    if (rows) {
+        rows.forEach((rowCells, i) => {
+            const cell = rowCells[columnIndex + 1];
+            if (!cell) {return;}
+
+            cell.classList.remove('column-edit-pending');
+
+            // nie nadpisuj komórki, która akurat jest w trakcie edycji (ma input/textarea)
+            if (cell.querySelector('input, textarea')) {return;}
+
+            const rowData = currentRows ? currentRows[i] : undefined;
+            cell.textContent = rowData ? (rowData[columnIndex] ?? 'NULL') : '';
+        });
+    }
+
+    const headerCell = document.querySelector(
+        `.header-cell[data-column-index="${columnIndex}"]`
+    );
+    if (headerCell) {headerCell.classList.remove('column-edit-pending');}
+}
+
 export function renderPage(data) {
     const headers = State.getInstance().headers;
     const rows = State.getInstance().cachedGrid;

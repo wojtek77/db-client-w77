@@ -238,6 +238,24 @@ html, body {
     color: #c62828;
 }
 
+/* Podgląd nowej wartości dla CAŁEJ kolumny (nagłówek + wszystkie komórki danych na
+   bieżącej stronie) - tylko wizualnie w webview, dane w backend/cache NIE są ruszane,
+   dopóki użytkownik nie potwierdzi zapisu przyciskiem "Save" */
+.grid-cell.column-edit-pending {
+    background-color: var(--vscode-editorError-background) !important;
+    color: var(--vscode-editor-foreground) !important;
+}
+
+.save-column-edits-btn {
+    margin-left: 1em;
+    font-weight: bold;
+    color: var(--vscode-editor-foreground);
+    background-color: var(--vscode-editorError-background);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid gray
+}
+
 .btn {
     padding: 1px 3px;
     margin-left: 3px;

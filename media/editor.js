@@ -1,3 +1,6 @@
+import { State } from './state.js';
+import { applyColumnPreview, clearColumnPreview } from './tableRenderer.js';
+
 export function initEditor(vscode) {
     document.addEventListener('DOMContentLoaded', () => {
 
@@ -11,6 +14,7 @@ export function initEditor(vscode) {
         initConnectionColorButton(vscode);
         initDeleteRowsButton(vscode);
         initGenerateSqlButtons(vscode);
+        initSaveColumnEditsButton(vscode);
 
     });
 }
@@ -75,12 +79,31 @@ function initCellEditing(vscode) {
         input.focus();
         input.select();
 
+        // Escape usuwa input z DOM (przez cell.textContent = oldValue), a to samo w sobie
+        // wyzwala zdarzenie 'blur' na tym polu - bez tej flagi saveEdit() i tak by zapisał
+        // wpisaną wartość, mimo że użytkownik chciał anulować edycję
+        let cancelled = false;
+
         function saveEdit() {
+            if (cancelled) {return;}
+
             const newValue = input.value;
             if (row) {row.classList.remove('editing-row');}
 
             if (newValue === oldValue) {
                 cell.textContent = oldValue;
+                return;
+            }
+
+            const headerCell = document.querySelector(
+                `.header-cell[data-column-index="${colIndex}"]`
+            );
+            const isColumnSelected = headerCell && headerCell.classList.contains('selected-col');
+
+            if (isColumnSelected) {
+                // Cała kolumna jest zaznaczona -> zamiast update'ować jeden wiersz,
+                // startujemy (wyłącznie wizualny) podgląd zbiorczej edycji tej kolumny
+                startColumnEdit(colIndex, newValue);
                 return;
             }
 
@@ -103,6 +126,7 @@ function initCellEditing(vscode) {
             }
             if (e.key === 'Escape') {
                 e.preventDefault();
+                cancelled = true;
                 if (row) {row.classList.remove('editing-row');}
                 cell.textContent = oldValue;
             }
@@ -110,6 +134,82 @@ function initCellEditing(vscode) {
 
         input.addEventListener('blur', () => {
             saveEdit();
+        });
+    });
+}
+
+/**
+ * Startuje (wyłącznie wizualny) podgląd zbiorczej edycji CAŁEJ kolumny: zapamiętuje
+ * nową wartość w State.pendingColumnEdits (klucz = columnIndex) i nakłada podgląd
+ * na wszystkie komórki tej kolumny na bieżącej stronie. Dane w State.currentRows
+ * i w backendzie pozostają nietknięte, dopóki użytkownik nie kliknie "Save".
+ */
+function startColumnEdit(colIndex, value) {
+    const pending = { ...State.getInstance().pendingColumnEdits };
+    pending[colIndex] = value;
+    State.getInstance().pendingColumnEdits = pending;
+
+    applyColumnPreview(colIndex, value);
+    updateSaveColumnEditsButtonVisibility();
+}
+
+/** Anuluje oczekującą edycję TYLKO jednej kolumny (po jej indeksie) i przywraca jej realne wartości. */
+function cancelColumnEdit(colIndex) {
+    const pending = { ...State.getInstance().pendingColumnEdits };
+    if (!(colIndex in pending)) {return;}
+
+    delete pending[colIndex];
+    State.getInstance().pendingColumnEdits = pending;
+
+    clearColumnPreview(colIndex);
+    updateSaveColumnEditsButtonVisibility();
+}
+
+/** Anuluje WSZYSTKIE oczekujące edycje kolumn - używane m.in. przy uruchomieniu nowego SQL-a (ctrl+enter). */
+export function cancelAllColumnEdits() {
+    const pending = State.getInstance().pendingColumnEdits || {};
+    Object.keys(pending).forEach(colIndex => cancelColumnEdit(Number(colIndex)));
+}
+
+/** Ponownie nakłada podgląd dla wszystkich oczekujących edycji kolumn - używane po zmianie strony. */
+export function reapplyAllColumnEdits() {
+    const pending = State.getInstance().pendingColumnEdits || {};
+    Object.keys(pending).forEach(colIndex => {
+        applyColumnPreview(Number(colIndex), pending[colIndex]);
+    });
+    updateSaveColumnEditsButtonVisibility();
+}
+
+/* pokazuje/ukrywa przycisk "Save" w zależności od tego, czy są jakieś oczekujące edycje kolumn */
+function updateSaveColumnEditsButtonVisibility() {
+    const btn = document.getElementById('saveColumnEditsBtn');
+    if (!btn) {return;}
+
+    const pending = State.getInstance().pendingColumnEdits || {};
+    btn.style.display = Object.keys(pending).length > 0 ? 'inline-block' : 'none';
+}
+
+/* obsługa kliknięcia przycisku "Save" - wysyła wszystkie oczekujące edycje kolumn do
+   rozszerzenia; ono pokaże okno potwierdzenia i wykona (lub anuluje) faktyczny zapis */
+function initSaveColumnEditsButton(vscode) {
+    const btn = document.getElementById('saveColumnEditsBtn');
+    if (!btn) {return;}
+
+    btn.addEventListener('click', () => {
+        const headers = State.getInstance().headers;
+        const pending = State.getInstance().pendingColumnEdits || {};
+
+        const edits = Object.keys(pending).map(colIndex => ({
+            columnIndex: Number(colIndex),
+            columnName: headers[Number(colIndex)],
+            value: pending[colIndex]
+        }));
+
+        if (edits.length === 0) {return;}
+
+        vscode.postMessage({
+            command: 'saveColumnEdits',
+            edits
         });
     });
 }
@@ -204,10 +304,12 @@ function initRowSelection() {
     });
 }
 
-/* pokazuje ikony w .tools (kosz, generowanie SQL) tylko wtedy, gdy przynajmniej jeden wiersz jest zaznaczony */
+/* pokazuje ikony w .tools (kosz, generowanie SQL) tylko wtedy, gdy przynajmniej jeden wiersz jest zaznaczony.
+   Przycisk #saveColumnEditsBtn jest celowo pominięty - jego widoczność zależy wyłącznie
+   od tego, czy są jakieś oczekujące edycje kolumn (patrz updateSaveColumnEditsButtonVisibility) */
 function updateDeleteButtonVisibility(rows) {
     const hasSelection = rows.some(r => r.classList.contains('selected-row'));
-    document.querySelectorAll('.tools-btn').forEach(btn => {
+    document.querySelectorAll('.tools-btn:not(#saveColumnEditsBtn)').forEach(btn => {
         btn.style.display = hasSelection ? 'inline-block' : 'none';
     });
 }
@@ -316,6 +418,13 @@ function initColumnSelection() {
                 cell.classList.toggle('selected-col', select);
             }
         });
+
+        // odznaczenie kolumny -> anuluj ewentualną niezapisaną edycję tej kolumny
+        // (znika czerwone podświetlenie, wraca prawdziwa wartość, znika przycisk Save
+        // jeśli nie ma innych oczekujących edycji)
+        if (!select) {
+            cancelColumnEdit(colIndex);
+        }
     }
 
     function clearAllColumns(headerCells) {

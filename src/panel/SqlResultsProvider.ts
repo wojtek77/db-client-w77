@@ -117,6 +117,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 await this.deleteRowsInDB(msg.rowIndexes);
             }
 
+            if (msg.command === 'saveColumnEdits') {
+                await this.saveColumnEdits(msg.edits);
+            }
+
             if (msg.command === 'generateInsert') {
                 await this.generateInsertSQL(msg.rowIndexes);
             }
@@ -526,6 +530,158 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         } catch (err: any) {
             console.error('Delete error:', err);
             vscode.window.showErrorMessage(`❌ Delete error: ${err.message}`);
+        }
+    }
+
+    /** Porównuje dwie wartości PK (obsługuje liczby, stringi, null) - do sortowania. */
+    private comparePkValues(a: any, b: any): number {
+        if (a === b) {return 0;}
+        if (a === null || a === undefined) {return -1;}
+        if (b === null || b === undefined) {return 1;}
+        if (typeof a === 'number' && typeof b === 'number') {return a - b;}
+        if (typeof a === 'bigint' && typeof b === 'bigint') {return a < b ? -1 : (a > b ? 1 : 0);}
+        return String(a).localeCompare(String(b), undefined, { numeric: true });
+    }
+
+    /** Porównuje dwie krotki wartości PK kolumna po kolumnie (obsługuje też PK złożony). */
+    private comparePkTuples(tupleA: any[], tupleB: any[]): number {
+        for (let i = 0; i < tupleA.length; i++) {
+            const cmp = this.comparePkValues(tupleA[i], tupleB[i]);
+            if (cmp !== 0) {return cmp;}
+        }
+        return 0;
+    }
+
+    /**
+     * Zbiorcza edycja CAŁEJ kolumny (lub kilku kolumn na raz, każda z własną nową
+     * wartością) - zmienia wartość dla WSZYSTKICH rekordów, których ID znajdują się
+     * w this._allRows (czyli w bieżących wynikach SQL - może ich być więcej niż jedna
+     * strona, jeśli zapytanie miało własny LIMIT). NIE dotyka rekordów spoza wyników
+     * SQL - WHERE pk IN (id1, id2, ...), gdzie id pochodzą wyłącznie z this._allRows
+     * (posortowane, żeby były czytelne w logach SQL). Każda kolumna jest zmieniana
+     * JEDNYM zapytaniem UPDATE, a wszystkie kolumny razem są zapisywane w JEDNEJ
+     * transakcji: albo wszystkie się powiodą, albo żadna (rollback).
+     */
+    private async saveColumnEdits(
+        edits: { columnIndex: number; columnName: string; value: any }[]
+    ) {
+        if (!edits || edits.length === 0) {
+            return;
+        }
+
+        try {
+            const context = await this.resolveTableContext();
+            if (!context) {
+                this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
+                return;
+            }
+
+            const { tableName, qualifiedTable, columns, primaryKeys } = context;
+
+            if (this._allRows.length === 0) {
+                vscode.window.showErrorMessage('No rows in the SQL results to update');
+                this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
+                return;
+            }
+
+            // ID (wartości PK) WSZYSTKICH wierszy z bieżących wyników SQL (this._allRows),
+            // nie tylko z aktualnie wyrenderowanej strony - to one wyznaczają zakres UPDATE-u
+            const pkValueTuples = this._allRows.map(
+                (row) => primaryKeys.map((pk) => row[pk.index])
+            );
+
+            // sortujemy ID przed wstawieniem do UPDATE-u, żeby były czytelne w logach SQL
+            pkValueTuples.sort((tupleA, tupleB) => this.comparePkTuples(tupleA, tupleB));
+
+            const pkColumnNames = primaryKeys.map((pk) => `\`${pk.name}\``);
+
+            let whereClause: string;
+            let whereValues: any[];
+
+            if (pkColumnNames.length === 1) {
+                // pojedyncza kolumna PK - WHERE pk IN (?, ?, ...)
+                const placeholders = pkValueTuples.map(() => '?').join(', ');
+                whereClause = `${pkColumnNames[0]} IN (${placeholders})`;
+                whereValues = pkValueTuples.map((tuple) => tuple[0]);
+            } else {
+                // PK złożony - WHERE (pk1, pk2) IN ((?,?), (?,?), ...)
+                const tuplePlaceholder = `(${pkColumnNames.map(() => '?').join(', ')})`;
+                const placeholders = pkValueTuples.map(() => tuplePlaceholder).join(', ');
+                whereClause = `(${pkColumnNames.join(', ')}) IN (${placeholders})`;
+                whereValues = pkValueTuples.flat();
+            }
+
+            const normalizedEdits = edits.map((edit) => {
+                let value = edit.value;
+                if (typeof value === 'string' && value.trim().toUpperCase() === 'NULL') {
+                    value = null;
+                }
+                return { ...edit, value };
+            });
+
+            const columnInfoByName = new Map(columns.map((c) => [c.name, c]));
+
+            const changesPreview = normalizedEdits
+                .map((edit) => {
+                    const columnInfo = columnInfoByName.get(edit.columnName);
+                    return `\`${edit.columnName}\` = ${formatSqlValue(edit.value, columnInfo?.field)}`;
+                })
+                .join(', ');
+
+            const recordCount = this._allRows.length;
+
+            const confirmLabel = 'Update';
+            const answer = await vscode.window.showWarningMessage(
+                `Change ${changesPreview} for ${recordCount} record(s) matching the current SQL results in table "${tableName}"? ` +
+                `This cannot be undone.`,
+                { modal: true },
+                confirmLabel
+            );
+
+            if (answer !== confirmLabel) {
+                this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
+                return;
+            }
+
+            const db = await ConnectionManager.getInstance().getDb();
+
+            await db.startTransaction();
+            try {
+                for (const edit of normalizedEdits) {
+                    const updateSQL = `
+                        UPDATE ${qualifiedTable}
+                        SET \`${edit.columnName}\` = ?
+                        WHERE ${whereClause}
+                    `;
+                    await db.query(updateSQL, [edit.value, ...whereValues]);
+                }
+                await db.commit();
+            } catch (err) {
+                await db.rollback();
+                throw err;
+            }
+
+            // backend jest źródłem prawdy - odzwierciedlamy zmianę we wszystkich
+            // lokalnie przechowywanych wierszach (this._allRows), żeby po odświeżeniu
+            // strony webview pokazał aktualne wartości
+            for (const edit of normalizedEdits) {
+                for (const row of this._allRows) {
+                    row[edit.columnIndex] = edit.value;
+                }
+            }
+
+            // odśwież widok: znika czerwone podświetlenie kolumny i przycisk zapisu,
+            // a komórki pokazują nową wartość
+            this.sendPage(this._currentPage, true);
+
+            const columnNames = normalizedEdits.map((e) => `\`${e.columnName}\``).join(', ');
+            vscode.window.showInformationMessage(
+                `✅ Updated ${columnNames} for ${recordCount} record(s) in ${tableName}`
+            );
+        } catch (err: any) {
+            console.error('Column bulk update error:', err);
+            vscode.window.showErrorMessage(`❌ Column bulk update error: ${err.message}`);
+            this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
         }
     }
 
