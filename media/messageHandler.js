@@ -295,13 +295,15 @@ window.addEventListener('message', event => {
     }
     
     if (msg.command === 'updateConfirmed') {
-        const cells = document.querySelectorAll(
-            `[data-row="${msg.rowIndex}"][data-col="${msg.columnIndex}"]`
-        );
-        cells.forEach(cell => {
+        // korzystamy z już istniejącego cachedGrid (każda komórka ma _index = {row, col})
+        // zamiast przeszukiwać cały DOM przez querySelectorAll po atrybutach,
+        // których komórki i tak nigdy nie dostają
+        const rowCells = State.getInstance().cachedGrid?.[msg.rowIndex];
+        const cell = rowCells?.[msg.columnIndex + 1]; // +1 bo indeks 0 to kolumna LP
+        if (cell) {
             cell.classList.add('updated-cell');
             setTimeout(() => cell.classList.remove('updated-cell'), 500);
-        });
+        }
     }
 
     if (msg.command === 'columnEditsCancelled') {
