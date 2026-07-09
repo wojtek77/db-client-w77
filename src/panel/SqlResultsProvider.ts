@@ -354,7 +354,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
                 if (pkIndex === -1) {
                     vscode.window.showErrorMessage(
-                        `Brak PRIMARY KEY '${pk.name}' w wynikach SELECT`
+                        `Missing PRIMARY KEY '${pk.name}' in the SELECT results`
                     );
                     return;
                 }
@@ -460,7 +460,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
                 if (pkIndex === -1) {
                     vscode.window.showErrorMessage(
-                        `Brak PRIMARY KEY '${pk.name}' w wynikach SELECT`
+                        `Missing PRIMARY KEY '${pk.name}' in the SELECT results`
                     );
                     return;
                 }
@@ -745,7 +745,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const primaryKeys = columns.filter((c) => primaryKeyNames.has(c.name));
 
         if (primaryKeys.length !== primaryKeyNames.size) {
-            vscode.window.showErrorMessage(`Brak wszystkich kolumn PRIMARY KEY w wynikach SELECT`);
+            vscode.window.showErrorMessage(`Not all PRIMARY KEY columns are present in the SELECT results`);
             return null;
         }
 
