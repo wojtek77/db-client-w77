@@ -19,6 +19,7 @@ interface FileResultState {
     connectionTime: number;
     queryTime: number;
     connectionColor: string | null;
+    currentPage: number;
 }
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
@@ -106,6 +107,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             if (msg.command === 'loadPage') {
                 this._currentPage = msg.page;
+                
+                // zapamiętaj aktualną stronę w stanie tego pliku, żeby po ponownym
+                // uruchomieniu tego samego SQL-a można było na nią wrócić
+                const fileState = this._fileStates.get(this._currentSqlFile);
+                if (fileState) {
+                    fileState.currentPage = msg.page;
+                }
+                
                 this.sendPage(msg.page);
             }
             
@@ -961,6 +970,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // rows = [];
         }
         
+        // jeśli to jest DOKŁADNIE ten sam SQL co poprzednio uruchomiony dla tego pliku,
+        // zostajemy na tej samej stronie co poprzednio; w przeciwnym razie (nowy/inny SQL)
+        // zawsze wracamy do strony 1
+        const previousFileState = this._fileStates.get(sqlFile);
+        const isSameQueryAsBefore = previousFileState?.sql === sql;
+        
         this._allRows = rows;
         this._headers = headers;
         this._lastSQL = sql;
@@ -970,10 +985,19 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._connectionTime = db.getConnectionTime();
         this._lastQueryTime = queryTime;
         this._connectionColor = ConnectionColors.getInstance().getColor(this._connectionName);
-        this._currentPage = 1;
         this._infoMessage = infoMessage ?? '';
         this._flashMessage = flashMessage ?? '';
         this._errorMessage = errorMessage ?? '';
+        
+        const totalPages = Math.max(1, Math.ceil(this._allRows.length / this.ROWS_PER_PAGE));
+        if (isSameQueryAsBefore) {
+            // ten sam SQL co poprzednio -> zostajemy na poprzedniej stronie (przycięte do zakresu,
+            // gdyby liczba wierszy się zmieniła i poprzednia strona już nie istniała)
+            this._currentPage = Math.min(previousFileState!.currentPage, totalPages);
+        } else {
+            // inny/nowy SQL -> zawsze strona 1
+            this._currentPage = 1;
+        }
         
         this._fileStates.set(sqlFile, {
             rows: this._allRows,
@@ -985,6 +1009,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             connectionTime: this._connectionTime,
             queryTime: this._lastQueryTime,
             connectionColor: this._connectionColor,
+            currentPage: this._currentPage,
         });
         
         // wysłanie info o tym że dane się łądują (blur)
@@ -992,7 +1017,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             command: 'loadingWebview'
         });
         
-        this.sendPage(1);
+        this.sendPage(this._currentPage, true);
     }
     
     public showResultsForFile(sqlFile: string) {
@@ -1012,12 +1037,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._currentSqlFile = sqlFile;
         this._allRows = state.rows;
         this._headers = state.headers;
+        this._lastSQL = state.sql;
         this._meta = state.meta;
         this._columnTypes = state.columnTypes ?? [];
         this._lastQueryTime = state.queryTime;
         this._connectionName = state.connectionName;
         this._connectionTime = state.connectionTime;
         this._connectionColor = state.connectionColor ?? null;
+        this._currentPage = state.currentPage ?? 1;
 
         this._view.webview.postMessage({
             command: 'showResultsForFile',

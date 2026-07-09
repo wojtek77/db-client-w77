@@ -148,6 +148,14 @@ window.addEventListener('message', event => {
             throw new Error("Missing: msg.sqlFile");
         }
         State.init(msg.sqlFile);
+        // Ustaw aktualną stronę na podstawie odpowiedzi z backendu (a nie na podstawie
+        // "optymistycznej" wartości ustawionej wcześniej lokalnie przez pagination.js) -
+        // dzięki temu np. po ponownym uruchomieniu SQL-a numer strony jest zawsze zgodny
+        // z tym, co faktycznie przyszło z backendu (strona 1 dla nowego SQL-a, poprzednia
+        // strona, gdy backend zdecyduje się ją zachować dla tego samego SQL-a).
+        if (typeof msg.currentPage === 'number') {
+            State.getInstance().currentPage = msg.currentPage;
+        }
         // Oblicz całkowitą liczbę stron
         State.getInstance().totalPages = Math.ceil(
             msg.totalRows / State.getInstance().ROWS_PER_PAGE
