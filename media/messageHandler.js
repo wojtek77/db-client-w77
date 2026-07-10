@@ -117,9 +117,6 @@ window.addEventListener('message', event => {
         
         startSpinner();
         spinner.style.borderTopColor = '#ffb937';
-
-        // nowe zapytanie -> poprzednie zaznaczenie wierszy przestaje mieć sens
-        document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
     }
 
     if (msg.command === 'queryFinished') {
@@ -174,6 +171,8 @@ window.addEventListener('message', event => {
         
         const shape = `${currentRows.length}x${State.getInstance().headers.join('|')}`;
 
+        let isSameQuery = Boolean(msg.isSameQuery);
+
         if (sqlFile && sqlFile === msg.sqlFile) { // kiedy jest powtórne uruchomienie SQL w tym samym pliku
             // header DOM już jest poprawny (ten sam plik, poprzednie renderHeaders) -
             // przebudowujemy go tylko, gdy realnie zmienił się kształt albo nazwy kolumn
@@ -187,6 +186,8 @@ window.addEventListener('message', event => {
                 console.timeEnd("⏱️ initializeGrid time");
                 State.getInstance().currentRows = undefined;
                 State.getInstance().gridShape = shape;
+
+                isSameQuery = false;
             }
         } else { // kiedy jest nowe uruchomienie pliku lub zmiana pliku
             // header DOM mógł do tej pory należeć do innego, poprzednio otwartego pliku,
@@ -234,10 +235,13 @@ window.addEventListener('message', event => {
             // znika czerwone podświetlenie i przycisk zapisu
             cancelAllColumnEdits();
         } else {
-            // zwykłe odświeżenie danych (np. zmiana strony) -> jeśli są jakieś
-            // niezapisane edycje kolumn, trzeba ponownie nałożyć ich podgląd,
-            // bo renderPage() właśnie nadpisał komórki prawdziwymi wartościami z backendu
-            reapplyAllColumnEdits();
+            if (isSameQuery) {
+                // jeśli są jakieś niezapisane edycje kolumn, trzeba ponownie nałożyć ich podgląd,
+                // bo renderPage() właśnie nadpisał komórki prawdziwymi wartościami z backendu
+                reapplyAllColumnEdits();
+            } else {
+                document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
+            }
         }
         
         stopSpinner();

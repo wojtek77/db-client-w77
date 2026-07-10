@@ -203,7 +203,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private sendPage(pageNumber: number, clearSelection = false) {
+    private sendPage(pageNumber: number, clearSelection = false, isSameQuery = true) {
         if (!this._view) {return;}
         
         const start = (pageNumber - 1) * this.ROWS_PER_PAGE;
@@ -235,6 +235,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 connectionColor: this._connectionColor,
                 infoMessage: this._infoMessage,
                 clearSelection,
+                isSameQuery,
                 flashMessage: this._flashMessage,
                 errorMessage: this._errorMessage,
                 isEncoded: true,
@@ -1017,7 +1018,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             command: 'loadingWebview'
         });
         
-        this.sendPage(this._currentPage);
+        this.sendPage(this._currentPage, false, isSameQueryAsBefore);
     }
     
     public showResultsForFile(sqlFile: string) {
