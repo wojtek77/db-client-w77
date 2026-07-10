@@ -241,6 +241,7 @@ window.addEventListener('message', event => {
                 reapplyAllColumnEdits();
             } else {
                 document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
+                State.getInstance().pendingColumnEdits = {};
             }
         }
         
