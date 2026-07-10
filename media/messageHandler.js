@@ -1,6 +1,6 @@
 import { State } from './state.js';
 import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage } from './tableRenderer.js';
-import { cancelAllColumnEdits, reapplyAllColumnEdits } from './editor.js';
+import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility } from './editor.js';
 
 let sqlFile;
 let queryTimer = null;
@@ -96,6 +96,10 @@ function startGridContainer() {
 }
 function stopGridContainer() {
     if (gridContainer) {gridContainer.style.display = 'none';}
+}
+function stopToolsBtn() {
+    document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
+    State.getInstance().pendingColumnEdits = {};
 }
 
 window.addEventListener('message', event => {
@@ -229,7 +233,7 @@ window.addEventListener('message', event => {
                 );
             }
 
-            document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
+            stopToolsBtn();
 
             // dane zostały odświeżone z backendu (np. po udanym zapisie kolumny) ->
             // znika czerwone podświetlenie i przycisk zapisu
@@ -240,8 +244,7 @@ window.addEventListener('message', event => {
                 // bo renderPage() właśnie nadpisał komórki prawdziwymi wartościami z backendu
                 reapplyAllColumnEdits();
             } else {
-                document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
-                State.getInstance().pendingColumnEdits = {};
+                stopToolsBtn();
             }
         }
         
@@ -268,6 +271,8 @@ window.addEventListener('message', event => {
         updateInfoMessage(State.getInstance().infoMessage);
         updateErrorMessage(State.getInstance().errorMessage);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
+        updateDeleteButtonVisibility(State.getInstance().cachedGridHtml);
+        updateSaveColumnEditsButtonVisibility();
         
         // renderowanie HTML
         console.time("⏱️ restoreHeaderFromCache time");
@@ -293,6 +298,8 @@ window.addEventListener('message', event => {
         updateInfoMessage();
         updateErrorMessage();
         updatePagination();
+        updateDeleteButtonVisibility();
+        updateSaveColumnEditsButtonVisibility(true); // tylko ukrywa
     }
     
     if (msg.command === 'changeConnection') {

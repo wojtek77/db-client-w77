@@ -182,11 +182,11 @@ export function reapplyAllColumnEdits() {
 }
 
 /* pokazuje/ukrywa przycisk "Save" w zależności od tego, czy są jakieś oczekujące edycje kolumn */
-function updateSaveColumnEditsButtonVisibility() {
+export function updateSaveColumnEditsButtonVisibility(onlyHide = false) {
     const btn = document.getElementById('saveColumnEditsBtn');
     if (!btn) {return;}
 
-    const pending = State.getInstance().pendingColumnEdits || {};
+    const pending = onlyHide ? {} : (State.getInstance().pendingColumnEdits || {});
     btn.style.display = Object.keys(pending).length > 0 ? 'inline-block' : 'none';
 }
 
@@ -309,7 +309,7 @@ function initRowSelection() {
 /* pokazuje ikony w .tools (kosz, generowanie SQL) tylko wtedy, gdy przynajmniej jeden wiersz jest zaznaczony.
    Przycisk #saveColumnEditsBtn jest celowo pominięty - jego widoczność zależy wyłącznie
    od tego, czy są jakieś oczekujące edycje kolumn (patrz updateSaveColumnEditsButtonVisibility) */
-function updateDeleteButtonVisibility(rows) {
+export function updateDeleteButtonVisibility(rows = []) {
     const hasSelection = rows.some(r => r.classList.contains('selected-row'));
     document.querySelectorAll('.tools-btn:not(#saveColumnEditsBtn)').forEach(btn => {
         btn.style.display = hasSelection ? 'inline-block' : 'none';
