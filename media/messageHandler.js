@@ -120,13 +120,6 @@ window.addEventListener('message', event => {
 
         // nowe zapytanie -> poprzednie zaznaczenie wierszy przestaje mieć sens
         document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
-
-        // nowe zapytanie (ctrl+enter) -> anuluj ewentualną niezapisaną edycję kolumny(kolumn)
-        try {
-            cancelAllColumnEdits();
-        } catch (e) {
-            // State nie był jeszcze zainicjalizowany (pierwsze uruchomienie) - nic do anulowania
-        }
     }
 
     if (msg.command === 'queryFinished') {
@@ -290,12 +283,6 @@ window.addEventListener('message', event => {
         document.getElementById('gridHeader').innerHTML = '';
         document.getElementById('gridBody').innerHTML = '';
         sqlFile = undefined; // zapomnij, dla jakiego pliku była ostatnio wyrenderowana siatka
-
-        try {
-            cancelAllColumnEdits();
-        } catch (e) {
-            // State nie był jeszcze zainicjalizowany - nic do anulowania
-        }
 
         updateDbAndTimes();
         updateInfoMessage();

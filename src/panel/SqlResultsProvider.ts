@@ -1017,7 +1017,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             command: 'loadingWebview'
         });
         
-        this.sendPage(this._currentPage, true);
+        this.sendPage(this._currentPage);
     }
     
     public showResultsForFile(sqlFile: string) {

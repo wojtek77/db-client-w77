@@ -172,6 +172,9 @@ export function cancelAllColumnEdits() {
 /** Ponownie nakłada podgląd dla wszystkich oczekujących edycji kolumn - używane po zmianie strony. */
 export function reapplyAllColumnEdits() {
     const pending = State.getInstance().pendingColumnEdits || {};
+    if (pending === {}) {
+        return;
+    }
     Object.keys(pending).forEach(colIndex => {
         applyColumnPreview(Number(colIndex), pending[colIndex]);
     });
