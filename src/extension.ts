@@ -10,9 +10,37 @@ import { runSqlWholeFileCommand } from './commands/runSqlWholeFileCommand.js';
 import { ConnectionColors } from './db/ConnectionColors.js';
 
 
-let previousSqlEditors = 0;
-let stopTimeout: NodeJS.Timeout | undefined;
+// Sprawdza, czy jakakolwiek otwarta zakładka to plik SQL
+// (Tabs API widzi WSZYSTKIE otwarte zakładki, nie tylko tę aktualnie
+// wyświetlaną w danej grupie edytorów - dzięki temu przełączenie się
+// na inną zakładkę bez zamykania SQL-a nie jest mylone z zamknięciem).
+function hasOpenSqlTab(): boolean {
+    return vscode.window.tabGroups.all
+        .flatMap(group => group.tabs)
+        .some(tab => {
+            if (!(tab.input instanceof vscode.TabInputText)) {
+                return false;
+            }
+            const doc = vscode.workspace.textDocuments.find(
+                d => d.uri.toString() === (tab.input as vscode.TabInputText).uri.toString()
+            );
+            return doc?.languageId === 'sql';
+        });
+}
 
+async function syncExtensionState(context: vscode.ExtensionContext) {
+    const sqlTabOpen = hasOpenSqlTab();
+
+    // otwarto pierwszy SQL editor
+    if (sqlTabOpen && !isExtensionRunning()) {
+        await startExtension(context);
+    }
+
+    // zamknięto ostatni SQL editor
+    if (!sqlTabOpen && isExtensionRunning()) {
+        await stopExtension(true);
+    }
+}
 
 export async function activate(context: vscode.ExtensionContext) {
     // wczytanie listy plików SQL z dysku
@@ -20,58 +48,21 @@ export async function activate(context: vscode.ExtensionContext) {
     
     // inicjalizacja kolorów połączeń
     ConnectionColors.initialize(context);
-    
-    previousSqlEditors = vscode.window.visibleTextEditors.filter(
-        e => e.document.languageId === 'sql'
-    ).length;
 
-    // if (previousSqlEditors > 0) {
-        await startExtension(context);
-    // }
+    await startExtension(context);
 
     context.subscriptions.push(
-        vscode.window.onDidChangeVisibleTextEditors(async (editors) => {
+        vscode.window.tabGroups.onDidChangeTabs(() => syncExtensionState(context))
+    );
 
-        const currentSqlEditors = editors.filter(e =>
-            e.document.languageId === 'sql'
-        ).length;
-
-        // anuluj pending STOP
-        if (stopTimeout) {
-            clearTimeout(stopTimeout);
-            stopTimeout = undefined;
-        }
-
-        // otwarto pierwszy SQL editor
-        if (previousSqlEditors === 0 && currentSqlEditors > 0) {
-
-            if (!isExtensionRunning()) {
-                await startExtension(context);
-            }
-        }
-
-        // zamknięto ostatni SQL editor
-        if (previousSqlEditors > 0 && currentSqlEditors === 0) {
-
-                stopTimeout = setTimeout(() => {
-
-                    const stillNoEditors =
-                        vscode.window.visibleTextEditors.filter(
-                            e => e.document.languageId === 'sql'
-                        ).length === 0;
-
-                    if (stillNoEditors) {
-
-                        if (isExtensionRunning()) {
-                            stopExtension(true);
-                        }
-                    }
-
-                }, 150);
-            }
-
-            previousSqlEditors = currentSqlEditors;
-        })
+    // Zakładka może pojawić się w tabGroups zanim jej TextDocument
+    // (a więc languageId) zdąży się w pełni załadować - np. przy otwieraniu
+    // pliku przez "Go to File" / Quick Open. Dlatego dokładamy drugi,
+    // niezależny trigger: onDidOpenTextDocument odpala się dopiero, gdy
+    // dokument (i jego languageId) są już gotowe, więc "dogania" stan,
+    // gdyby poprzedni event odpalił się za wcześnie.
+    context.subscriptions.push(
+        vscode.workspace.onDidOpenTextDocument(() => syncExtensionState(context))
     );
     
     SqlResultsProvider.initialize(context);
