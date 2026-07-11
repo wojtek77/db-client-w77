@@ -73,7 +73,13 @@ export async function activate(context: vscode.ExtensionContext) {
     // inicjalizacja kolorów połączeń
     ConnectionColors.initialize(context);
 
-    await startExtension(context);
+    // Start tylko, jeśli przy aktywacji jakiś plik SQL jest już otwarty
+    // (np. VS Code przywrócił poprzednią sesję). W przeciwnym razie
+    // rozszerzenie ma pozostać wyłączone i wystartować dopiero przez
+    // handleTabsChanged/handleDocumentOpened.
+    if (hasOpenSqlTab()) {
+        await startExtension(context);
+    }
 
     context.subscriptions.push(
         vscode.window.tabGroups.onDidChangeTabs(() => handleTabsChanged(context))
