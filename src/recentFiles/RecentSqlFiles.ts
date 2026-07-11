@@ -28,7 +28,7 @@ export class RecentSqlFiles {
      * Zwraca pełną ścieżkę do pliku zapisu w folderze rozszerzenia
      */
     private getStorageFilePath(): string {
-        return path.join(this.context.globalStorageUri.fsPath, RecentSqlFiles.FILE_NAME);
+        return path.join(this.context.globalStorageUri.fsPath, '..', RecentSqlFiles.FILE_NAME);
     }
     
     /**
