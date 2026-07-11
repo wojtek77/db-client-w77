@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import { ConnectionManager } from './ConnectionManager.js';
 import { Connection } from './Connection.js';
 import { SqlUtil } from '../sql/SqlUtil.js';
@@ -15,6 +16,20 @@ export async function executeQuery(db: Connection, sql: string) {
     try {
         // wcześniej na SQL był TRIM
         sql = SqlUtil.appendLimit(sql);
+
+        if (SqlUtil.isUpdateOrDelete(sql) && !SqlUtil.hasWhereClause(sql)) {
+            const blockUnsafe = vscode.workspace
+                .getConfiguration('db-client')
+                .get<boolean>('blockUnsafeUpdateDelete', true);
+
+            if (blockUnsafe) {
+                return {
+                    rows: [], headers: [], meta: undefined, queryTime: 0, success: false,
+                    errorMessage: 'Blocked: UPDATE/DELETE without a WHERE clause affects the whole table. ' +
+                        'Disable "db-client.blockUnsafeUpdateDelete" in settings to allow this.'
+                };
+            }
+        }
         
         let startQuery = performance.now();
         
@@ -62,9 +77,9 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
     
     const lines = fullText.split('\n');
 
-    let selectExecuted = false;
     let executedSqlCount = 0;
-    let skippedSelectCount = 0;
+    let executedSelectCount = 0;
+    let containsDDL = false;
 
     let lineIndex = 0;
     
@@ -87,19 +102,20 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
 
         const sql = query.sql;
 
+        if (SqlUtil.isDDL(sql)) {
+            containsDDL = true;
+        }
+
         if (SqlUtil.isSelect(sql)) {
-            if (!selectExecuted) {
-                // Wykonaj pierwszy SELECT przez executeQuery
-                ({ rows, headers, meta, success, errorMessage } = await executeQuery(db, sql));
-                if (!success) {
-                    break;
-                }
-                selectExecuted = true;
-                ++executedSqlCount;
-            } else {
-                // Pomiń kolejne SELECT-y
-                ++skippedSelectCount;
+            // Wykonaj KAŻDY SELECT z pliku (nie tylko pierwszy). "Run SQL Whole File"
+            // ma wykonać wszystkie polecenia z pliku - w webview wyświetlane są wyniki
+            // ostatniego wykonanego SELECT-a (nadpisujemy rows/headers/meta za każdym razem).
+            ({ rows, headers, meta, success, errorMessage } = await executeQuery(db, sql));
+            if (!success) {
+                break;
             }
+            ++executedSqlCount;
+            ++executedSelectCount;
         } else {
             // Nie-SELECT: wykonaj przez połączenie z bazą danych
             let noSelectRows: any[][] = [];
@@ -127,10 +143,14 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
     queryTime = endQuery - startQuery;
 
     // Wyświetl ogólną informację
-    const infoMessage = `Updated Rows: ${updatedRows}, Executed ${executedSqlCount} ${executedSqlCount === 1 ? 'query' : 'queries'}`;
+    const infoMessage = `Updated Rows: ${updatedRows}, Executed ${executedSqlCount} ${executedSqlCount === 1 ? 'query' : 'queries'}` +
+        (executedSelectCount > 1 ? ` (showing results of the last of ${executedSelectCount} SELECT queries)` : '');
     let flashMessage;
-    if (skippedSelectCount > 0) {
-        flashMessage = `Skipped ${skippedSelectCount} SELECT ${skippedSelectCount === 1 ? 'query' : 'queries'}`;
+    if (containsDDL) {
+        // W MySQL/MariaDB polecenia DDL (CREATE/ALTER/DROP/TRUNCATE/RENAME) wykonują
+        // niejawny COMMIT, więc transakcja obejmująca cały skrypt NIE gwarantuje
+        // pełnego wycofania zmian w razie błędu w dalszej części skryptu.
+        flashMessage = 'This script contains DDL statements, which auto-commit and cannot be rolled back';
     }
     
     return { rows, headers, meta, queryTime, success, errorMessage, infoMessage, flashMessage };

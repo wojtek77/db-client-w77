@@ -3,7 +3,8 @@
   "displayName": "MariaDB & MySQL Database Client",
   "description": "Fast MariaDB & MySQL client for VS Code with SQL autocomplete, IntelliSense, schema explorer, query execution, data editing and SQL formatting.",
   "publisher": "W77",
-  "version": "0.1.33",
+  "version": "0.2.0",
+  "license": "GPL-2.0-only",
   "icon": "DB-client.png",
   "engines": {
     "vscode": "^1.118.0"
@@ -69,7 +70,7 @@
           "icon": "DB-client.png",
           "type": "webview",
           "id": "sqlResultsView",
-          "name": "Wyniki SQL",
+          "name": "SQL Results",
           "when": "dbClientActive"
         }
       ]
@@ -90,6 +91,18 @@
       {
         "command": "db-client.formatSQL",
         "title": "DB client: Format SQL"
+      },
+      {
+        "command": "db-client.createConfigDir",
+        "title": "DB client: Create Default Connection (localhost)"
+      },
+      {
+        "command": "db-client.reloadConnections",
+        "title": "DB client: Reload Connection Files"
+      },
+      {
+        "command": "db-client.testConnection",
+        "title": "DB client: Test Connection"
       }
     ],
     "menus": {
@@ -146,6 +159,18 @@
           "default": "",
           "scope": "resource",
           "markdownDescription": "Absolute path to the directory where the `recent_sql_files.json` file is stored. Leave empty to use the default extension global storage directory (current behavior). Note: The path must not end with a slash (/) or backslash (\\\\)."
+        },
+        "db-client.blockUnsafeUpdateDelete": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Block `UPDATE`/`DELETE` statements that don't have a `WHERE` clause (they would affect the whole table). Applies to `Run SQL` and `Run SQL Whole File`."
+        },
+        "db-client.requireConnectionNameConfirmation": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "markdownDescription": "Before running a bulk destructive operation from the results grid (deleting selected rows, or saving a bulk column edit), require typing the connection name to confirm."
         }
       }
     }

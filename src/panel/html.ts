@@ -1,4 +1,10 @@
 import * as vscode from 'vscode';
+import * as crypto from 'crypto';
+
+function getNonce(): string {
+    // 32 losowe bajty zakodowane jako base64 - wystarczająco silne dla CSP script-src nonce
+    return crypto.randomBytes(16).toString('base64');
+}
 
 export function getHtml(
     webview: vscode.Webview,
@@ -16,6 +22,18 @@ export function getHtml(
 
     const styleUri = toUri('styles.css');
     const appUri = toUri('app.js');
+    const nonce = getNonce();
+
+    // Ścisła CSP: skrypty tylko z tym konkretnym nonce (żaden inline onclick/onerror
+    // się nie wykona), style i skrypty tylko z zasobów tego webview, brak dostępu
+    // do sieci/obrazów spoza webview.
+    const csp = [
+        `default-src 'none'`,
+        `style-src ${webview.cspSource}`,
+        `script-src 'nonce-${nonce}'`,
+        `img-src ${webview.cspSource}`,
+        `font-src ${webview.cspSource}`,
+    ].join('; ');
 
     return `
 <!DOCTYPE html>
@@ -24,6 +42,7 @@ export function getHtml(
 <head>
 
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
 
 <link rel="stylesheet" href="${styleUri}">
 
@@ -58,25 +77,25 @@ export function getHtml(
         <span id="saveColumnEditsBtn" class="tools-btn save-column-edits-btn" title="Save new value(s) for the whole column(s)">💾 Save</span>
     </div>
 
-    <span class="btn" onclick="openRecentFiles()">
+    <span class="btn" id="openRecentFilesBtn">
         Recent files
     </span>
     
-    <span class="btn" onclick="exportToCSV()">
+    <span class="btn" id="exportCSVBtn">
         Export CSV
     </span>
     
-    <span class="btn" onclick="exportToTXT()">
+    <span class="btn" id="exportTXTBtn">
         Export TXT
     </span>
 
     <div class="pagination">
 
-        <button class="btn" onclick="firstPage()" id="firstBtn">
+        <button class="btn" id="firstBtn">
             ⏮
         </button>
 
-        <button class="btn" onclick="prevPage()" id="prevBtn">
+        <button class="btn" id="prevBtn">
             ◀
         </button>
 
@@ -87,11 +106,11 @@ export function getHtml(
             <span id="totalPages">1</span>
         </span>
 
-        <button class="btn" onclick="nextPage()" id="nextBtn">
+        <button class="btn" id="nextBtn">
             ▶
         </button>
 
-        <button class="btn" onclick="lastPage()" id="lastBtn">
+        <button class="btn" id="lastBtn">
             ⏭
         </button>
 
@@ -115,7 +134,7 @@ export function getHtml(
     <div id="gridBody" class="grid-body"></div>
 </div>
 
-<script src="${appUri}"></script>
+<script nonce="${nonce}" src="${appUri}"></script>
 
 </body>
 </html>

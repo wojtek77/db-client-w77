@@ -42,11 +42,16 @@ function updatePagination(currentPage = 0, totalPages = 0) {
     document.getElementById('nextBtn').disabled = (currentPage === totalPages);
     document.getElementById('lastBtn').disabled = (currentPage === totalPages);
 }
-function updateDbAndTimes(connectionName = '-------', connectionTime = null, queryTime = null, connectionColor = null) {
+function updateDbAndTimes(connectionName = '-------', connectionTime = null, queryTime = null, connectionColor = null, isProduction = false, isReadOnly = false) {
     // ustawienie połączenia z DB i czasów
     const connNameEl = document.getElementById('connectionName');
     connNameEl.textContent = connectionName;
-    document.getElementById('connectionColor').style.color = connectionColor ?? '';
+    const toolbar = document.getElementById('connectionColor');
+    toolbar.style.color = connectionColor ?? '';
+    // ⚠ Silniejsze, trudne do przeoczenia oznaczenie połączeń produkcyjnych/tylko-do-odczytu,
+    // niezależnie od koloru wybranego przez użytkownika dla danego połączenia
+    toolbar.classList.toggle('production-connection', !!isProduction);
+    toolbar.classList.toggle('readonly-connection', !!isReadOnly);
     // ustawienie czasu połączenia
     document.getElementById('connectionTime').textContent = (connectionTime === null) ? '---' : connectionTime.toFixed(2);
     // ustawienie czasu query
@@ -162,9 +167,11 @@ window.addEventListener('message', event => {
         State.getInstance().connectionTime = msg.connectionTime;
         State.getInstance().queryTime = msg.queryTime;
         State.getInstance().connectionColor = msg.connectionColor ?? null;
+        State.getInstance().isProduction = msg.isProduction ?? false;
+        State.getInstance().isReadOnly = msg.isReadOnly ?? false;
         State.getInstance().infoMessage = msg.infoMessage;
         State.getInstance().errorMessage = msg.errorMessage;
-        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor);
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
         updateInfoMessage(State.getInstance().infoMessage);
         updateErrorMessage(State.getInstance().errorMessage);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
@@ -265,9 +272,11 @@ window.addEventListener('message', event => {
         
         // zaktualizuj kolor (może się zmienić po pickConnectionColor)
         State.getInstance().connectionColor = msg.connectionColor ?? null;
+        State.getInstance().isProduction = msg.isProduction ?? false;
+        State.getInstance().isReadOnly = msg.isReadOnly ?? false;
         
         startGridContainer();
-        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor);
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
         updateInfoMessage(State.getInstance().infoMessage);
         updateErrorMessage(State.getInstance().errorMessage);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
@@ -306,7 +315,9 @@ window.addEventListener('message', event => {
         State.getInstance().connectionName = msg.connectionName;
         State.getInstance().connectionTime = msg.connectionTime;
         State.getInstance().connectionColor = msg.connectionColor ?? null;
-        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, null, State.getInstance().connectionColor);
+        State.getInstance().isProduction = msg.isProduction ?? false;
+        State.getInstance().isReadOnly = msg.isReadOnly ?? false;
+        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, null, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
         // showFlashMessage('Connection DB was changed', 3);
     }
     

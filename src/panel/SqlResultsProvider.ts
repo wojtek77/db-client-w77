@@ -2,12 +2,14 @@ import * as vscode from 'vscode';
 import { getHtml } from './html.js';
 import { executeQuery, executeQueryWholeFile } from '../db/query.js';
 import { ConnectionManager } from '../db/ConnectionManager.js';
+import { Connection } from '../db/Connection.js';
 import * as path from 'path';
 import * as os from 'os';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
 import { ConnectionColors } from '../db/ConnectionColors.js';
 import { TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatSqlValue } from '../sql/formatSqlValue.js';
+import { openConnectionFile } from '../commands/connectionSetupCommands.js';
 
 interface FileResultState {
     rows: any[][];
@@ -19,6 +21,8 @@ interface FileResultState {
     connectionTime: number;
     queryTime: number;
     connectionColor: string | null;
+    isProduction: boolean;
+    isReadOnly: boolean;
     currentPage: number;
 }
 
@@ -54,6 +58,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _connectionName: string = '';
     private _connectionTime: number = 0;
     private _connectionColor: string | null = null;
+    private _isProduction = false;
+    private _isReadOnly = false;
     private _extensionUri: vscode.Uri;
     private _allRows: any[][] = [];
     private _headers: string[] = [];
@@ -105,6 +111,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         });
 
         webviewView.webview.onDidReceiveMessage(async (msg) => {
+            if (!SqlResultsProvider.isValidWebviewMessage(msg)) {
+                console.error('Ignored malformed message from webview:', msg);
+                return;
+            }
+
             if (msg.command === 'loadPage') {
                 this._currentPage = msg.page;
                 
@@ -168,8 +179,101 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         });
     }
     
+    /**
+     * Waliduje kształt komunikatów przychodzących z webview. Webview nie jest
+     * zaufanym źródłem (renderuje dane z bazy i mogłoby zostać skompromitowane
+     * przez np. XSS), więc każdy komunikat musi mieć oczekiwany "command" oraz
+     * pola o oczekiwanym typie, zanim zostanie użyty do czegokolwiek (a w
+     * szczególności zanim trafi do zapytania SQL).
+     */
+    private static isValidWebviewMessage(msg: any): boolean {
+        if (!msg || typeof msg !== 'object' || typeof msg.command !== 'string') {
+            return false;
+        }
+
+        const isNumberArray = (v: any) => Array.isArray(v) && v.every((n) => typeof n === 'number');
+
+        switch (msg.command) {
+            case 'loadPage':
+                return typeof msg.page === 'number' && msg.page > 0;
+
+            case 'updateCell':
+                return typeof msg.rowIndex === 'number' && typeof msg.columnIndex === 'number';
+
+            case 'deleteRows':
+            case 'generateInsert':
+            case 'generateUpdate':
+            case 'generateDelete':
+                return isNumberArray(msg.rowIndexes);
+
+            case 'saveColumnEdits':
+                return Array.isArray(msg.edits) && msg.edits.every((edit: any) =>
+                    edit && typeof edit === 'object' &&
+                    typeof edit.columnIndex === 'number' &&
+                    typeof edit.columnName === 'string'
+                );
+
+            case 'changeConnection':
+            case 'openRecentFiles':
+            case 'exportCSV':
+            case 'exportTXT':
+            case 'cancelQuery':
+            case 'pickConnectionColor':
+                return true;
+
+            default:
+                // nieznana komenda - odrzucamy
+                return false;
+        }
+    }
+
     public isQueryRunning(): boolean {
         return this._queryRunning;
+    }
+
+    /**
+     * Wspólne potwierdzenie destrukcyjnej, zbiorczej operacji (bulk UPDATE / DELETE
+     * z widoku wyników): pokazuje host i bazę danych, na które operacja faktycznie
+     * trafi, a opcjonalnie (ustawienie db-client.requireConnectionNameConfirmation)
+     * wymaga wpisania nazwy połączenia, zanim operacja zostanie wykonana.
+     */
+    private async confirmDestructiveOperation(
+        message: string,
+        confirmLabel: string,
+        db: Connection
+    ): Promise<boolean> {
+        const target = [db.getHost(), db.getDatabase()].filter(Boolean).join(' / ');
+        const productionWarning = db.isProductionConnection() ? '\n\n⚠ This is a PRODUCTION connection.' : '';
+        const fullMessage = target
+            ? `${message}\n\nConnection: "${db.getConnectionName()}" (${target})${productionWarning}`
+            : `${message}${productionWarning}`;
+
+        const answer = await vscode.window.showWarningMessage(
+            fullMessage,
+            { modal: true },
+            confirmLabel
+        );
+        if (answer !== confirmLabel) {
+            return false;
+        }
+
+        const requireTypedName = vscode.workspace
+            .getConfiguration('db-client')
+            .get<boolean>('requireConnectionNameConfirmation', false);
+
+        if (requireTypedName) {
+            const connectionName = db.getConnectionName();
+            const typed = await vscode.window.showInputBox({
+                prompt: `Type the connection name "${connectionName}" to confirm`,
+                placeHolder: connectionName,
+                ignoreFocusOut: true,
+            });
+            if (typed !== connectionName) {
+                return false;
+            }
+        }
+
+        return true;
     }
     
     private async cancelCurrentQuery() {
@@ -233,6 +337,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 connectionTime: this._connectionTime,
                 queryTime: this._lastQueryTime,
                 connectionColor: this._connectionColor,
+                isProduction: this._isProduction,
+                isReadOnly: this._isReadOnly,
                 infoMessage: this._infoMessage,
                 clearSelection,
                 isSameQuery,
@@ -466,20 +572,19 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // wartości PK dla każdego zaznaczonego wiersza, w tej samej kolejności co primaryKeys
             const pkValueTuples = rows.map((row) => pkIndexes.map((idx) => row[idx]));
 
-            const confirmLabel = 'Delete';
-            const answer = await vscode.window.showWarningMessage(
-                `Delete ${rows.length} row(s) from ${tableName}?`,
-                { modal: true },
-                confirmLabel
-            );
+            const db = await ConnectionManager.getInstance().getDb();
 
-            if (answer !== confirmLabel) {
+            const confirmed = await this.confirmDestructiveOperation(
+                `Delete ${rows.length} row(s) from "${tableName}"? This cannot be undone.`,
+                'Delete',
+                db
+            );
+            if (!confirmed) {
                 return;
             }
 
             const pkColumnNames = primaryKeys.map((pk: any) => `\`${pk.name}\``);
 
-            const db = await ConnectionManager.getInstance().getDb();
             const qualifiedTable = db.getDatabase()
                 ? `\`${tableName}\``
                 : `\`${schema}\`.\`${tableName}\``;
@@ -582,6 +687,21 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             const { tableName, qualifiedTable, columns, primaryKeys } = context;
 
+            // BEZPIECZEŃSTWO: edit.columnName pochodzi z webview (nie jest zaufanym
+            // źródłem) i jest wstawiane bezpośrednio do zapytania UPDATE (SET `<columnName>` = ?).
+            // Musi zostać porównane z zaufanymi metadanymi tabeli (columns, pochodzące
+            // z meta zapytania SELECT), zanim zostanie użyte - w przeciwnym razie
+            // dowolna wartość columnName pozwoliłaby na wstrzyknięcie SQL.
+            const trustedColumnNames = new Set(columns.map((c) => c.name));
+            const unknownColumn = edits.find((edit) => !trustedColumnNames.has(edit.columnName));
+            if (unknownColumn) {
+                vscode.window.showErrorMessage(
+                    `Refusing to update unknown column "${unknownColumn.columnName}"`
+                );
+                this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
+                return;
+            }
+
             if (this._allRows.length === 0) {
                 vscode.window.showErrorMessage('No rows in the SQL results to update');
                 this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
@@ -634,20 +754,18 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             const recordCount = this._allRows.length;
 
-            const confirmLabel = 'Update';
-            const answer = await vscode.window.showWarningMessage(
+            const db = await ConnectionManager.getInstance().getDb();
+
+            const confirmed = await this.confirmDestructiveOperation(
                 `Change ${changesPreview} for ${recordCount} record(s) matching the current SQL results in table "${tableName}"? ` +
                 `This cannot be undone.`,
-                { modal: true },
-                confirmLabel
+                'Update',
+                db
             );
-
-            if (answer !== confirmLabel) {
+            if (!confirmed) {
                 this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
                 return;
             }
-
-            const db = await ConnectionManager.getInstance().getDb();
 
             await db.startTransaction();
             try {
@@ -946,19 +1064,58 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             startedAt: Date.now()
         });
         
-        const db = await ConnectionManager.getInstance().getDb(dBconnectionName);
-        
-        let rows, headers: string[], meta, queryTime, success, errorMessage, infoMessage, flashMessage;
-        if (wholeFile) {
-            ({ rows, headers, meta, queryTime, success, errorMessage, infoMessage, flashMessage } = await executeQueryWholeFile(db, sql));
-        } else {
-            ({ rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(db, sql));
+        let rows: any[] = [], headers: string[] = [], meta, queryTime = 0, success = false, errorMessage = '', infoMessage, flashMessage;
+        let db;
+        try {
+            db = await ConnectionManager.getInstance().getDb(dBconnectionName);
+
+            if (wholeFile) {
+                ({ rows, headers, meta, queryTime, success, errorMessage, infoMessage, flashMessage } = await executeQueryWholeFile(db, sql));
+            } else {
+                ({ rows, headers, meta, queryTime, success, errorMessage } = await executeQuery(db, sql));
+            }
+        } catch (err: any) {
+            errorMessage = err.message;
+
+            // Przypadek "brak żadnego skonfigurowanego połączenia" jest już
+            // obsłużony RAZ, przy starcie rozszerzenia (safeStartExtension w
+            // extension.ts) - nie sprawdzamy/nie proponujemy tego ponownie przy
+            // każdym Run SQL, bo nie ma po co (jak ktoś już to skonfiguruje,
+            // zawsze będzie dobrze).
+            //
+            // Nie próbujemy zgadywać, CO dokładnie jest nie tak w pliku .cnf
+            // (to zadanie użytkownika) - jedyne, co sprawdzamy, to czy istnieje
+            // dokładnie jeden plik .cnf. Wtedy możemy jednoznacznie zaproponować
+            // jego edycję, bo nie ma dwuznaczności, który plik otworzyć.
+            const configs = ConnectionManager.getInstance().getConfigs();
+            const configNames = Object.keys(configs);
+
+            if (configNames.length === 1) {
+                const cnfPath = configs[configNames[0]];
+                const editLabel = `Edit ${path.basename(cnfPath)}`;
+                vscode.window.showErrorMessage(errorMessage, editLabel).then((choice) => {
+                    if (choice === editLabel) {
+                        openConnectionFile(cnfPath);
+                    }
+                });
+            } else {
+                vscode.window.showErrorMessage(errorMessage);
+            }
+        } finally {
+            // Niezależnie od tego, czy zapytanie się powiodło, czy nawet nie udało się
+            // uzyskać połączenia z bazą - spinner ładowania i przycisk "cancel" muszą
+            // zawsze wrócić do stanu spoczynku.
+            this._queryRunning = false;
+            this._view?.webview.postMessage({
+                command: 'queryFinished'
+            });
         }
-        
-        this._queryRunning = false;
-        this._view?.webview.postMessage({
-            command: 'queryFinished'
-        });
+
+        if (!db) {
+            // Nie udało się nawet uzyskać połączenia z bazą - nie mamy czym
+            // zaktualizować widoku wyników (connectionName/connectionTime itd.)
+            return;
+        }
         
         if (!success) {
             // headers = [];
@@ -980,6 +1137,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._connectionTime = db.getConnectionTime();
         this._lastQueryTime = queryTime;
         this._connectionColor = ConnectionColors.getInstance().getColor(this._connectionName);
+        this._isProduction = db.isProductionConnection();
+        this._isReadOnly = db.isReadOnlyConnection();
         this._infoMessage = infoMessage ?? '';
         this._flashMessage = flashMessage ?? '';
         this._errorMessage = errorMessage ?? '';
@@ -1004,6 +1163,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             connectionTime: this._connectionTime,
             queryTime: this._lastQueryTime,
             connectionColor: this._connectionColor,
+            isProduction: this._isProduction,
+            isReadOnly: this._isReadOnly,
             currentPage: this._currentPage,
         });
         
@@ -1039,12 +1200,16 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._connectionName = state.connectionName;
         this._connectionTime = state.connectionTime;
         this._connectionColor = state.connectionColor ?? null;
+        this._isProduction = state.isProduction ?? false;
+        this._isReadOnly = state.isReadOnly ?? false;
         this._currentPage = state.currentPage ?? 1;
 
         this._view.webview.postMessage({
             command: 'showResultsForFile',
             sqlFile: sqlFile,
             connectionColor: this._connectionColor,
+            isProduction: this._isProduction,
+            isReadOnly: this._isReadOnly,
             sentAt: Date.now() // znacznik czasu w ms
         });
     }
@@ -1071,6 +1236,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._connectionName = connectionName;
         this._connectionTime = db.getConnectionTime();
         this._connectionColor = ConnectionColors.getInstance().getColor(this._connectionName);
+        this._isProduction = db.isProductionConnection();
+        this._isReadOnly = db.isReadOnlyConnection();
 
         if (this._view) {
             this._view.webview.postMessage({
@@ -1078,6 +1245,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 connectionName: this._connectionName,
                 connectionTime: this._connectionTime,
                 connectionColor: this._connectionColor,
+                isProduction: this._isProduction,
+                isReadOnly: this._isReadOnly,
             });
         }
     }

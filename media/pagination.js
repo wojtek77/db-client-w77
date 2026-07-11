@@ -1,6 +1,6 @@
 import { State } from './state.js';
 
-function nextPage() {
+export function nextPage() {
 
     if (State.getInstance().currentPage < State.getInstance().totalPages) {
 
@@ -13,7 +13,7 @@ function nextPage() {
     }
 }
 
-function prevPage() {
+export function prevPage() {
 
     if (State.getInstance().currentPage > 1) {
 
@@ -26,7 +26,7 @@ function prevPage() {
     }
 }
 
-function firstPage() {
+export function firstPage() {
 
     State.getInstance().currentPage = 1;
 
@@ -36,7 +36,7 @@ function firstPage() {
     });
 }
 
-function lastPage() {
+export function lastPage() {
 
     State.getInstance().currentPage = State.getInstance().totalPages;
 
@@ -46,7 +46,9 @@ function lastPage() {
     });
 }
 
-window.nextPage = nextPage;
-window.prevPage = prevPage;
-window.firstPage = firstPage;
-window.lastPage = lastPage;
+export function initPaginationListeners() {
+    document.getElementById('firstBtn')?.addEventListener('click', firstPage);
+    document.getElementById('prevBtn')?.addEventListener('click', prevPage);
+    document.getElementById('nextBtn')?.addEventListener('click', nextPage);
+    document.getElementById('lastBtn')?.addEventListener('click', lastPage);
+}

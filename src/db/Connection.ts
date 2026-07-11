@@ -2,6 +2,7 @@ import * as mariadb from 'mariadb';
 import path from 'path';
 import { CnfLoader } from "./CnfLoader.js";
 import * as vscode from 'vscode';
+import { SqlUtil } from '../sql/SqlUtil.js';
 
 type PoolConfig = Exclude<Parameters<typeof mariadb.createPool>[0], string>;
 
@@ -12,7 +13,11 @@ export class Connection {
     private connectionName = '';
     private connectionTime = 0;
     private database = '';
+    private host = '';
+    private isProduction = false;
+    private isReadOnly = false;
     private schemaTables = new Map<string, string[]>();
+    private schemaTablesLoaded: Promise<void> = Promise.resolve();
     private threadId: number | null = null;
     private cnfFile = '';
     // Przechowujemy konfigurację, aby móc wykonać reconnect bez podawania parametrów na nowo
@@ -45,9 +50,17 @@ export class Connection {
 
         // Zabezpieczenie: jeśli istniały stare, wiszące zasoby, sprzątamy je przed re-connectem
         this.cleanupResources();
+
+        // "production" i "readonly" to niestandardowe opcje rozpoznawane tylko przez to
+        // rozszerzenie (ustawiane w pliku .cnf) - trzeba je wyciąć z configu, żeby nie
+        // trafiły do mariadb.createPool() jako nierozpoznana opcja.
+        const { production, readonly, ...poolConfig } = config as any;
+        this.isProduction = production === true;
+        this.isReadOnly = readonly === true;
+        this.host = (config as any).host ?? '';
         
         this.pool = mariadb.createPool({
-            ...config,
+            ...poolConfig,
             connectionLimit: 1,
             connectTimeout: 10000,
             socketTimeout: 0,
@@ -79,13 +92,16 @@ export class Connection {
             this.connectionTime = endConn - startConn;
             this.connected = true;
             
-            // Po połączeniu, pobierz nazwy tabel
-            try {
-                this.database = config.database ?? '';
-                this.schemaTables = await this.readTableNames(this.conn);
-            } catch (err) {
-                console.error('Failed to fetch tables after start connection:', err);
-            }
+            // Po połączeniu, pobierz nazwy tabel. Robimy to W TLE (bez await) - na dużych
+            // serwerach ze wieloma schematami SELECT z INFORMATION_SCHEMA.TABLES może być
+            // wolny, a nie ma powodu, żeby to blokowało samo połączenie z bazą (np. zanim
+            // użytkownik zdąży cokolwiek zapytać, autocomplete i tak nie jest jeszcze potrzebny).
+            this.database = config.database ?? '';
+            this.schemaTablesLoaded = this.readTableNames(this.conn)
+                .then((schemaTables) => { this.schemaTables = schemaTables; })
+                .catch((err) => {
+                    console.error('Failed to fetch tables after start connection:', err);
+                });
             
             return this.connectionTime;
         } catch (err) {
@@ -110,6 +126,18 @@ export class Connection {
     public getConnectionName(): string {
         return this.connectionName;
     }
+
+    public getHost(): string {
+        return this.host;
+    }
+
+    public isProductionConnection(): boolean {
+        return this.isProduction;
+    }
+
+    public isReadOnlyConnection(): boolean {
+        return this.isReadOnly;
+    }
     
     public getConnectionTime(): number {
         return this.connectionTime;
@@ -120,6 +148,13 @@ export class Connection {
     }
     
     public async query(params: string | any, values?: any[]): Promise<any> {
+        const sqlText = typeof params === 'string' ? params : params?.sql;
+        if (this.isReadOnly && typeof sqlText === 'string' && SqlUtil.isWriteStatement(sqlText)) {
+            throw new Error(
+                `Connection "${this.connectionName}" is marked as read-only in its .cnf file; write queries are blocked.`
+            );
+        }
+
         try {
             const conn = this.getConnection();
             return await conn.query(params, values);
@@ -172,6 +207,15 @@ export class Connection {
         return [
             ...this.schemaTables.keys()
         ];
+    }
+
+    /**
+     * Pozwala poczekać, aż lista tabel/schematów (pobierana w tle po connect(),
+     * żeby nie blokować samego połączenia) zostanie faktycznie załadowana.
+     * Przydatne np. dla completion providera, który potrzebuje pełnej listy.
+     */
+    public async waitForSchemaTables(): Promise<void> {
+        await this.schemaTablesLoaded;
     }
     
     public getTableNames(): Map<string, string[]> {

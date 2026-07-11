@@ -184,6 +184,29 @@ html, body {
     font-weight: bold;
 }
 
+/* Silne, trudne do przeoczenia oznaczenie połączenia produkcyjnego - niezależne
+   od koloru wybranego przez użytkownika dla danego połączenia (ConnectionColors) */
+.toolbar.production-connection {
+    background: rgba(255, 69, 58, 0.12);
+    border-bottom: 2px solid #ff453a;
+}
+.toolbar.production-connection .stats span#connectionName::before {
+    content: '⚠ PRODUCTION — ';
+    color: #ff453a;
+}
+.toolbar.readonly-connection .stats span#connectionName::after {
+    content: ' (read-only)';
+    color: var(--vscode-descriptionForeground, gray);
+    font-weight: normal;
+}
+/* Na połączeniu tylko-do-odczytu edycja/usuwanie i tak zostaną odrzucone przez
+   backend (Connection.query), więc od razu wygaszamy te przyciski w UI */
+.toolbar.readonly-connection .delete-rows-btn,
+.toolbar.readonly-connection .save-column-edits-btn {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
 .stats {
     /* flex: 1; */
     font-size: 13px;

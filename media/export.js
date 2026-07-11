@@ -1,14 +1,14 @@
 import { State } from './state.js';
 
 // otwiera ostatnio użyte pliki SQL
-function openRecentFiles() {
+export function openRecentFiles() {
     window.vscode.postMessage({
         command: 'openRecentFiles'
     });
 }
 
 // Export do CSV
-function exportToCSV() {
+export function exportToCSV() {
     const rows = State.getInstance().currentRows;
     const headers = State.getInstance().headers;
     
@@ -24,7 +24,7 @@ function exportToCSV() {
 }
 
 // Export do TXT (format tabelaryczny)
-function exportToTXT() {
+export function exportToTXT() {
     const rows = State.getInstance().currentRows;
     const headers = State.getInstance().headers;
     
@@ -39,6 +39,8 @@ function exportToTXT() {
     });
 }
 
-window.openRecentFiles = openRecentFiles;
-window.exportToCSV = exportToCSV;
-window.exportToTXT = exportToTXT;
+export function initExportListeners() {
+    document.getElementById('openRecentFilesBtn')?.addEventListener('click', openRecentFiles);
+    document.getElementById('exportCSVBtn')?.addEventListener('click', exportToCSV);
+    document.getElementById('exportTXTBtn')?.addEventListener('click', exportToTXT);
+}

@@ -11,7 +11,70 @@ const REGEX_LINE_ENDINGS =
 const REGEX_SURROUNDING_QUOTES =
     /^["']|["']$/g;
 
+// Tylko te opcje [client] są bezpiecznie konwertowane na typ number.
+// Wartości takie jak hasło, użytkownik, host czy nazwa bazy MUSZĄ pozostać
+// stringiem (np. hasło "001234" nie może stracić wiodących zer, a hasło
+// "true"/"false" nie może zostać zamienione na wartość logiczną).
+const NUMERIC_OPTION_KEYS = new Set([
+    'port',
+    'connect-timeout',
+    'connect_timeout',
+    'connection-timeout',
+    'max-allowed-packet',
+    'connection-limit',
+    'connectionLimit',
+    'connect-retry-count',
+    'connect-retry-interval',
+]);
+
+// Tylko te opcje [client] są bezpiecznie konwertowane na typ boolean.
+const BOOLEAN_OPTION_KEYS = new Set([
+    'compress',
+    'reconnect',
+    'ssl-verify-server-cert',
+    'multi-statements',
+    'local-infile',
+]);
+
+// Niestandardowe opcje rozpoznawane TYLKO przez to rozszerzenie, w dedykowanej
+// sekcji [db-client] (a NIE w [client]!). Prawdziwy klient mysql/mariadb parsuje
+// zawartość [client] i wywala się na nieznanej zmiennej ("unknown variable"),
+// ale całe nieznane sekcje (jak [db-client]) po prostu ignoruje - dlatego te
+// dwie opcje muszą żyć w osobnej sekcji, żeby ten sam plik .cnf dało się nadal
+// używać wprost jako --defaults-file dla `mysql`/`mariadb`.
+const DB_CLIENT_BOOLEAN_KEYS = new Set([
+    'production',
+    'readonly',
+]);
+
 export class CnfLoader {
+
+    /**
+     * Zgodnie z prawdziwą składnią plików opcji MySQL/MariaDB: "#" może zaczynać
+     * komentarz w dowolnym miejscu linii (nie tylko na początku), np.
+     * `database=  # nazwa bazy` -> pusta wartość + komentarz. Cudzysłów chroni
+     * dosłowny znak "#" wewnątrz wartości, np. `password="my#pass"`.
+     * https://dev.mysql.com/doc/refman/8.4/en/option-files.html
+     */
+    private static stripInlineComment(rawValue: string): string {
+        const trimmed = rawValue.trim();
+        if (trimmed.startsWith('"') || trimmed.startsWith('\'')) {
+            const quote = trimmed[0];
+            const closeIdx = trimmed.indexOf(quote, 1);
+            if (closeIdx !== -1) {
+                // to, co jest po zamykającym cudzysłowie (spacja + ewentualny "# ...")
+                // to komentarz - odrzucamy, zostaje sama zacytowana wartość
+                return trimmed.slice(0, closeIdx + 1);
+            }
+            return trimmed;
+        }
+
+        const hashIdx = trimmed.indexOf('#');
+        if (hashIdx !== -1) {
+            return trimmed.slice(0, hashIdx).trimEnd();
+        }
+        return trimmed;
+    }
 
     public static async getOptionsFromCnf(filePath: string): Promise<any> {
         const cnfArr = await this._optionsFromCnfRec(filePath);
@@ -33,6 +96,7 @@ export class CnfLoader {
         const options: [string, any][] = [];
         let inClientSection = false;
         let inMysqldSection = false;
+        let inDbClientSection = false;
         let tcpKeepaliveTime: number | null = null;
 
         for (const line of lines) {
@@ -63,6 +127,21 @@ export class CnfLoader {
                 const sectionName = trimmed.slice(1, -1).trim();
                 inClientSection = (sectionName === 'client');
                 inMysqldSection = (sectionName === 'mysqld');
+                inDbClientSection = (sectionName === 'db-client');
+                continue;
+            }
+
+            // 3b. Przetwarzanie parametrów wewnątrz customowej sekcji [db-client]
+            // (production/readonly - patrz komentarz przy DB_CLIENT_BOOLEAN_KEYS)
+            if (inDbClientSection) {
+                const eqIndex = trimmed.indexOf('=');
+                if (eqIndex !== -1) {
+                    const key = trimmed.substring(0, eqIndex).trim();
+                    const rawValue = this.stripInlineComment(trimmed.substring(eqIndex + 1)).replace(REGEX_SURROUNDING_QUOTES, '');
+                    if (DB_CLIENT_BOOLEAN_KEYS.has(key)) {
+                        options.push([key, rawValue.toLowerCase() === 'true']);
+                    }
+                }
                 continue;
             }
 
@@ -71,7 +150,7 @@ export class CnfLoader {
                 const eqIndex = trimmed.indexOf('=');
                 if (eqIndex !== -1) {
                     const key = trimmed.substring(0, eqIndex).trim();
-                    const value = trimmed.substring(eqIndex + 1).trim();
+                    const value = this.stripInlineComment(trimmed.substring(eqIndex + 1));
                     
                     if (key === 'tcp_keepalive_time') {
                         // Konwersja na liczbę (sekundy)
@@ -91,19 +170,23 @@ export class CnfLoader {
                 let key, value;
                 if (eqIndex !== -1) { // to co ma znak równości w linii
                     key = trimmed.substring(0, eqIndex).trim();
-                    value = trimmed.substring(eqIndex + 1).trim();
+                    // "#" może zaczynać komentarz w środku linii (prawdziwa składnia
+                    // MySQL) - np. "database=  # your database" -> pusta wartość.
+                    value = this.stripInlineComment(trimmed.substring(eqIndex + 1));
                     // Usuwanie cudzysłowów otaczających wartość, jeśli istnieją
                     value = value.replace(REGEX_SURROUNDING_QUOTES, '');
                     
-                    // zmiana wartości
+                    // zmiana wartości - TYLKO dla znanych opcji liczbowych/logicznych.
+                    // Hasła, nazwy użytkowników, nazwy baz i hosty zawsze zostają stringiem.
                     const valueLower = value.toLowerCase();
-                    if (valueLower === 'true') {
-                        value = true;
-                    } else if (valueLower === 'false') {
-                        value = false;
-                    } else if (!isNaN(Number(value)) && value !== '') {
-                        // Automatyczna konwersja portów i limitów na typ number
+                    if (NUMERIC_OPTION_KEYS.has(key) && value !== '' && !isNaN(Number(value))) {
                         value = Number(value);
+                    } else if (BOOLEAN_OPTION_KEYS.has(key)) {
+                        if (valueLower === 'true') {
+                            value = true;
+                        } else if (valueLower === 'false') {
+                            value = false;
+                        }
                     }
                 } else {
                     // obsługa jeśli nie ma znaku "="
@@ -111,12 +194,27 @@ export class CnfLoader {
                     value = '';
                 }
                 
+                // production/readonly NIE należą do [client] (mają własną sekcję
+                // [db-client] - patrz DB_CLIENT_BOOLEAN_KEYS) - jeśli ktoś pomyłkowo
+                // wpisze je tutaj, świadomie je pomijamy. Inaczej trafiłyby do wyniku
+                // jako nieprzekonwertowany string "true"/"false", a że
+                // "true" === true daje false w JS, dałoby to cichy, mylący wynik
+                // (wygląda jakby "nie działało", zamiast być po prostu zignorowane).
+                if (DB_CLIENT_BOOLEAN_KEYS.has(key)) {
+                    continue;
+                }
+
                 // zamiana kluczy
                 switch (key) {
-                    case 'skip-ssl':
+                    case 'skip-ssl': {
+                        // wartość jeszcze nie była konwertowana wyżej (skip-ssl nie jest
+                        // na białej liście), więc porównujemy oryginalny string
+                        const rawValue = String(value).toLowerCase();
+                        const skipSsl = (rawValue === 'true' || rawValue === '');
                         key = 'ssl';
-                        value = (value === true || value === '') ? false : true;
+                        value = !skipSsl;
                         break;
+                    }
                     
                     case 'compress':
                     case 'reconnect':

@@ -16,6 +16,8 @@
  * @property {string} connectionTime - Czas połączenia z DB.
  * @property {string} queryTime - Czas wykonania ostatniego SQL-a.
  * @property {string} connectionColor - Kolor dla połącznia DB.
+ * @property {boolean} isProduction - Czy połączenie jest oznaczone jako produkcyjne (readonly=true w .cnf).
+ * @property {boolean} isReadOnly - Czy połączenie jest oznaczone jako tylko-do-odczytu w .cnf.
  * @property {string} infoMessage - Dodatkowa informacja np. ilość zmienionych rekordów.
  * @property {string} errorMessage - Info o błędzie.
  * @property {Object.<number, string>} pendingColumnEdits - Oczekujące (jeszcze niezapisane
@@ -49,6 +51,8 @@ export class State {
                 connectionTime: '---',
                 queryTime: 0,
                 connectionColor: null,
+                isProduction: false,
+                isReadOnly: false,
                 infoMessage: '',
                 errorMessage: '',
                 pendingColumnEdits: {},

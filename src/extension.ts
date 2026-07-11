@@ -8,6 +8,12 @@ import { openRecentFilesCommand } from './commands/openRecentFilesCommand.js';
 import { formatSqlCommand } from './commands/formatSqlCommand.js';
 import { runSqlWholeFileCommand } from './commands/runSqlWholeFileCommand.js';
 import { ConnectionColors } from './db/ConnectionColors.js';
+import { ConnectionManager } from './db/ConnectionManager.js';
+import {
+    createConfigDirCommand,
+    reloadConnectionsCommand,
+    testConnectionCommand
+} from './commands/connectionSetupCommands.js';
 
 
 // Sprawdza, czy jakakolwiek otwarta zakładka to plik SQL
@@ -34,12 +40,78 @@ function hasOpenSqlTab(): boolean {
 // więc w chwili, gdy ten handler się odpala, dokument jest już
 // zarejestrowany i hasOpenSqlTab() poprawnie go widzi. Nie potrzeba tu
 // żadnego opóźnienia.
+// Uruchamia rozszerzenie, a w razie błędu (np. brak katalogu konfiguracji
+// przy pierwszym uruchomieniu) pokazuje przyjazny ekran zamiast surowego
+// błędu aktywacji rozszerzenia.
+async function safeStartExtension(context: vscode.ExtensionContext) {
+    try {
+        await startExtension(context);
+    } catch (err: any) {
+        console.error('Failed to start DB client extension:', err);
+
+        if (!ConnectionManager.getInstance().hasNoConnections()) {
+            vscode.window.showErrorMessage(`DB client failed to start: ${err.message}`);
+        }
+        // gdy nie ma żadnego połączenia (brak katalogu ALBO pusty katalog) -
+        // startExtension() sam w sobie NIE rzuca (loadConfigs celowo tego nie
+        // robi), więc ten przypadek i tak trafia do promptu poniżej
+    }
+
+    const cm = ConnectionManager.getInstance();
+
+    // Uruchomienie rozszerzenia samo w sobie się udaje nawet bez żadnego
+    // skonfigurowanego połączenia (żeby nie psuć aktywacji) - dlatego to
+    // sprawdzamy oddzielnie i ZAWSZE informujemy użytkownika, niezależnie od
+    // tego, czy powyższy try/catch coś złapał.
+    //
+    // Celowo NIE rozróżniamy tutaj "katalog w ogóle nie istnieje" od "katalog
+    // istnieje, ale jest pusty" - w obu przypadkach obsługa jest identyczna
+    // (createConfigDirCommand tworzy katalog tylko jeśli faktycznie brakuje).
+    // To sprawdzamy TYLKO raz, przy starcie - nie przy każdym uruchomieniu SQL-a.
+    if (cm.hasNoConnections()) {
+        const createLabel = 'Create Default Connection (localhost)';
+
+        // modal: true - zwykła (nie-modalna) notyfikacja w prawym dolnym rogu VS Code
+        // sama się chowa po kilku sekundach do Notification Center, więc łatwo ją
+        // przegapić. To jest pierwsza rzecz, jaką widzi użytkownik przy pierwszym
+        // uruchomieniu, więc ma zostać na ekranie, aż świadomie ją zamknie/wybierze opcję.
+        //
+        // WAŻNE: przy modal:true VS Code SAM dokłada domyślny przycisk "Cancel"
+        // (jako close affordance) - jeśli tutaj dodamy własny "Cancel" jako kolejny
+        // element listy, użytkownik zobaczy DWA przyciski "Cancel". Dlatego podajemy
+        // TYLKO przycisk potwierdzający; zamknięcie okna / X / Esc = anulowanie.
+        const choice = await vscode.window.showWarningMessage(
+            `DB client: no database connection configured yet. Create a default localhost connection to get started ` +
+            `(you can edit it afterwards), or set it up manually in "${cm.getConfigDir()}".`,
+            { modal: true },
+            createLabel
+        );
+
+        try {
+            if (choice === createLabel) {
+                await vscode.commands.executeCommand('db-client.createConfigDir');
+            }
+        } catch (err: any) {
+            // gdyby samo wykonanie komendy się nie powiodło, użytkownik MA to zobaczyć,
+            // zamiast ciche niepowodzenie wyglądające jak "przycisk nic nie robi"
+            vscode.window.showErrorMessage(`DB client: action failed: ${err.message}`);
+        }
+    }
+
+    // CELOWO nie próbujemy tu proaktywnie łączyć się z bazą, nawet gdy jest
+    // dokładnie jeden plik .cnf - połączenie ma powstawać leniwie, dopiero
+    // w momencie faktycznego Run SQL (jak wcześniej), a nie przy każdym
+    // starcie rozszerzenia. Jeśli ten jedyny plik .cnf jest błędny, obsłuży
+    // to reaktywny fallback w SqlResultsProvider.executeQuery (przycisk
+    // "Edit <plik>.cnf" przy błędzie zapytania).
+}
+
 async function handleTabsChanged(context: vscode.ExtensionContext) {
     const sqlTabOpen = hasOpenSqlTab();
 
     // otwarto pierwszy SQL editor
     if (sqlTabOpen && !isExtensionRunning()) {
-        await startExtension(context);
+        await safeStartExtension(context);
     }
 
     // zamknięto ostatni SQL editor
@@ -62,11 +134,32 @@ async function handleDocumentOpened(context: vscode.ExtensionContext, doc: vscod
     }
 
     if (!isExtensionRunning()) {
-        await startExtension(context);
+        await safeStartExtension(context);
     }
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+    // komendy - MUSZĄ być zarejestrowane PRZED jakimkolwiek wywołaniem
+    const runSQL = vscode.commands.registerCommand('db-client.runSQL', async () => {
+        await runSQLCommand();
+    });
+    const openRecentFiles = vscode.commands.registerCommand('db-client.openRecentFiles', async () => {
+        await openRecentFilesCommand();
+    });
+    const runSqlWholeFile = vscode.commands.registerCommand('db-client.runSqlWholeFile', async () => {
+        await runSqlWholeFileCommand();
+    });
+    const formatSQL = vscode.commands.registerCommand('db-client.formatSQL', async () => {
+        await formatSqlCommand();
+    });
+    const createConfigDir = vscode.commands.registerCommand('db-client.createConfigDir', createConfigDirCommand);
+    const reloadConnections = vscode.commands.registerCommand('db-client.reloadConnections', reloadConnectionsCommand);
+    const testConnection = vscode.commands.registerCommand('db-client.testConnection', testConnectionCommand);
+    context.subscriptions.push(
+        runSQL, openRecentFiles, runSqlWholeFile, formatSQL,
+        createConfigDir, reloadConnections, testConnection
+    );
+
     // wczytanie listy plików SQL z dysku
     RecentSqlFiles.getInstance(context).restore();
     
@@ -78,7 +171,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // rozszerzenie ma pozostać wyłączone i wystartować dopiero przez
     // handleTabsChanged/handleDocumentOpened.
     if (hasOpenSqlTab()) {
-        await startExtension(context);
+        await safeStartExtension(context);
     }
 
     context.subscriptions.push(
@@ -127,21 +220,6 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         })
     );
-
-    // komendy
-    const runSQL = vscode.commands.registerCommand('db-client.runSQL', async () => {
-        await runSQLCommand();
-    });
-    const openRecentFiles = vscode.commands.registerCommand('db-client.openRecentFiles', async () => {
-        await openRecentFilesCommand();
-    });
-    const runSqlWholeFile = vscode.commands.registerCommand('db-client.runSqlWholeFile', async () => {
-        await runSqlWholeFileCommand();
-    });
-    const formatSQL = vscode.commands.registerCommand('db-client.formatSQL', async () => {
-        await formatSqlCommand();
-    });
-    context.subscriptions.push(runSQL, openRecentFiles, runSqlWholeFile, formatSQL);
 }
 
 export function deactivate() {
