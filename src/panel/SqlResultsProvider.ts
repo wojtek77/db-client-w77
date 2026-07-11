@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
 import { ConnectionColors } from '../db/ConnectionColors.js';
-import { TableColumnsCache, TableRef } from '../cache/TableColumnsCache.js';
+import { TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatSqlValue } from '../sql/formatSqlValue.js';
 
 interface FileResultState {
@@ -245,53 +245,47 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Na podstawie metadanych kolumn (meta z mariadb) ustala rzeczywisty typ danych
-     * każdej kolumny (np. 'varchar', 'text', 'int'), pytając TableColumnsCache
-     * (INFORMATION_SCHEMA.COLUMNS). Dla kolumn, których nie da się przypisać
-     * do konkretnej tabeli (np. wyrażenia, funkcje agregujące), zwraca ''.
+     * MySQL/MariaDB flaga BINARY_COLLATION z FieldInfo.flags (bit 1<<7).
+     * Odróżnia prawdziwy BLOB (collation binarne) od TEXT (collation tekstowe) -
+     * na poziomie protokołu oba typy są raportowane tym samym field.type.
      */
-    private async computeColumnTypes(meta: any[]): Promise<string[]> {
+    private static readonly BINARY_COLLATION_FLAG = 1 << 7;
+
+    /**
+     * field.type dla kolumn TEXT-owych - protokół MySQL/MariaDB raportuje je
+     * pod tymi samymi nazwami co odpowiadające im rozmiarowo typy BLOB.
+     */
+    private static readonly BLOB_TEXT_TYPE_NAMES: Record<string, string> = {
+        TINY_BLOB: 'tinytext',
+        BLOB: 'text',
+        MEDIUM_BLOB: 'mediumtext',
+        LONG_BLOB: 'longtext'
+    };
+
+    /**
+     * Na podstawie metadanych kolumn (meta z mariadb) ustala typ danych
+     * potrzebny wyłącznie do decyzji input/textarea przy edycji komórki
+     * (patrz media/editor.js: MULTILINE_COLUMN_TYPES). Typy TEXT/TINYTEXT/
+     * MEDIUMTEXT/LONGTEXT rozpoznajemy bez żadnego dodatkowego zapytania do
+     * bazy - metadane zwrócone razem z wynikiem (field.type + field.flags)
+     * już to zawierają. Dla pozostałych kolumn zwracamy '', bo nic więcej
+     * z tej wartości nie korzysta.
+     */
+    private computeColumnTypes(meta: any[]): string[] {
         if (!meta || meta.length === 0) {
             return [];
         }
 
-        const seen = new Set<string>();
-        const tableRefs: TableRef[] = [];
-
-        for (const field of meta) {
-            const table = field.orgTable?.();
-            const schema = field.schema?.();
-
-            if (table && schema) {
-                const key = `${schema}.${table}`;
-                if (!seen.has(key)) {
-                    seen.add(key);
-                    tableRefs.push({ schema, table });
-                }
-            }
-        }
-
-        if (tableRefs.length === 0) {
-            return meta.map(() => '');
-        }
-
-        const tableColumnsService = TableColumnsCache.getInstance();
-        const columnsMap = await tableColumnsService.getCachedColumnsBatch(tableRefs);
-
         return meta.map((field: any) => {
-            const table = field.orgTable?.();
-            const schema = field.schema?.();
-            const columnName = field.orgName?.();
-
-            if (!table || !schema || !columnName) {
+            const textTypeName = SqlResultsProvider.BLOB_TEXT_TYPE_NAMES[field?.type];
+            if (!textTypeName) {
                 return '';
             }
 
-            const key = tableColumnsService.getTableRefKey({ schema, table });
-            const columns = columnsMap[key] ?? [];
-            const column = columns.find((c) => c.name === columnName);
+            const isBinaryBlob =
+                ((field.flags ?? 0) & SqlResultsProvider.BINARY_COLLATION_FLAG) !== 0;
 
-            return column?.type?.toLowerCase() ?? '';
+            return isBinaryBlob ? '' : textTypeName;
         });
     }
 
@@ -981,7 +975,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._headers = headers;
         this._lastSQL = sql;
         this._meta = meta;
-        this._columnTypes = success ? await this.computeColumnTypes(meta) : [];
+        this._columnTypes = success ? this.computeColumnTypes(meta) : [];
         this._connectionName = db.getConnectionName();
         this._connectionTime = db.getConnectionTime();
         this._lastQueryTime = queryTime;
