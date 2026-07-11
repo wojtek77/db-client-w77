@@ -25,10 +25,26 @@ export class RecentSqlFiles {
     private constructor(private context: vscode.ExtensionContext) {}
     
     /**
+     * Zwraca ścieżkę do katalogu, w którym zapisywany jest plik z listą ostatnich plików SQL.
+     * Jeśli w ustawieniach "db-client.recentSqlFilesDir" podano własną ścieżkę, zostanie ona użyta,
+     * w przeciwnym razie użyty zostanie domyślny folder rozszerzenia (globalStorageUri) - tak jak dotychczas.
+     */
+    private getStorageDir(): string {
+        const configuredDir =
+            vscode.workspace
+                .getConfiguration('db-client')
+                .get<string>('recentSqlFilesDir', '');
+
+        return configuredDir
+            ? configuredDir
+            : this.context.globalStorageUri.fsPath;
+    }
+
+    /**
      * Zwraca pełną ścieżkę do pliku zapisu w folderze rozszerzenia
      */
     private getStorageFilePath(): string {
-        return path.join(this.context.globalStorageUri.fsPath, RecentSqlFiles.FILE_NAME);
+        return path.join(this.getStorageDir(), RecentSqlFiles.FILE_NAME);
     }
     
     /**
@@ -55,7 +71,7 @@ export class RecentSqlFiles {
      */
     public persist(): void {
         try {
-            const storagePath = this.context.globalStorageUri.fsPath;
+            const storagePath = this.getStorageDir();
             
             // Upewniamy się, że katalog globalStorageUri istnieje
             if (!fs.existsSync(storagePath)) {
