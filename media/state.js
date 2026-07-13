@@ -25,6 +25,16 @@
  *   wartość to nowa wartość ustawiona przez użytkownika. Wspiera wiele kolumn naraz.
  *   To tylko podgląd w webview - prawdziwe dane (State.currentRows) pozostają nietknięte,
  *   dopóki użytkownik nie potwierdzi zapisu przyciskiem "Save".
+ * @property {Set<number>} selectedRowIndexes - Indeksy (page-relative, jak _rowIndex)
+ *   aktualnie zaznaczonych wierszy. Źródło prawdy dla zaznaczenia wierszy - klasa CSS
+ *   'selected-row' na węźle DOM służy już tylko do wizualnego podświetlenia i jest
+ *   aktualizowana równolegle z tym Setem, nigdy odwrotnie odczytywana.
+ * @property {Set<number>} selectedColIndexes - Indeksy aktualnie zaznaczonych kolumn
+ *   (odpowiednik selectedRowIndexes, ale dla zaznaczenia kolumny). Klasa CSS 'selected-col'
+ *   to tylko wizualny efekt uboczny.
+ * @property {Set<string>} selectedCellPositions - Pozycje pojedynczo zaznaczonych komórek
+ *   w formacie "row-col" (odpowiednik selectedRowIndexes, ale dla zaznaczenia komórki).
+ *   Klasa CSS 'selected-cell' to tylko wizualny efekt uboczny.
  */
 
 export class State {
@@ -56,6 +66,9 @@ export class State {
                 infoMessage: '',
                 errorMessage: '',
                 pendingColumnEdits: {},
+                selectedRowIndexes: new Set(),
+                selectedColIndexes: new Set(),
+                selectedCellPositions: new Set(),
             });
         }
 
@@ -94,5 +107,15 @@ export class State {
             throw new Error("No active instance. First call State.init(filename).");
         }
         return State.#instance;
+    }
+
+    /**
+     * Mówi, czy Singleton został już zainicjalizowany (State.init) - bez rzucania wyjątku.
+     * Przydatne tam, gdzie kod może się wykonać zanim padł pierwszy 'appendData'/'showResultsForFile'
+     * (np. 'showEmpty' jako pierwsza wiadomość dla pliku bez żadnych wcześniejszych wyników).
+     * @returns {boolean}
+     */
+    static hasInstance() {
+        return State.#instance !== null;
     }
 }

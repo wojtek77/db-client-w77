@@ -1,6 +1,6 @@
 import { State } from './state.js';
 import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage } from './tableRenderer.js';
-import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility } from './editor.js';
+import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, clearRowSelection, hideToolsButtons } from './editor.js';
 
 let sqlFile;
 let queryTimer = null;
@@ -233,12 +233,7 @@ window.addEventListener('message', event => {
         }
 
         if (msg.clearSelection) {
-            const gridBody = document.getElementById('gridBody');
-            if (gridBody) {
-                gridBody.querySelectorAll('.grid-row.selected-row').forEach(
-                    row => row.classList.remove('selected-row')
-                );
-            }
+            clearRowSelection();
 
             stopToolsBtn();
 
@@ -280,7 +275,7 @@ window.addEventListener('message', event => {
         updateInfoMessage(State.getInstance().infoMessage);
         updateErrorMessage(State.getInstance().errorMessage);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
-        updateDeleteButtonVisibility(State.getInstance().cachedGridHtml);
+        updateDeleteButtonVisibility();
         updateSaveColumnEditsButtonVisibility();
         
         // renderowanie HTML
@@ -307,7 +302,7 @@ window.addEventListener('message', event => {
         updateInfoMessage();
         updateErrorMessage();
         updatePagination();
-        updateDeleteButtonVisibility();
+        hideToolsButtons();
         updateSaveColumnEditsButtonVisibility(true); // tylko ukrywa
     }
     

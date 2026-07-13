@@ -95,8 +95,7 @@ function initCellEditing(vscode) {
                 return;
             }
 
-            const headerCell = State.getInstance().cachedHeaderHtml?.[colIndex + 1];
-            const isColumnSelected = headerCell && headerCell.classList.contains('selected-col');
+            const isColumnSelected = State.getInstance().selectedColIndexes.has(colIndex);
 
             if (isColumnSelected) {
                 // Cała kolumna jest zaznaczona -> zamiast update'ować jeden wiersz,
@@ -215,8 +214,27 @@ function initSaveColumnEditsButton(vscode) {
     });
 }
 
-/* zaznaczenie wiersza */
-function initRowSelection() {
+/* zaznaczenie wiersza - selectedRowIndexes w State jest źródłem prawdy, klasa
+   'selected-row' to tylko wizualny efekt uboczny aktualizowany razem z nim */
+function setRowSelected(row, rowIndex, select) {
+    row.classList.toggle('selected-row', select);
+    if (select) {
+        State.getInstance().selectedRowIndexes.add(rowIndex);
+    } else {
+        State.getInstance().selectedRowIndexes.delete(rowIndex);
+    }
+}
+
+/** Odznacza wszystkie aktualnie zaznaczone wiersze (na podstawie Setu, bez przeszukiwania DOM). */
+export function clearRowSelection() {
+    const rows = State.getInstance().cachedGridHtml || [];
+    State.getInstance().selectedRowIndexes.forEach(rowIndex => {
+        if (rows[rowIndex]) {rows[rowIndex].classList.remove('selected-row');}
+    });
+    State.getInstance().selectedRowIndexes.clear();
+}
+
+export function initRowSelection() {
 
     const gridBody = document.getElementById('gridBody');
     if (!gridBody) {
@@ -255,7 +273,7 @@ function initRowSelection() {
         if (event.shiftKey && anchorRow) {
 
             if (!event.ctrlKey) {
-                rows.forEach(r => r.classList.remove('selected-row'));
+                clearRowSelection();
             }
 
             const from = anchorRow._rowIndex;
@@ -267,66 +285,73 @@ function initRowSelection() {
                 const end = Math.max(from, to);
 
                 for (let i = start; i <= end; i++) {
-                    rows[i].classList.add('selected-row');
+                    setRowSelected(rows[i], i, true);
                 }
             }
 
-            updateDeleteButtonVisibility(rows);
+            updateDeleteButtonVisibility();
             return;
         }
 
         // CTRL - przełącz zaznaczenie pojedynczego wiersza
         if (event.ctrlKey) {
 
-            targetRow.classList.toggle('selected-row');
+            const willSelect = !State.getInstance().selectedRowIndexes.has(targetRow._rowIndex);
+            setRowSelected(targetRow, targetRow._rowIndex, willSelect);
 
             // kliknięty wiersz staje się nowym anchorem
             anchorRow = targetRow;
 
-            updateDeleteButtonVisibility(rows);
+            updateDeleteButtonVisibility();
             return;
         }
 
         // zwykły klik
 
-        const wasSelected = targetRow.classList.contains('selected-row');
-        const selectedCount = rows.filter(r => r.classList.contains('selected-row')).length;
+        const wasSelected = State.getInstance().selectedRowIndexes.has(targetRow._rowIndex);
+        const selectedCount = State.getInstance().selectedRowIndexes.size;
 
-        rows.forEach(r => r.classList.remove('selected-row'));
+        clearRowSelection();
 
         // kliknięcie jedynego zaznaczonego wiersza -> odznaczenie
         if (!(wasSelected && selectedCount === 1)) {
-            targetRow.classList.add('selected-row');
+            setRowSelected(targetRow, targetRow._rowIndex, true);
             anchorRow = targetRow;
         } else {
             anchorRow = null;
         }
 
-        updateDeleteButtonVisibility(rows);
+        updateDeleteButtonVisibility();
     });
 }
 
-/* pokazuje ikony w .tools (kosz, generowanie SQL) tylko wtedy, gdy przynajmniej jeden wiersz jest zaznaczony.
+/* pokazuje ikony w .tools (kosz, generowanie SQL) tylko wtedy, gdy przynajmniej jeden wiersz jest zaznaczony
+   (na podstawie State.selectedRowIndexes, bez przeszukiwania DOM po klasach).
    Przycisk #saveColumnEditsBtn jest celowo pominięty - jego widoczność zależy wyłącznie
    od tego, czy są jakieś oczekujące edycje kolumn (patrz updateSaveColumnEditsButtonVisibility) */
-export function updateDeleteButtonVisibility(rows = []) {
-    const hasSelection = rows.some(r => r.classList.contains('selected-row'));
+export function updateDeleteButtonVisibility() {
+    const hasSelection = State.hasInstance() && State.getInstance().selectedRowIndexes.size > 0;
     document.querySelectorAll('.tools-btn:not(#saveColumnEditsBtn)').forEach(btn => {
         btn.style.display = hasSelection ? 'inline-block' : 'none';
     });
 }
 
-/* zbiera indeksy aktualnie zaznaczonych wierszy (page-relative, tak jak przy edycji komórki) */
-function collectSelectedRowIndexes(gridBody) {
-    const selectedRows = [...gridBody.querySelectorAll('.grid-row.selected-row')];
+/* wymusza ukrycie przycisków narzędziowych niezależnie od stanu zaznaczenia - używane
+   np. przy 'showEmpty', gdzie siatka i tak znika, więc żadne zaznaczenie nie ma już znaczenia */
+export function hideToolsButtons() {
+    document.querySelectorAll('.tools-btn:not(#saveColumnEditsBtn)').forEach(btn => {
+        btn.style.display = 'none';
+    });
+}
 
-    return selectedRows
-        .map(row => row._rowIndex)
-        .filter(rowIndex => rowIndex !== undefined);
+/* zbiera indeksy aktualnie zaznaczonych wierszy (page-relative, tak jak przy edycji komórki),
+   posortowane rosnąco - tak samo jak wcześniej zwracał je querySelectorAll (kolejność w DOM) */
+function collectSelectedRowIndexes() {
+    return [...State.getInstance().selectedRowIndexes].sort((a, b) => a - b);
 }
 
 /* obsługa kliknięcia ikony kosza - wysyła indeksy zaznaczonych wierszy do rozszerzenia */
-function initDeleteRowsButton(vscode) {
+export function initDeleteRowsButton(vscode) {
     const deleteBtn = document.getElementById('deleteRowsBtn');
     const gridBody = document.getElementById('gridBody');
     if (!deleteBtn || !gridBody) {
@@ -334,7 +359,7 @@ function initDeleteRowsButton(vscode) {
     }
 
     deleteBtn.addEventListener('click', () => {
-        const rowIndexes = collectSelectedRowIndexes(gridBody);
+        const rowIndexes = collectSelectedRowIndexes();
         if (rowIndexes.length === 0) {
             return;
         }
@@ -347,7 +372,7 @@ function initDeleteRowsButton(vscode) {
 }
 
 /* obsługa ikon generowania SQL (INSERT/UPDATE/DELETE) - ta sama logika co kosz, inna komenda */
-function initGenerateSqlButtons(vscode) {
+export function initGenerateSqlButtons(vscode) {
     const gridBody = document.getElementById('gridBody');
     if (!gridBody) {
         return;
@@ -366,7 +391,7 @@ function initGenerateSqlButtons(vscode) {
         }
 
         btn.addEventListener('click', () => {
-            const rowIndexes = collectSelectedRowIndexes(gridBody);
+            const rowIndexes = collectSelectedRowIndexes();
             if (rowIndexes.length === 0) {
                 return;
             }
@@ -377,7 +402,7 @@ function initGenerateSqlButtons(vscode) {
 }
 
 /* zaznaczenie kolumny */
-function initColumnSelection() {
+export function initColumnSelection() {
 
     const gridHeader = document.getElementById('gridHeader');
     const gridBody = document.getElementById('gridBody');
@@ -417,6 +442,12 @@ function initColumnSelection() {
                 cell.classList.toggle('selected-col', select);
             }
         });
+
+        if (select) {
+            State.getInstance().selectedColIndexes.add(colIndex);
+        } else {
+            State.getInstance().selectedColIndexes.delete(colIndex);
+        }
 
         // odznaczenie kolumny -> anuluj ewentualną niezapisaną edycję tej kolumny
         // (znika czerwone podświetlenie, wraca prawdziwa wartość, znika przycisk Save
@@ -468,7 +499,7 @@ function initColumnSelection() {
         // CTRL - przełącz zaznaczenie pojedynczej kolumny
         if (event.ctrlKey) {
 
-            const isSelected = headerCell.classList.contains('selected-col');
+            const isSelected = State.getInstance().selectedColIndexes.has(targetCol);
             selectColumn(targetCol, !isSelected);
 
             // kliknięta kolumna staje się nowym anchorem
@@ -479,8 +510,8 @@ function initColumnSelection() {
 
         // zwykły klik
 
-        const wasSelected = headerCell.classList.contains('selected-col');
-        const selectedCount = headerCells.filter(hc => hc.classList.contains('selected-col')).length;
+        const wasSelected = State.getInstance().selectedColIndexes.has(targetCol);
+        const selectedCount = State.getInstance().selectedColIndexes.size;
 
         clearAllColumns(headerCells);
 
@@ -496,7 +527,7 @@ function initColumnSelection() {
 }
 
 /* zaznaczenie komórki */
-function initCellSelection() {
+export function initCellSelection() {
 
     const gridBody = document.getElementById('gridBody');
     if (!gridBody) {
@@ -530,12 +561,23 @@ function initCellSelection() {
         if (cell) {
             cell.classList.toggle('selected-cell', select);
         }
+
+        const key = `${rowIndex}-${colIndex}`;
+        if (select) {
+            State.getInstance().selectedCellPositions.add(key);
+        } else {
+            State.getInstance().selectedCellPositions.delete(key);
+        }
     }
 
+    // odznacza wszystkie zaznaczone komórki na podstawie Setu, bez przeszukiwania DOM
     function clearAllCells() {
-        gridBody.querySelectorAll('.grid-cell.selected-cell').forEach(c => {
-            c.classList.remove('selected-cell');
+        State.getInstance().selectedCellPositions.forEach(key => {
+            const [r, c] = key.split('-').map(Number);
+            const cell = getCell(r, c);
+            if (cell) {cell.classList.remove('selected-cell');}
         });
+        State.getInstance().selectedCellPositions.clear();
     }
 
     gridBody.addEventListener('click', (event) => {
@@ -585,7 +627,7 @@ function initCellSelection() {
         // CTRL - przełącz zaznaczenie pojedynczej komórki
         if (event.ctrlKey) {
 
-            const isSelected = cell.classList.contains('selected-cell');
+            const isSelected = State.getInstance().selectedCellPositions.has(`${targetIndex.row}-${targetIndex.col}`);
             selectCell(targetIndex.row, targetIndex.col, !isSelected);
 
             // kliknięta komórka staje się nowym anchorem
@@ -596,8 +638,8 @@ function initCellSelection() {
 
         // zwykły klik
 
-        const wasSelected = cell.classList.contains('selected-cell');
-        const selectedCount = gridBody.querySelectorAll('.grid-cell.selected-cell').length;
+        const wasSelected = State.getInstance().selectedCellPositions.has(`${targetIndex.row}-${targetIndex.col}`);
+        const selectedCount = State.getInstance().selectedCellPositions.size;
 
         clearAllCells();
 
@@ -613,7 +655,7 @@ function initCellSelection() {
 }
 
 /* kopiowanie zaznaczenia (wiersze / kolumny / komórki) do schowka */
-function initClipboard() {
+export function initClipboard() {
 
     const gridBody = document.getElementById('gridBody');
     if (!gridBody) {
@@ -625,32 +667,30 @@ function initClipboard() {
         return cell ? cell.textContent : '';
     }
 
-    // zbiera pozycje (row-col) ze wszystkich trzech typów zaznaczenia
+    // zbiera pozycje (row-col) ze wszystkich trzech typów zaznaczenia - wprost
+    // z Setów w State, bez przeszukiwania DOM po klasach 'selected-row'/'selected-col'/'selected-cell'
     function collectSelectedPositions() {
         const positions = new Set();
+        const state = State.getInstance();
 
         // zaznaczone wiersze -> wszystkie kolumny danego wiersza
-        gridBody.querySelectorAll('.grid-row.selected-row').forEach(row => {
-            row.querySelectorAll('.grid-cell:not(.lp-cell)').forEach(cell => {
-                if (cell._index) {
-                    positions.add(`${cell._index.row}-${cell._index.col}`);
-                }
-            });
+        const columnCount = state.headers.length;
+        state.selectedRowIndexes.forEach(rowIndex => {
+            for (let col = 0; col < columnCount; col++) {
+                positions.add(`${rowIndex}-${col}`);
+            }
         });
 
-        // zaznaczone kolumny -> wszystkie wiersze danej kolumny
-        gridBody.querySelectorAll('.grid-cell.selected-col').forEach(cell => {
-            if (cell._index) {
-                positions.add(`${cell._index.row}-${cell._index.col}`);
+        // zaznaczone kolumny -> wszystkie wiersze danej kolumny (bieżącej strony)
+        const rowCount = state.cachedGrid.length;
+        state.selectedColIndexes.forEach(colIndex => {
+            for (let row = 0; row < rowCount; row++) {
+                positions.add(`${row}-${colIndex}`);
             }
         });
 
         // pojedyncze zaznaczone komórki
-        gridBody.querySelectorAll('.grid-cell.selected-cell').forEach(cell => {
-            if (cell._index) {
-                positions.add(`${cell._index.row}-${cell._index.col}`);
-            }
-        });
+        state.selectedCellPositions.forEach(key => positions.add(key));
 
         return positions;
     }
