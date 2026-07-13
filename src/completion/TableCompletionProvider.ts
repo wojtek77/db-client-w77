@@ -88,6 +88,12 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
             return [];
         }
 
+        // Leniwe ładowanie: schemat/lista tabel jest pobierana z bazy dopiero tutaj,
+        // przy pierwszej faktycznej próbie podpowiedzi (patrz Connection.waitForSchemaTables()).
+        // Błędy odczytu są logowane i połykane wewnątrz waitForSchemaTables() - tutaj
+        // nie trzeba ich obsługiwać, brakujący schemat po prostu da puste podpowiedzi.
+        await db.waitForSchemaTables();
+
         let fullText = currentQuery.sql;
 
         // usunięcie komentarzy na początku przed SELECT, INSERT, UPDATE

@@ -17,7 +17,9 @@ export class Connection {
     private isProduction = false;
     private isReadOnly = false;
     private schemaTables = new Map<string, string[]>();
-    private schemaTablesLoaded: Promise<void> = Promise.resolve();
+    // null = schemat nie jest (jeszcze) załadowany / został unieważniony po DDL.
+    // Ładowanie jest odpalane leniwie, dopiero przy pierwszym waitForSchemaTables().
+    private schemaTablesLoadPromise: Promise<void> | null = null;
     private threadId: number | null = null;
     private cnfFile = '';
     // Przechowujemy konfigurację, aby móc wykonać reconnect bez podawania parametrów na nowo
@@ -91,17 +93,15 @@ export class Connection {
             const endConn = performance.now();
             this.connectionTime = endConn - startConn;
             this.connected = true;
-            
-            // Po połączeniu, pobierz nazwy tabel. Robimy to W TLE (bez await) - na dużych
-            // serwerach ze wieloma schematami SELECT z INFORMATION_SCHEMA.TABLES może być
-            // wolny, a nie ma powodu, żeby to blokowało samo połączenie z bazą (np. zanim
-            // użytkownik zdąży cokolwiek zapytać, autocomplete i tak nie jest jeszcze potrzebny).
             this.database = config.database ?? '';
-            this.schemaTablesLoaded = this.readTableNames(this.conn)
-                .then((schemaTables) => { this.schemaTables = schemaTables; })
-                .catch((err) => {
-                    console.error('Failed to fetch tables after start connection:', err);
-                });
+
+            // Nazwy tabel/schematów NIE są tu ładowane. Odczyt z INFORMATION_SCHEMA.TABLES
+            // bywa kosztowny na serwerach z wieloma schematami, a większość połączeń
+            // (np. jednorazowe "run and close" na pliku .sql, albo tymczasowe połączenie
+            // tworzone tylko po to, żeby wykonać KILL QUERY) w ogóle nie potrzebuje tych
+            // danych. Zamiast tego ładowanie jest odpalane leniwie, dopiero gdy ktoś
+            // faktycznie o nie zapyta - patrz waitForSchemaTables().
+            this.schemaTablesLoadPromise = null;
             
             return this.connectionTime;
         } catch (err) {
@@ -157,7 +157,9 @@ export class Connection {
 
         try {
             const conn = this.getConnection();
-            return await conn.query(params, values);
+            const result = await conn.query(params, values);
+            this.invalidateSchemaTablesIfDDL(sqlText);
+            return result;
         } catch (err: any) {
             // Dodano bezpieczne sprawdzanie err.message?.includes
             const isClosed = 
@@ -178,9 +180,23 @@ export class Connection {
                     `🔄 Reconnect DB "${connectionName}".`
                 );
                 
-                return await conn.query(params, values);
+                const result = await conn.query(params, values);
+                this.invalidateSchemaTablesIfDDL(sqlText);
+                return result;
             }
             throw err;
+        }
+    }
+
+    /**
+     * Po wykonaniu DDL (CREATE/ALTER/DROP/TRUNCATE/RENAME) zapamiętana lista
+     * tabel/schematów mogła się zdezaktualizować. Unieważniamy ją, ale NIE
+     * ładujemy od razu ponownie - kolejny odczyt nastąpi leniwie, przy
+     * najbliższym waitForSchemaTables() (czyli przy kolejnej podpowiedzi).
+     */
+    private invalidateSchemaTablesIfDDL(sqlText: unknown): void {
+        if (typeof sqlText === 'string' && SqlUtil.isDDL(sqlText)) {
+            this.schemaTablesLoadPromise = null;
         }
     }
     
@@ -210,12 +226,26 @@ export class Connection {
     }
 
     /**
-     * Pozwala poczekać, aż lista tabel/schematów (pobierana w tle po connect(),
-     * żeby nie blokować samego połączenia) zostanie faktycznie załadowana.
+     * Zapewnia, że lista tabel/schematów jest załadowana - odpala odczyt
+     * z INFORMATION_SCHEMA przy pierwszym wywołaniu (leniwie, na żądanie),
+     * a kolejne równoległe wywołania (np. kolejne znaki wpisywane szybko
+     * jeden po drugim) dostają ten sam, współdzielony promise zamiast
+     * odpalać kolejne zapytania do bazy. Wywołanie po unieważnieniu
+     * (patrz query() -> DDL) odpala ponowne ładowanie.
      * Przydatne np. dla completion providera, który potrzebuje pełnej listy.
      */
     public async waitForSchemaTables(): Promise<void> {
-        await this.schemaTablesLoaded;
+        if (!this.schemaTablesLoadPromise) {
+            this.schemaTablesLoadPromise = this.readTableNames(this.getConnection())
+                .then((schemaTables) => { this.schemaTables = schemaTables; })
+                .catch((err) => {
+                    console.error('Failed to fetch tables:', err);
+                    // Nie zostawiamy "zawieszonego" stanu błędu - kolejne wywołanie
+                    // waitForSchemaTables() spróbuje załadować schemat ponownie.
+                    this.schemaTablesLoadPromise = null;
+                });
+        }
+        await this.schemaTablesLoadPromise;
     }
     
     public getTableNames(): Map<string, string[]> {
