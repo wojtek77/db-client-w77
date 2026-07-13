@@ -12,6 +12,7 @@ export type FakeDb = {
     getDatabase:             () => string;
     findSchemaByTable:       (table: string) => string | null;
     getConnectionName:       () => string;
+    waitForSchemaTables:     () => Promise<void>;
 };
 
 // ─── Pomocniki ────────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ export function makeFakeDb(overrides: Partial<FakeDb> = {}): FakeDb {
         getDatabase:             overrides.getDatabase             ?? (() => ''),
         findSchemaByTable:       overrides.findSchemaByTable       ?? (() => null),
         getConnectionName:       overrides.getConnectionName       ?? (() => 'test'),
+        waitForSchemaTables:     overrides.waitForSchemaTables     ?? (async () => {}),
     };
 }
 
