@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5
+
+### Changed
+- Faster page rendering: comparing rows to detect changes now checks
+  columns directly instead of serializing each row to JSON.
+
 ## 0.2.4
 
 ### Fixed

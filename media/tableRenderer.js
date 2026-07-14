@@ -195,6 +195,24 @@ export function clearColumnPreview(columnIndex) {
     if (headerCell) {headerCell.classList.remove('column-edit-pending');}
 }
 
+/**
+ * Płytkie porównanie dwóch wierszy kolumna-po-kolumnie (bez serializacji do JSON).
+ * @param {Array} rowA
+ * @param {Array} rowB
+ * @param {number} headerCount
+ * @returns {boolean}
+ */
+function rowsEqual(rowA, rowB, headerCount) {
+    if (rowA === rowB) {return true;}
+    if (!rowA || !rowB) {return false;}
+
+    for (let j = 0; j < headerCount; ++j) {
+        if (rowA[j] !== rowB[j]) {return false;}
+    }
+
+    return true;
+}
+
 export function renderPage(data) {
     const headers = State.getInstance().headers;
     const rows = State.getInstance().cachedGrid;
@@ -203,7 +221,7 @@ export function renderPage(data) {
     const lastData = State.getInstance().currentRows;
 
     for (let i = 0; i < dataCount; ++i) {
-        if (lastData && JSON.stringify(lastData[i]) === JSON.stringify(data[i])) {
+        if (lastData && rowsEqual(lastData[i], data[i], headerCount)) {
             continue;
         }
         
