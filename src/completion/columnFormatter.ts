@@ -1,5 +1,7 @@
+import { TableColumn } from "../cache/TableColumnsCache";
+
 // Funkcja formatująca typ kolumny z dodatkowymi informacjami
-export function formatColumnType(column: any): string {
+export function formatColumnType(column: TableColumn): string {
     let typeDisplay = column.type.toUpperCase();
     
     // Dla VARCHAR i CHAR
@@ -26,6 +28,9 @@ export function formatColumnType(column: any): string {
         } else {
             typeDisplay = `DECIMAL(${column.numericPrecision})`;
         }
+    }
+    else if (column.type === 'enum' || column.type === 'set') {
+        typeDisplay = column.columnType.replace(/^(enum|set)\(/i, (match: string) => match.toUpperCase());
     }
     
     return typeDisplay;

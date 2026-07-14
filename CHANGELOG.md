@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3
+
+### Added
+- Column completion for `ENUM`/`SET` columns now shows the full list of
+  allowed values in the hint.
+
 ## 0.2.2
 
 ### Changed
