@@ -46,6 +46,44 @@ function isAncestorScope(matchStack: number[], cursorStack: number[]): boolean {
     return true;
 }
 
+/**
+ * Liczy stos nawiasów w KILKU punktach tekstu naraz, jednym przebiegiem od lewej
+ * do prawej (zamiast liczyć go od zera dla każdego punktu osobno, jak robił to
+ * poprzednio `computeParenStack` wywoływane w pętli w `findQueryTables`).
+ *
+ * Tekst jest maskowany (`maskStringLiterals`) TYLKO RAZ, a nie raz na punkt -
+ * przy zapytaniu z wieloma FROM/JOIN dawało to niepotrzebne O(n * liczba_dopasowań).
+ *
+ * Zwraca mapę: indeks punktu z `checkpoints` -> stos pozycji otwierających `(`
+ * niezamkniętych przed tym punktem.
+ */
+function computeParenStacksAt(sql: string, checkpoints: number[]): number[][] {
+    const masked = maskStringLiterals(sql);
+
+    // Przetwarzamy punkty rosnąco po pozycji, żeby móc iść przez tekst jednym
+    // przebiegiem "cursor" do przodu, ale wynik zwracamy w oryginalnej kolejności.
+    const order = checkpoints
+        .map((pos, originalIndex) => ({ pos, originalIndex }))
+        .sort((a, b) => a.pos - b.pos);
+
+    const results: number[][] = new Array(checkpoints.length);
+    const stack: number[] = [];
+    let cursor = 0;
+
+    for (const { pos, originalIndex } of order) {
+        const end = Math.min(pos, masked.length);
+        while (cursor < end) {
+            const ch = masked[cursor];
+            if (ch === '(') { stack.push(cursor); }
+            else if (ch === ')') { stack.pop(); }
+            cursor++;
+        }
+        results[originalIndex] = [...stack];
+    }
+
+    return results;
+}
+
 export function findQueryTables(
     sql: string,
     defaultSchema: string,
@@ -58,25 +96,33 @@ export function findQueryTables(
     const regex =
         /\b(?:from|join)\s+(?:(\w+)\s*\.\s*)?(\w+)/gi;
 
+    const matches: RegExpExecArray[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(sql)) !== null) {
+        matches.push(match);
+    }
+
     // Jeśli podano pozycję kursora, ograniczamy dopasowania do tych, które są
     // w zasięgu widoczności kursora (pomijamy tabele z "obcych" podzapytań,
     // np. z innej gałęzi WHERE ... IN (...) niż ta, w której stoi kursor).
-    const cursorStack = cursorOffset !== undefined
-        ? computeParenStack(sql, cursorOffset)
-        : null;
+    // Stosy nawiasów dla WSZYSTKICH potrzebnych pozycji (kursor + każde
+    // dopasowanie FROM/JOIN) liczymy jednym przebiegiem po tekście.
+    let cursorStack: number[] | null = null;
+    let matchStacks: number[][] | null = null;
 
-    let match:
-        RegExpExecArray | null;
+    if (cursorOffset !== undefined) {
+        const checkpoints = matches.map(m => m.index);
+        checkpoints.push(cursorOffset);
 
-    while (
-        (match = regex.exec(sql))
-        !== null
-    ) {
+        const stacks = computeParenStacksAt(sql, checkpoints);
+        matchStacks = stacks.slice(0, matches.length);
+        cursorStack = stacks[matches.length];
+    }
 
-        if (cursorStack !== null) {
-            const matchStack = computeParenStack(sql, match.index);
-            if (!isAncestorScope(matchStack, cursorStack)) {
-                continue;
+    matches.forEach((match, i) => {
+        if (cursorStack !== null && matchStacks !== null) {
+            if (!isAncestorScope(matchStacks[i], cursorStack)) {
+                return;
             }
         }
 
@@ -93,7 +139,7 @@ export function findQueryTables(
             table:
                 match[2]
         });
-    }
+    });
 
     const tableColumnsService = TableColumnsCache.getInstance();
     return Array.from(
