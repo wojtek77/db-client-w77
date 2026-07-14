@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6
+
+### Changed
+- Faster column autocomplete for queries with several `JOIN`s or nested
+  subqueries.
+
 ## 0.2.5
 
 ### Changed
