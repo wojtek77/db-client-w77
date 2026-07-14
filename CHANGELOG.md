@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+### Fixed
+- Closing a SQL file's tab now frees the memory used by its last query results.
+
 ## 0.2.3
 
 ### Added

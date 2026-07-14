@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../db/ConnectionManager.js';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
 import { TableColumnsCache } from '../cache/TableColumnsCache.js';
+import { SqlResultsProvider } from '../panel/SqlResultsProvider.js';
 
 let extensionRunning = false;
 let startingPromise: Promise<void> | null = null;
@@ -50,6 +51,15 @@ export async function stopExtension(all = false) {
     
     // czyszczenie cache tabel z polami
     TableColumnsCache.getInstance().clearTableColumnsCache();
+
+    // czyszczenie zapisanego stanu wyników zapytań dla wszystkich plików SQL
+    // (owinięte w try/catch - stopExtension teoretycznie może zostać wywołane
+    // zanim SqlResultsProvider.initialize() zdąży się wykonać)
+    try {
+        SqlResultsProvider.getInstance().clearFileStates();
+    } catch {
+        // SqlResultsProvider jeszcze nie istnieje - nic do wyczyszczenia
+    }
     
     if (all) {
         // stop-all już w toku (druga równoległa próba) - poczekaj na ten sam stop

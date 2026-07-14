@@ -180,6 +180,21 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
     
     /**
+     * Czyści zapisany stan wyników zapytań, żeby uniknąć wycieku pamięci
+     * (m.in. pełnych `rows`), gdy dany plik SQL przestał być potrzebny.
+     *
+     * @param sqlFile - jeśli `null` (domyślnie), czyści stan dla WSZYSTKICH
+     * plików; jeśli podano konkretną ścieżkę, czyści stan tylko dla tego pliku.
+     */
+    public clearFileStates(sqlFile: string | null = null) {
+        if (sqlFile === null) {
+            this._fileStates.clear();
+        } else {
+            this._fileStates.delete(sqlFile);
+        }
+    }
+    
+    /**
      * Waliduje kształt komunikatów przychodzących z webview. Webview nie jest
      * zaufanym źródłem (renderuje dane z bazy i mogłoby zostać skompromitowane
      * przez np. XSS), więc każdy komunikat musi mieć oczekiwany "command" oraz
