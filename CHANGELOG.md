@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.2
+
+### Changed
+- Row, column and cell selection in the results grid no longer relies on
+  querying the DOM for CSS classes (`.selected-row`/`.selected-col`/
+  `.selected-cell`). `State` now holds three `Set`s
+  (`selectedRowIndexes`/`selectedColIndexes`/`selectedCellPositions`) that are
+  the single source of truth; the CSS classes are still applied for the
+  visual highlight, but are now a side effect kept in sync with the `Set`s
+  instead of being read back via `querySelectorAll`. This affects the
+  clipboard copy (`collectSelectedPositions`) and the toolbar visibility
+  (`updateDeleteButtonVisibility`), which previously re-scanned the whole
+  rendered grid on every click and every copy.
+
 ## 0.2.1
 
 ### Changed
@@ -46,7 +60,3 @@
   (`CnfLoader.stripInlineComment`).
 - Template comments are in English (the file is read by end users); comments
   in `.ts`/`.js` source stay in Polish.
-
-## 0.1.0
-
-- Initial release
