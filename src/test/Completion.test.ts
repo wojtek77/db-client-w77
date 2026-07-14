@@ -157,6 +157,68 @@ suite('findQueryTables', () => {
         assert.ok(tables.includes('foo'),   'missing own subquery table foo');
         assert.ok(!tables.includes('bar'),  'bar is a sibling subquery table and should not leak');
     });
+
+    // ── Zapytanie z wieloma (4) JOIN-ami ──────────────────────────────────────
+    // Regresja wydajnościowa: computeParenStack był wcześniej liczony od zera
+    // dla KAŻDEGO dopasowania FROM/JOIN (O(n*m)). Poniższe testy pokrywają
+    // dokładnie ten scenariusz (kilka JOIN-ów + subquery w WHERE) i pilnują,
+    // żeby wynik scoping'u po cursorOffset pozostał identyczny niezależnie od
+    // tego, jak jest liczony stos nawiasów wewnątrz findQueryTables.
+    suite('with 4 JOINs', () => {
+        const sql =
+            'SELECT *\n' +
+            'FROM orders o\n' +
+            'JOIN users u ON o.user_id = u.id\n' +
+            'JOIN products p ON o.product_id = p.id\n' +
+            'JOIN categories c ON p.category_id = c.id\n' +
+            'JOIN warehouses w ON p.warehouse_id = w.id\n' +
+            'WHERE o.status IN (SELECT status FROM statuses WHERE active = 1)';
+
+        test('without cursorOffset, returns all tables including the WHERE...IN subquery', () => {
+            const tables = findQueryTables(sql, 'public', fakeDb).map(r => r.table);
+            assert.deepStrictEqual(
+                [...tables].sort(),
+                ['categories', 'orders', 'products', 'statuses', 'users', 'warehouses'],
+            );
+        });
+
+        test('with cursorOffset at top level (right after SELECT *), excludes the subquery table', () => {
+            const cursorOffset = sql.indexOf('SELECT *') + 'SELECT *'.length;
+            const tables = findQueryTables(sql, 'public', fakeDb, cursorOffset).map(r => r.table);
+            assert.deepStrictEqual(
+                [...tables].sort(),
+                ['categories', 'orders', 'products', 'users', 'warehouses'],
+            );
+            assert.ok(!tables.includes('statuses'), 'statuses should not leak from the WHERE...IN subquery');
+        });
+
+        test('with cursorOffset at the very end of the query, sees all 4 joined tables', () => {
+            const cursorOffset = sql.length;
+            const tables = findQueryTables(sql, 'public', fakeDb, cursorOffset).map(r => r.table);
+            assert.deepStrictEqual(
+                [...tables].sort(),
+                ['categories', 'orders', 'products', 'users', 'warehouses'],
+            );
+        });
+
+        test('with cursorOffset inside the WHERE...IN subquery, sees the subquery table too', () => {
+            const cursorOffset = sql.lastIndexOf('SELECT status');
+            const tables = findQueryTables(sql, 'public', fakeDb, cursorOffset).map(r => r.table);
+            assert.deepStrictEqual(
+                [...tables].sort(),
+                ['categories', 'orders', 'products', 'statuses', 'users', 'warehouses'],
+            );
+        });
+
+        test('with cursorOffset in the middle (at the 3rd JOIN), still sees all top-level joined tables', () => {
+            const cursorOffset = sql.indexOf('JOIN categories');
+            const tables = findQueryTables(sql, 'public', fakeDb, cursorOffset).map(r => r.table);
+            assert.deepStrictEqual(
+                [...tables].sort(),
+                ['categories', 'orders', 'products', 'users', 'warehouses'],
+            );
+        });
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
