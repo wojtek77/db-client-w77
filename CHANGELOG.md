@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.15
+
+### Fixed
+- Confirming a cell edit with `ENTER` immediately reopened the edit
+  `input` on the same cell instead of closing it. The document-level
+  `keydown` listener added above (for starting edit mode) checked
+  `document.activeElement` to skip cells already being edited, but
+  `input.blur()` (triggered by the input's own `ENTER` handler) changes
+  `document.activeElement` synchronously - before the same `keydown`
+  event finishes bubbling up to `document`. So by the time the
+  document listener ran, the input was already blurred/saved and no
+  longer looked like the active element, and the listener immediately
+  restarted editing on the just-saved cell. Fixed by checking
+  `event.target` instead, which stays fixed to the original input for
+  the whole bubbling phase regardless of any `blur()` calls in between.
+
 ## 0.2.14
 
 ### Added
