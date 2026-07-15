@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.12
+
+### Fixed
+- Fixed webview unit tests broken by the tool-button caching introduced in
+  0.2.10. `rowToolsBtnElements` (`media/editor.js`) and `toolsBtnElements`
+  (`media/messageHandler.js`) were computed once at **module import time**
+  via `document.getElementById(...)`, instead of inside a function. This
+  assumed `document` already existed and stayed valid for the lifetime of
+  the module, which broke webview tests two ways: several test files
+  statically import `editor.js` before calling `setupDom()`, so `document`
+  wasn't defined yet at import time; and even where it was defined, the
+  cached elements went stale after any subsequent `setupDom()` call within
+  the same test file (each call builds a fresh DOM), since the cache was
+  never refreshed. Replaced both cached constants with lazy getter
+  functions (`getRowToolsBtnElements()` / `getToolsBtnElements()`) that
+  still use `getElementById` (avoiding the original `querySelectorAll`
+  scans) but resolve the elements on each call instead of once at import.
+
 ## 0.2.11
 
 ### Fixed

@@ -28,15 +28,21 @@ const MULTILINE_COLUMN_TYPES = new Set([
     'longtext'
 ]);
 
-// Przyciski zależne od zaznaczenia wierszy - stałe ID w markupie (patrz src/panel/html.ts),
-// więc pobieramy je raz zamiast przeszukiwać DOM przez querySelectorAll przy każdym kliknięciu wiersza.
+// Przyciski zależne od zaznaczenia wierszy - stałe ID w markupie (patrz src/panel/html.ts).
+// Pobieramy je przez getElementById (szybkie, bez przeszukiwania całego drzewa DOM jak
+// querySelectorAll('.tools-btn')), ale NIE cache'ujemy wyniku w zmiennej modułu: ten kod
+// wykonałby się raz, w momencie importu modułu - zanim strona (a w testach: jsdom) w ogóle
+// zbuduje DOM, więc `document` mogłoby jeszcze nie istnieć albo elementy byłyby nieaktualne
+// po ponownym zbudowaniu DOM. getRowToolsBtnElements() woła getElementById na żądanie.
 // saveColumnEditsBtn celowo pominięty - jego widocznością steruje updateSaveColumnEditsButtonVisibility.
-const rowToolsBtnElements = [
-    'generateInsertBtn',
-    'generateUpdateBtn',
-    'generateDeleteBtn',
-    'deleteRowsBtn',
-].map(id => document.getElementById(id)).filter(Boolean);
+function getRowToolsBtnElements() {
+    return [
+        'generateInsertBtn',
+        'generateUpdateBtn',
+        'generateDeleteBtn',
+        'deleteRowsBtn',
+    ].map(id => document.getElementById(id)).filter(Boolean);
+}
 
 function isMultilineColumnType(columnType) {
     if (!columnType) {return false;}
@@ -341,7 +347,7 @@ export function initRowSelection() {
    od tego, czy są jakieś oczekujące edycje kolumn (patrz updateSaveColumnEditsButtonVisibility) */
 export function updateDeleteButtonVisibility() {
     const hasSelection = State.hasInstance() && State.getInstance().selectedRowIndexes.size > 0;
-    rowToolsBtnElements.forEach(btn => {
+    getRowToolsBtnElements().forEach(btn => {
         btn.style.display = hasSelection ? 'inline-block' : 'none';
     });
 }
@@ -349,7 +355,7 @@ export function updateDeleteButtonVisibility() {
 /* wymusza ukrycie przycisków narzędziowych niezależnie od stanu zaznaczenia - używane
    np. przy 'showEmpty', gdzie siatka i tak znika, więc żadne zaznaczenie nie ma już znaczenia */
 export function hideToolsButtons() {
-    rowToolsBtnElements.forEach(btn => {
+    getRowToolsBtnElements().forEach(btn => {
         btn.style.display = 'none';
     });
 }

@@ -17,15 +17,20 @@ const loadingText = document.querySelector('.loading-text');
 const cancelBtn = document.getElementById('cancelQuery');
 const infoMessage = document.getElementById('infoMessage');
 
-// Przyciski narzędziowe mają stałe ID w markupie (patrz editor.js), więc pobieramy je
-// raz przy starcie zamiast przeszukiwać cały DOM przez querySelectorAll przy każdym wywołaniu
-const toolsBtnElements = [
-    'generateInsertBtn',
-    'generateUpdateBtn',
-    'generateDeleteBtn',
-    'deleteRowsBtn',
-    'saveColumnEditsBtn',
-].map(id => document.getElementById(id)).filter(Boolean);
+// Przyciski narzędziowe mają stałe ID w markupie (patrz editor.js). Pobieramy je przez
+// getElementById (szybkie, bez przeszukiwania całego DOM jak querySelectorAll('.tools-btn')),
+// ale na żądanie - a nie raz przy starcie modułu, bo taki "cache" zamrażałby elementy z
+// DOM-u sprzed ponownego zbudowania strony (i, jak w editor.js, wymagałby żeby `document`
+// istniało już w momencie importu tego pliku).
+function getToolsBtnElements() {
+    return [
+        'generateInsertBtn',
+        'generateUpdateBtn',
+        'generateDeleteBtn',
+        'deleteRowsBtn',
+        'saveColumnEditsBtn',
+    ].map(id => document.getElementById(id)).filter(Boolean);
+}
 
 function stopQueryTimer() {
     if (queryTimer) {
@@ -123,7 +128,7 @@ function stopToolsBtn() {
         return;
     }
 
-    toolsBtnElements.forEach(btn => { btn.style.display = 'none'; });
+    getToolsBtnElements().forEach(btn => { btn.style.display = 'none'; });
     state.pendingColumnEdits = {};
 }
 
