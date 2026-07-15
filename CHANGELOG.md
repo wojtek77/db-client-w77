@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.2.14
+
+### Added
+- Pressing `ENTER` on a single selected cell (in the results grid) now starts
+  cell editing, the same way double-click already did. `initCellEditing`
+  (`media/editor.js`) had its dblclick body extracted into a shared
+  `startEditingCell(cell, vscode)` function, now also called from a new
+  `keydown` listener that fires only when exactly one cell is selected
+  (`selectedCellPositions.size === 1`) and focus isn't already inside an
+  edit `input`/`textarea`.
+- Arrow-key navigation between cells in the results grid: with a single
+  cell selected, `ArrowUp`/`ArrowDown`/`ArrowLeft`/`ArrowRight` move the
+  selection to the neighboring cell (deselecting the previous one),
+  instead of doing nothing. Implemented in `initCellSelection`
+  (`media/editor.js`); ignored while an edit `input`/`textarea` is
+  focused, and while more/fewer than one cell is selected. Arrows at the
+  edge of the grid (e.g. `ArrowUp` on the first row) are simply no-ops.
+  The newly selected cell is scrolled into view (`scrollIntoView`) if
+  needed.
+
+### Fixed
+- Column headers in the results grid (`.header-cell`) are clickable
+  (click selects the whole column, see `initColumnSelection` in
+  `media/editor.js`), but had no `:hover` style in `media/styles.css` -
+  unlike data rows, which already highlight and switch to a pointer
+  cursor on hover. Added a matching `.header-cell:not(.lp-cell):hover`
+  rule (the `#` row-number header is excluded, since it isn't clickable).
+- Editing a cell (double-click, or now `ENTER` on a selected cell) saved
+  the new value on **any** loss of focus, including clicking somewhere
+  else on the page - not just when explicitly confirming with `ENTER`.
+  `startEditingCell` (`media/editor.js`) now tracks a `committed` flag,
+  set only right before `input.blur()` is called from the `ENTER`
+  handler. The shared `blur` listener saves the value only if
+  `committed` is `true`; otherwise (click-away, `Escape`, losing focus
+  for any other reason) it cancels the edit and restores the original
+  value.
+
 ## 0.2.13
 
 ### Added
