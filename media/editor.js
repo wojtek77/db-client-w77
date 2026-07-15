@@ -80,8 +80,15 @@ function initCellEditing(vscode) {
     document.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter') {return;}
 
-        const active = document.activeElement;
-        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {return;}
+        // Uwaga: NIE sprawdzamy tu document.activeElement, tylko event.target.
+        // event.target jest stały przez całe bąbelkowanie eventu, podczas gdy
+        // input.blur() (wywoływane w handlerze keydown na samym polu edycji,
+        // patrz startEditingCell) synchronicznie zmienia document.activeElement
+        // jeszcze zanim ten sam event Enter dobąbelkuje do document. Sprawdzanie
+        // activeElement powodowało, że ten listener odpalał się ponownie tuż po
+        // saveEdit() i natychmiast otwierał nowy input w tej samej komórce.
+        const target = event.target;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {return;}
 
         const positions = State.getInstance().selectedCellPositions;
         if (!positions || positions.size !== 1) {return;}
