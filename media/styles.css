@@ -77,6 +77,13 @@ html, body {
     /* background: var(--vscode-sideBar-background); */
     font-weight: bold;
 }
+
+/* Hover dla nagłówków kolumn - są klikalne (zaznaczanie kolumny),
+   ale brakowało stylu, więc kursor się nie zmieniał i nie było podświetlenia */
+.header-cell:not(.lp-cell):hover {
+    background-color: var(--vscode-list-hoverBackground);
+    cursor: pointer;
+}
 .lp-cell {
     background: var(--vscode-editor-background);
     text-align: center;
