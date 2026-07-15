@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.9
+
+### Fixed
+- The loading spinner shown while a SQL query is running is now always
+  visible, even when the results grid has been scrolled down. Previously
+  the spinner overlay was a child of the same element that scrolls
+  (`#gridContainer`), so `position: absolute; inset: 0` anchored it to
+  the top of the scrolled content instead of the visible viewport -
+  scrolling down (e.g. to rows starting at 50) moved the spinner out of
+  view. Scrolling now happens in a new inner `#gridScroll` wrapper,
+  while the overlay stays a direct child of `#gridContainer` and always
+  covers the currently visible area.
+
 ## 0.2.8
 
 ### Changed
