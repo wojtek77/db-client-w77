@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.8
+
+### Changed
+- Replaced the "cancel" query button text with an SVG (X) icon,
+  whose color can now be easily customized via CSS.
+
 ## 0.2.7
 
 ### Fixed
