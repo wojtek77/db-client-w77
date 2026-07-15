@@ -132,11 +132,16 @@ export function getHtml(
         <div class="loading-text">Loading data...</div>
     </div>
 
-    <!-- nagłówki -->
-    <div id="gridHeader" class="grid-header"></div>
-    
-    <!-- 200 wierszy danych -->
-    <div id="gridBody" class="grid-body"></div>
+    <!-- gridScroll jest JEDYNYM przewijanym elementem - dzięki temu loadingOverlay
+         (dziecko gridContainer, a nie gridScroll) zawsze pokrywa aktualnie widoczny
+         obszar, niezależnie od tego, jak bardzo użytkownik przewinął wyniki w dół -->
+    <div id="gridScroll" class="grid-scroll">
+        <!-- nagłówki -->
+        <div id="gridHeader" class="grid-header"></div>
+
+        <!-- 200 wierszy danych -->
+        <div id="gridBody" class="grid-body"></div>
+    </div>
 </div>
 
 <script nonce="${nonce}" src="${appUri}"></script>

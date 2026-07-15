@@ -17,16 +17,27 @@ html, body {
     background: var(--vscode-merge-editor-header-background, #252526);
 }
 
-/* 🚀 POPRAWIONY GŁÓWNY KONTENER TABELI */
+/* POPRAWIONY GŁÓWNY KONTENER TABELI */
 .grid-container {
     margin-top: 1em;
     display: flex;
     flex-direction: column;
     flex-grow: 1;       /* Zmusza tabelę do zajęcia 100% pozostałej wysokości ekranu */
     width: 100%;
+    overflow: hidden;   /* sam nie przewija - przewija #gridScroll w środku */
+    position: relative; /* punkt odniesienia dla loadingOverlay (inset: 0) */
+    border: 0px solid var(--vscode-panel-border);
+}
+
+/* Jedyny faktycznie przewijany element - dzięki temu, że loadingOverlay
+   NIE jest jego dzieckiem, spinner zawsze pokrywa widoczny obszar, a nie
+   "górę" przewiniętej zawartości */
+.grid-scroll {
+    flex-grow: 1;
+    min-height: 0;      /* wymagane, żeby flex-child mógł się faktycznie przewijać */
+    width: 100%;
     overflow: auto;     /* To będzie JEDYNY suwak pionowy i poziomy w aplikacji */
     position: relative;
-    border: 0px solid var(--vscode-panel-border);
 }
 
 
