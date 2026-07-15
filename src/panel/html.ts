@@ -61,7 +61,12 @@ export function getHtml(
         <span id="queryTime" title="SQL execution time">---</span>
         <span id="queryTimeUnit">ms</span>
         
-        <span id="cancelQuery" class="cancel-query btn" title="cancel query">cancel</span>
+        <span id="cancelQuery" class="cancel-query" title="cancel query">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+            </svg> cancel
+        </span>
     </div>
         
     <div class="others">

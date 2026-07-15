@@ -299,15 +299,14 @@ button.btn:disabled {
     border-color: var(--vscode-disabledForeground, gray);
 }
 .cancel-query {
-    /* background: #c62828; */
-    /* color: white; */
-    font-weight: bold;
     display:none;
 }
 .cancel-query:hover {
     cursor: pointer;
-    background: var(--vscode-editorError-background);
-    border: 1px solid var(--vscode-errorForeground);
+    color: var(--vscode-errorForeground);
+}
+.cancel-query svg {
+    vertical-align: bottom;
 }
 
 #flashMessage {
