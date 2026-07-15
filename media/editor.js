@@ -28,6 +28,16 @@ const MULTILINE_COLUMN_TYPES = new Set([
     'longtext'
 ]);
 
+// Przyciski zależne od zaznaczenia wierszy - stałe ID w markupie (patrz src/panel/html.ts),
+// więc pobieramy je raz zamiast przeszukiwać DOM przez querySelectorAll przy każdym kliknięciu wiersza.
+// saveColumnEditsBtn celowo pominięty - jego widocznością steruje updateSaveColumnEditsButtonVisibility.
+const rowToolsBtnElements = [
+    'generateInsertBtn',
+    'generateUpdateBtn',
+    'generateDeleteBtn',
+    'deleteRowsBtn',
+].map(id => document.getElementById(id)).filter(Boolean);
+
 function isMultilineColumnType(columnType) {
     if (!columnType) {return false;}
     return MULTILINE_COLUMN_TYPES.has(columnType.toLowerCase());
@@ -331,7 +341,7 @@ export function initRowSelection() {
    od tego, czy są jakieś oczekujące edycje kolumn (patrz updateSaveColumnEditsButtonVisibility) */
 export function updateDeleteButtonVisibility() {
     const hasSelection = State.hasInstance() && State.getInstance().selectedRowIndexes.size > 0;
-    document.querySelectorAll('.tools-btn:not(#saveColumnEditsBtn)').forEach(btn => {
+    rowToolsBtnElements.forEach(btn => {
         btn.style.display = hasSelection ? 'inline-block' : 'none';
     });
 }
@@ -339,7 +349,7 @@ export function updateDeleteButtonVisibility() {
 /* wymusza ukrycie przycisków narzędziowych niezależnie od stanu zaznaczenia - używane
    np. przy 'showEmpty', gdzie siatka i tak znika, więc żadne zaznaczenie nie ma już znaczenia */
 export function hideToolsButtons() {
-    document.querySelectorAll('.tools-btn:not(#saveColumnEditsBtn)').forEach(btn => {
+    rowToolsBtnElements.forEach(btn => {
         btn.style.display = 'none';
     });
 }

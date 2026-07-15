@@ -17,6 +17,16 @@ const loadingText = document.querySelector('.loading-text');
 const cancelBtn = document.getElementById('cancelQuery');
 const infoMessage = document.getElementById('infoMessage');
 
+// Przyciski narzędziowe mają stałe ID w markupie (patrz editor.js), więc pobieramy je
+// raz przy starcie zamiast przeszukiwać cały DOM przez querySelectorAll przy każdym wywołaniu
+const toolsBtnElements = [
+    'generateInsertBtn',
+    'generateUpdateBtn',
+    'generateDeleteBtn',
+    'deleteRowsBtn',
+    'saveColumnEditsBtn',
+].map(id => document.getElementById(id)).filter(Boolean);
+
 function stopQueryTimer() {
     if (queryTimer) {
         clearInterval(queryTimer);
@@ -103,8 +113,18 @@ function stopGridContainer() {
     if (gridContainer) {gridContainer.style.display = 'none';}
 }
 function stopToolsBtn() {
-    document.querySelectorAll('.tools-btn').forEach(btn => {btn.style.display = 'none';});
-    State.getInstance().pendingColumnEdits = {};
+    const state = State.getInstance();
+
+    // Nic nie jest widoczne, jeśli nie ma zaznaczonych wierszy (4 przyciski) ani
+    // oczekujących edycji kolumn (saveColumnEditsBtn) - pomijamy zbędny zapis do stylu i reflow
+    const hasSelection = state.selectedRowIndexes.size > 0;
+    const hasPendingEdits = Object.keys(state.pendingColumnEdits).length > 0;
+    if (!hasSelection && !hasPendingEdits) {
+        return;
+    }
+
+    toolsBtnElements.forEach(btn => { btn.style.display = 'none'; });
+    state.pendingColumnEdits = {};
 }
 
 window.addEventListener('message', event => {
