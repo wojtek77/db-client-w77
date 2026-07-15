@@ -54,3 +54,33 @@ describe('State - selection Sets and hasInstance', () => {
         assert.doesNotThrow(() => State.getInstance());
     });
 });
+
+describe('State.clear()', () => {
+
+    test('usuwa zapisany stan pliku - ponowny init daje świeże, domyślne wartości', () => {
+        const state = State.init('state-test-clear.sql');
+        state.headers = ['a', 'b'];
+        state.currentRows = [[1, 2]];
+        state.selectedRowIndexes.add(1);
+
+        State.clear('state-test-clear.sql');
+
+        const fresh = State.init('state-test-clear.sql');
+        assert.deepEqual(fresh.headers, []);
+        assert.deepEqual(fresh.currentRows, []);
+        assert.equal(fresh.selectedRowIndexes.size, 0);
+    });
+
+    test('nie wpływa na stan innych plików', () => {
+        State.init('state-test-clear-a.sql').headers = ['x'];
+        State.init('state-test-clear-b.sql').headers = ['y'];
+
+        State.clear('state-test-clear-a.sql');
+
+        assert.deepEqual(State.init('state-test-clear-b.sql').headers, ['y']);
+    });
+
+    test('czyszczenie pliku, który nigdy nie istniał, nic nie psuje', () => {
+        assert.doesNotThrow(() => State.clear('state-test-clear-never-existed.sql'));
+    });
+});

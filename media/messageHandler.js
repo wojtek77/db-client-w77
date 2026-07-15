@@ -333,4 +333,11 @@ window.addEventListener('message', event => {
         // zapisu) -> nic nie zostało zmienione w bazie, cofamy wizualny podgląd
         cancelAllColumnEdits();
     }
+
+    if (msg.command === 'clearCache') {
+        // backend zgłasza, że zakładka danego pliku SQL została zamknięta -
+        // usuwamy jego cache (cachedGrid/cachedGridHtml/currentRows itd.),
+        // żeby nie trzymać go w pamięci webview w nieskończoność
+        State.clear(msg.sqlFile);
+    }
 });

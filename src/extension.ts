@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { SqlResultsProvider } from './panel/SqlResultsProvider.js';
 import { RecentSqlFiles } from './recentFiles/RecentSqlFiles.js';
-import { isExtensionRunning, startExtension, stopExtension } from './lifecycle/extensionLifecycle.js';
+import { closeSqlFile, isExtensionRunning, startExtension, stopExtension } from './lifecycle/extensionLifecycle.js';
 import { TableCompletionProvider } from './completion/TableCompletionProvider.js';
 import { runSQLCommand } from './commands/runSqlCommand.js';
 import { openRecentFilesCommand } from './commands/openRecentFilesCommand.js';
@@ -127,18 +127,15 @@ async function safeStartExtension(context: vscode.ExtensionContext) {
 async function handleTabsChanged(context: vscode.ExtensionContext) {
     const currentOpenSqlFiles = getOpenSqlTabFiles();
     const sqlTabOpen = currentOpenSqlFiles.size > 0;
-    const willStop = !sqlTabOpen && isExtensionRunning();
 
     // pliki, które były otwarte przy poprzednim przeliczeniu, a teraz już nie
     // są w żadnej zakładce - ich zapisany stan wyników zapytań można wyczyścić.
-    // Pomijamy to, gdy i tak zaraz wywołamy stopExtension(true) - ono czyści
-    // WSZYSTKO na raz (clearFileStates() bez argumentu), więc czyszczenie
-    // pojedynczych plików tutaj byłoby zbędne.
-    if (!willStop) {
-        for (const filePath of previousOpenSqlFiles) {
-            if (!currentOpenSqlFiles.has(filePath)) {
-                SqlResultsProvider.getInstance().clearFileStates(filePath);
-            }
+    // Dotyczy to też przypadku, gdy zamykana jest ostatnia zakładka SQL (i za
+    // chwilę wywołamy stopExtension) - to tylko szczególny przypadek zamknięcia
+    // zakładki, więc powinien być obsłużony dokładnie tak samo jak każdy inny.
+    for (const filePath of previousOpenSqlFiles) {
+        if (!currentOpenSqlFiles.has(filePath)) {
+            closeSqlFile(filePath);
         }
     }
     previousOpenSqlFiles = currentOpenSqlFiles;
@@ -149,7 +146,7 @@ async function handleTabsChanged(context: vscode.ExtensionContext) {
     }
 
     // zamknięto ostatni SQL editor
-    if (willStop) {
+    if (!sqlTabOpen && isExtensionRunning()) {
         await stopExtension(true);
     }
 }

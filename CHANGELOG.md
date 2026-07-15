@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.7
+
+### Fixed
+- Closing a SQL file's tab now also frees the cached grid/rows kept in
+  the **webview** (`cachedGrid`/`cachedGridHtml`/`currentRows` in
+  `media/state.js`), not just the backend cache. Previously only the
+  backend side was cleared (see 0.2.4), so the webview's per-file cache
+  kept growing for every closed file until the panel was reloaded.
+
+### Changed
+- Simplified how the query-results cache is cleared: it now only ever
+  happens per-file, when that file's last tab is closed
+  (`closeSqlFile()`). Stopping the extension (closing the last SQL tab,
+  or VS Code shutting down) no longer separately clears the whole
+  cache - it was redundant, since closing the last tab is just a
+  special case of closing any tab and is already covered by the
+  per-file cleanup.
+
 ## 0.2.6
 
 ### Changed

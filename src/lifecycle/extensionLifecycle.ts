@@ -12,6 +12,24 @@ export function isExtensionRunning() {
     return extensionRunning;
 }
 
+/**
+ * Wywoływane, gdy zakładka danego pliku SQL przestaje być otwarta (nie ma
+ * już żadnej zakładki wskazującej na ten plik). Czyści cache wyników zapytań
+ * dla tego pliku - to jedyne miejsce, w którym trzeba to robić, bo zamknięcie
+ * ostatniej zakładki SQL (patrz `stopExtension`) jest tylko szczególnym
+ * przypadkiem zamknięcia zakładki w ogóle.
+ *
+ * Owinięte w try/catch - w teorii może zostać wywołane zanim
+ * SqlResultsProvider.initialize() zdąży się wykonać.
+ */
+export function closeSqlFile(filePath: string) {
+    try {
+        SqlResultsProvider.getInstance().clearCache(filePath);
+    } catch {
+        // SqlResultsProvider jeszcze nie istnieje - nic do wyczyszczenia
+    }
+}
+
 export async function startExtension(context: vscode.ExtensionContext) {
     // już uruchomione - nic do zrobienia
     if (extensionRunning) {
@@ -52,15 +70,6 @@ export async function stopExtension(all = false) {
     // czyszczenie cache tabel z polami
     TableColumnsCache.getInstance().clearTableColumnsCache();
 
-    // czyszczenie zapisanego stanu wyników zapytań dla wszystkich plików SQL
-    // (owinięte w try/catch - stopExtension teoretycznie może zostać wywołane
-    // zanim SqlResultsProvider.initialize() zdąży się wykonać)
-    try {
-        SqlResultsProvider.getInstance().clearFileStates();
-    } catch {
-        // SqlResultsProvider jeszcze nie istnieje - nic do wyczyszczenia
-    }
-    
     if (all) {
         // stop-all już w toku (druga równoległa próba) - poczekaj na ten sam stop
         if (stoppingAllPromise) {

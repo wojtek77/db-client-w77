@@ -118,4 +118,14 @@ export class State {
     static hasInstance() {
         return State.#instance !== null;
     }
+
+    /**
+     * Usuwa zapisany stan danego pliku (m.in. cachedGrid/cachedGridHtml/currentRows),
+     * gdy backend zgłosi, że plik przestał być potrzebny (zamknięto jego zakładkę).
+     * Odpowiednik czyszczenia `_fileStates` w SqlResultsProvider po stronie backendu.
+     * @param {string} filename - Nazwa pliku, dla którego czyścimy stan.
+     */
+    static clear(filename) {
+        State.#globalFiles.delete(filename);
+    }
 }

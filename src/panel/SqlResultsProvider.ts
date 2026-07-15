@@ -180,17 +180,22 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
     
     /**
-     * Czyści zapisany stan wyników zapytań, żeby uniknąć wycieku pamięci
-     * (m.in. pełnych `rows`), gdy dany plik SQL przestał być potrzebny.
-     *
-     * @param sqlFile - jeśli `null` (domyślnie), czyści stan dla WSZYSTKICH
-     * plików; jeśli podano konkretną ścieżkę, czyści stan tylko dla tego pliku.
+     * Czyści zapisany stan wyników zapytań dla danego pliku SQL, żeby uniknąć
+     * wycieku pamięci (m.in. pełnych `rows`), gdy plik przestał być potrzebny
+     * (zamknięto jego zakładkę). Czyści zarówno cache w backendzie, jak i
+     * odpowiadający mu cache w webview (m.in. `cachedGrid`/`cachedGridHtml`
+     * w media/state.js), który ma dokładnie ten sam cykl życia.
      */
-    public clearFileStates(sqlFile: string | null = null) {
-        if (sqlFile === null) {
-            this._fileStates.clear();
-        } else {
-            this._fileStates.delete(sqlFile);
+    public clearCache(sqlFile: string) {
+        this._fileStates.delete(sqlFile);
+        console.log('CLEAR_CACHE_BACKEND');
+
+        if (this._view) {
+            this._view.webview.postMessage({
+                command: 'clearCache',
+                sqlFile: sqlFile
+            });
+            console.log('CLEAR_CACHE_WEBVIEW');
         }
     }
     
