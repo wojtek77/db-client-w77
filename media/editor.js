@@ -71,90 +71,120 @@ function initCellEditing(vscode) {
         // Blokujemy nagłówki, LP oraz sytuację gdy pole edycji już istnieje
         if (!cell || cell.classList.contains('lp-cell') || cell.querySelector('input, textarea')) {return;}
 
-        const rowIndex = cell._index.row;
-        const colIndex = cell._index.col;
-        const oldValue = cell.textContent;
-        const columnType = cell.dataset.columnType;
-        const multiline = isMultilineColumnType(columnType);
+        startEditingCell(cell, vscode);
+    });
 
-        const input = document.createElement(multiline ? 'textarea' : 'input');
-        const row = cell.closest('.grid-row');
-        if (!multiline) {
-            input.type = 'text';
-        } else {
-            input.rows = 4;
-            input.classList.add('grid-edit-input-multiline');
-            // Cały wiersz rośnie, żeby zmieściła się textarea (bez rozjeżdżania innych wierszy)
-            if (row) {row.classList.add('editing-row');}
-        }
-        input.value = oldValue;
-        input.className += (input.className ? ' ' : '') + 'grid-edit-input';
+    // ENTER na zaznaczonej (ale nie edytowanej) komórce - wejście w tryb edycji, tak samo
+    // jak dblclick. Reagujemy tylko gdy dokładnie jedna komórka jest zaznaczona (bez sensu
+    // przy zaznaczeniu wielu komórek/wiersza/kolumny) i gdy fokus nie jest już w polu edycji.
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') {return;}
 
-        cell.textContent = '';
-        cell.appendChild(input);
-        input.focus();
-        input.select();
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {return;}
 
-        // Zapis następuje wyłącznie po naciśnięciu ENTER (ustawia committed = true przed
-        // wywołaniem input.blur()). Każde inne "opuszczenie" pola - kliknięcie poza komórką,
-        // Escape, przełączenie okna itp. - trafia do blura z committed = false i anuluje edycję
-        // (przywraca oldValue), zamiast zapisywać wpisaną wartość.
-        let committed = false;
+        const positions = State.getInstance().selectedCellPositions;
+        if (!positions || positions.size !== 1) {return;}
 
-        function cancelEdit() {
-            if (row) {row.classList.remove('editing-row');}
+        const [key] = positions;
+        const [rowIndex, colIndex] = key.split('-').map(Number);
+        const cell = State.getInstance().cachedGrid?.[rowIndex]?.[colIndex + 1];
+        if (!cell || cell.querySelector('input, textarea')) {return;}
+
+        event.preventDefault();
+        startEditingCell(cell, vscode);
+    });
+}
+
+/**
+ * Uruchamia tryb edycji dla podanej komórki (podmienia jej zawartość na input/textarea).
+ * Wspólna logika dla dblclick oraz ENTER na zaznaczonej komórce.
+ */
+function startEditingCell(cell, vscode) {
+
+    const rowIndex = cell._index.row;
+    const colIndex = cell._index.col;
+    const oldValue = cell.textContent;
+    const columnType = cell.dataset.columnType;
+    const multiline = isMultilineColumnType(columnType);
+
+    const input = document.createElement(multiline ? 'textarea' : 'input');
+    const row = cell.closest('.grid-row');
+    if (!multiline) {
+        input.type = 'text';
+    } else {
+        input.rows = 4;
+        input.classList.add('grid-edit-input-multiline');
+        // Cały wiersz rośnie, żeby zmieściła się textarea (bez rozjeżdżania innych wierszy)
+        if (row) {row.classList.add('editing-row');}
+    }
+    input.value = oldValue;
+    input.className += (input.className ? ' ' : '') + 'grid-edit-input';
+
+    cell.textContent = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+
+    // Zapis następuje wyłącznie po naciśnięciu ENTER (ustawia committed = true przed
+    // wywołaniem input.blur()). Każde inne "opuszczenie" pola - kliknięcie poza komórką,
+    // Escape, przełączenie okna itp. - trafia do blura z committed = false i anuluje edycję
+    // (przywraca oldValue), zamiast zapisywać wpisaną wartość.
+    let committed = false;
+
+    function cancelEdit() {
+        if (row) {row.classList.remove('editing-row');}
+        cell.textContent = oldValue;
+    }
+
+    function saveEdit() {
+        const newValue = input.value;
+        if (row) {row.classList.remove('editing-row');}
+
+        if (newValue === oldValue) {
             cell.textContent = oldValue;
+            return;
         }
 
-        function saveEdit() {
-            const newValue = input.value;
-            if (row) {row.classList.remove('editing-row');}
+        const isColumnSelected = State.getInstance().selectedColIndexes.has(colIndex);
 
-            if (newValue === oldValue) {
-                cell.textContent = oldValue;
-                return;
-            }
-
-            const isColumnSelected = State.getInstance().selectedColIndexes.has(colIndex);
-
-            if (isColumnSelected) {
-                // Cała kolumna jest zaznaczona -> zamiast update'ować jeden wiersz,
-                // startujemy (wyłącznie wizualny) podgląd zbiorczej edycji tej kolumny
-                startColumnEdit(colIndex, newValue);
-                return;
-            }
-
-            // Tekst zmieniamy tymczasowo, pełne potwierdzenie (zielony błysk) przyjdzie z bazy danych
-            cell.textContent = newValue;
-
-            // Wysyłamy dokładnie to, co odbiera: msg.rowIndex, msg.columnIndex, msg.value
-            vscode.postMessage({
-                command: 'updateCell',
-                rowIndex: rowIndex,
-                columnIndex: colIndex,
-                value: newValue
-            });
+        if (isColumnSelected) {
+            // Cała kolumna jest zaznaczona -> zamiast update'ować jeden wiersz,
+            // startujemy (wyłącznie wizualny) podgląd zbiorczej edycji tej kolumny
+            startColumnEdit(colIndex, newValue);
+            return;
         }
 
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !(multiline && e.shiftKey)) {
-                e.preventDefault();
-                committed = true;
-                input.blur();
-            }
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                cancelEdit();
-            }
-        });
+        // Tekst zmieniamy tymczasowo, pełne potwierdzenie (zielony błysk) przyjdzie z bazy danych
+        cell.textContent = newValue;
 
-        input.addEventListener('blur', () => {
-            if (committed) {
-                saveEdit();
-            } else {
-                cancelEdit();
-            }
+        // Wysyłamy dokładnie to, co odbiera: msg.rowIndex, msg.columnIndex, msg.value
+        vscode.postMessage({
+            command: 'updateCell',
+            rowIndex: rowIndex,
+            columnIndex: colIndex,
+            value: newValue
         });
+    }
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !(multiline && e.shiftKey)) {
+            e.preventDefault();
+            committed = true;
+            input.blur();
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelEdit();
+        }
+    });
+
+    input.addEventListener('blur', () => {
+        if (committed) {
+            saveEdit();
+        } else {
+            cancelEdit();
+        }
     });
 }
 
