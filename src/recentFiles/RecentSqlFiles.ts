@@ -164,6 +164,12 @@ export class RecentSqlFiles {
     
     public async openRecentFiles() {
     
+        // przycisk (ikona kosza) przy każdej pozycji na liście - usuwa tylko tę jedną pozycję
+        const removeItemButton: vscode.QuickInputButton = {
+            iconPath: new vscode.ThemeIcon('trash'),
+            tooltip: 'Remove this file from the list'
+        };
+
         // funkcja pomocnicza (lokalna) budująca elementy QuickPick na podstawie aktualnego stanu sqlFiles
         const buildQuickPickItems = () => {
             const sqlFiles = RecentSqlFiles.getInstance().getSqlFiles();
@@ -203,7 +209,8 @@ export class RecentSqlFiles {
                         // label: `${orderNumber}. ${fileName} (${connectionName})`, // To co widzi użytkownik
                         label: `${fileName}`, // To co widzi użytkownik
                         description: `(${connectionName}) ${orderNumber}.`,                     // Opcjonalnie: podgląd pełnej ścieżki na dole
-                        value: filePath                      // Ukryta wartość, którą chcemy wyciągnąć
+                        value: filePath,                     // Ukryta wartość, którą chcemy wyciągnąć
+                        buttons: [removeItemButton]          // ikona kosza przy tej pozycji - usuwa tylko ją
                     };
                 });
         };
@@ -214,7 +221,7 @@ export class RecentSqlFiles {
             tooltip: 'Trim list (keep only N most recent files)'
         };
 
-        const quickPick = vscode.window.createQuickPick<{ label: string; description: string; value: string }>();
+        const quickPick = vscode.window.createQuickPick<{ label: string; description: string; value: string; buttons?: readonly vscode.QuickInputButton[] }>();
         quickPick.items = buildQuickPickItems();
         quickPick.placeholder = 'select SQL file';
         quickPick.ignoreFocusOut = true;
@@ -258,6 +265,32 @@ export class RecentSqlFiles {
             // odśwież listę widoczną w otwartym QuickPicku
             quickPick.items = buildQuickPickItems();
             vscode.window.showInformationMessage(`Recent SQL files list trimmed - kept ${trimmedEntries.length} most recent entries`);
+        });
+
+        // obsługa kliknięcia w kosz przy pojedynczej pozycji na liście - usuwa tylko tę jedną pozycję
+        quickPick.onDidTriggerItemButton((event) => {
+            if (event.button !== removeItemButton) {
+                return;
+            }
+
+            // zapamiętujemy indeks usuwanej pozycji, aby po odświeżeniu listy
+            // zaznaczenie zostało w tym samym miejscu, a nie wróciło na początek
+            const removedIndex = quickPick.items.indexOf(event.item);
+
+            const instance = RecentSqlFiles.getInstance();
+            instance.delete(event.item.value);
+            void instance.persist();
+
+            // odśwież listę widoczną w otwartym QuickPicku (bez zamykania go)
+            const newItems = buildQuickPickItems();
+            quickPick.items = newItems;
+
+            // ustawiamy aktywną pozycję na tym samym indeksie co usunięta
+            // (a jeśli to była ostatnia pozycja - na nowym ostatnim elemencie)
+            if (newItems.length > 0) {
+                const newActiveIndex = Math.min(removedIndex, newItems.length - 1);
+                quickPick.activeItems = [newItems[newActiveIndex]];
+            }
         });
 
         // Wyświetlenie menu użytkownikowi

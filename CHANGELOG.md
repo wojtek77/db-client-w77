@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.13
+
+### Added
+- Recent SQL files list (`F3`) now shows a trash icon next to each
+  individual entry, letting you remove a single file from the list
+  without affecting the others. Previously the only way to remove
+  entries was the "Trim list" button in the QuickPick title bar,
+  which trimmed the list down to the N most recent files (or cleared
+  it entirely) rather than removing one specific file. Clicking the
+  new per-item button deletes just that entry from `sqlFiles`,
+  persists the updated list to disk, and refreshes the QuickPick in
+  place without closing it.
+
 ## 0.2.12
 
 ### Fixed
