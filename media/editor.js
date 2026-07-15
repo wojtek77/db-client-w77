@@ -95,14 +95,18 @@ function initCellEditing(vscode) {
         input.focus();
         input.select();
 
-        // Escape usuwa input z DOM (przez cell.textContent = oldValue), a to samo w sobie
-        // wyzwala zdarzenie 'blur' na tym polu - bez tej flagi saveEdit() i tak by zapisał
-        // wpisaną wartość, mimo że użytkownik chciał anulować edycję
-        let cancelled = false;
+        // Zapis następuje wyłącznie po naciśnięciu ENTER (ustawia committed = true przed
+        // wywołaniem input.blur()). Każde inne "opuszczenie" pola - kliknięcie poza komórką,
+        // Escape, przełączenie okna itp. - trafia do blura z committed = false i anuluje edycję
+        // (przywraca oldValue), zamiast zapisywać wpisaną wartość.
+        let committed = false;
+
+        function cancelEdit() {
+            if (row) {row.classList.remove('editing-row');}
+            cell.textContent = oldValue;
+        }
 
         function saveEdit() {
-            if (cancelled) {return;}
-
             const newValue = input.value;
             if (row) {row.classList.remove('editing-row');}
 
@@ -135,18 +139,21 @@ function initCellEditing(vscode) {
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !(multiline && e.shiftKey)) {
                 e.preventDefault();
+                committed = true;
                 input.blur();
             }
             if (e.key === 'Escape') {
                 e.preventDefault();
-                cancelled = true;
-                if (row) {row.classList.remove('editing-row');}
-                cell.textContent = oldValue;
+                cancelEdit();
             }
         });
 
         input.addEventListener('blur', () => {
-            saveEdit();
+            if (committed) {
+                saveEdit();
+            } else {
+                cancelEdit();
+            }
         });
     });
 }
