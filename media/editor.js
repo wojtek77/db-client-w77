@@ -705,6 +705,47 @@ export function initCellSelection() {
         }
 
     });
+
+    // nawigacja strzałkami - przesuwa zaznaczenie do sąsiedniej komórki (góra/dół/lewo/prawo).
+    // Działa tylko gdy dokładnie jedna komórka jest zaznaczona i nie trwa edycja.
+    const ARROW_DELTAS = {
+        ArrowUp: [-1, 0],
+        ArrowDown: [1, 0],
+        ArrowLeft: [0, -1],
+        ArrowRight: [0, 1],
+    };
+
+    document.addEventListener('keydown', (event) => {
+        const delta = ARROW_DELTAS[event.key];
+        if (!delta) {return;}
+
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {return;}
+
+        const positions = State.getInstance().selectedCellPositions;
+        if (!positions || positions.size !== 1) {return;}
+
+        const [key] = positions;
+        const [rowIndex, colIndex] = key.split('-').map(Number);
+
+        const rowCount = State.getInstance().cachedGrid?.length ?? 0;
+        const colCount = State.getInstance().headers?.length ?? 0;
+
+        const newRow = rowIndex + delta[0];
+        const newCol = colIndex + delta[1];
+
+        // poza granicami siatki - nic nie robimy (nie ma dokąd przejść)
+        if (newRow < 0 || newRow >= rowCount || newCol < 0 || newCol >= colCount) {return;}
+
+        event.preventDefault();
+
+        clearAllCells();
+        selectCell(newRow, newCol, true);
+        anchorCell = { row: newRow, col: newCol };
+
+        const cell = getCell(newRow, newCol);
+        if (cell) {cell.scrollIntoView({block: 'nearest', inline: 'nearest'});}
+    });
 }
 
 /* kopiowanie zaznaczenia (wiersze / kolumny / komórki) do schowka */
