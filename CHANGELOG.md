@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.10
+
+### Changed
+- Sped up tools-btn visibility handling in the webview: `stopToolsBtn`
+  (`media/messageHandler.js`) and `updateDeleteButtonVisibility`/
+  `hideToolsButtons` (`media/editor.js`) now cache references to the
+  5 tool buttons (`generateInsertBtn`, `generateUpdateBtn`,
+  `generateDeleteBtn`, `deleteRowsBtn`, `saveColumnEditsBtn`) instead
+  of calling `document.querySelectorAll('.tools-btn')` on every call.
+  `stopToolsBtn` also skips the DOM update entirely when there is
+  nothing to hide (no selected rows and no `pendingColumnEdits`).
+  `updateDeleteButtonVisibility` runs on every row click, so this
+  matters most when selecting many rows quickly (e.g. Shift-click).
+
 ## 0.2.9
 
 ### Fixed
