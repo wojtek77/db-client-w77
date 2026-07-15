@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.11
+
+### Fixed
+- After saving a bulk column edit, the `column-edit-pending` highlight
+  (red background on the edited column's cells and header) is no
+  longer left behind once the backend confirms the save and the grid
+  refreshes. In `media/messageHandler.js`, the `msg.clearSelection`
+  handler called `stopToolsBtn()` before `cancelAllColumnEdits()`, and
+  `stopToolsBtn()` immediately reset `State.pendingColumnEdits` to
+  `{}`. By the time `cancelAllColumnEdits()` ran, it had nothing left
+  to iterate over, so `clearColumnPreview()` never removed the
+  highlight class from the affected cells/header. Fixed by calling
+  `cancelAllColumnEdits()` first, while `pendingColumnEdits` still
+  holds the columns to clear, and only then resetting the tool button
+  state via `stopToolsBtn()`.
+
 ## 0.2.10
 
 ### Changed

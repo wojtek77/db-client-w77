@@ -255,11 +255,14 @@ window.addEventListener('message', event => {
         if (msg.clearSelection) {
             clearRowSelection();
 
-            stopToolsBtn();
-
             // dane zostały odświeżone z backendu (np. po udanym zapisie kolumny) ->
-            // znika czerwone podświetlenie i przycisk zapisu
+            // znika czerwone podświetlenie i przycisk zapisu.
+            // UWAGA: musi być wywołane PRZED stopToolsBtn(), bo cancelAllColumnEdits()
+            // korzysta z jeszcze niewyczyszczonego State.pendingColumnEdits, żeby wiedzieć,
+            // które kolumny mają podgląd do zdjęcia - stopToolsBtn() zeruje ten obiekt.
             cancelAllColumnEdits();
+
+            stopToolsBtn();
         } else {
             if (isSameQuery) {
                 // jeśli są jakieś niezapisane edycje kolumn, trzeba ponownie nałożyć ich podgląd,
