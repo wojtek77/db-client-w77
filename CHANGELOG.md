@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.18
+
+### Fixed
+- SQL query results could silently fail to appear when a query was run
+  very soon after the results webview had to be freshly created (e.g.
+  right after opening VS Code and immediately pressing `Ctrl+Enter` on a
+  `.sql` file). The old readiness check only confirmed that VS Code had
+  created the webview *container*, not that the webview's own page had
+  finished loading its JavaScript and was able to receive messages. Since
+  page load is asynchronous and independent of container creation, result
+  messages sent too early were silently dropped by VS Code - even though
+  the query itself had executed correctly in the background. The webview
+  now sends an explicit `webviewReady` signal once its script has fully
+  loaded, and `SqlResultsProvider` waits for that signal (replacing the
+  old container-only `waitForView()`) before sending query results, so
+  they're no longer lost.
+- Brief white/unstyled flash when a brand-new results webview instance
+  was created (e.g. on a fresh VS Code start): for a short moment the raw,
+  unstyled HTML was visible before the external stylesheet finished
+  loading, which looked like a rendering glitch. Fixed by adding a small
+  inline critical style (matching the VS Code theme background) that
+  applies immediately with the HTML itself, before the full stylesheet
+  arrives.
+
 ## 0.2.17
 
 ### Fixed
