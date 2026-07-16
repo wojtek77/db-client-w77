@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.19
+
+### Removed
+- Brief white/unstyled flash when a brand-new results webview instance
+  was created (e.g. on a fresh VS Code start): for a short moment the raw,
+  unstyled HTML was visible before the external stylesheet finished
+  loading, which looked like a rendering glitch. Fixed by adding a small
+  inline critical style (matching the VS Code theme background) that
+  applies immediately with the HTML itself, before the full stylesheet
+  arrives.
+
 ## 0.2.18
 
 ### Fixed
