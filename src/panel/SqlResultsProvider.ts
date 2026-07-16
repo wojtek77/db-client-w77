@@ -73,17 +73,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _errorMessage = '';
     private readonly ROWS_PER_PAGE = 200;
     private _context?: vscode.ExtensionContext;
-    // _viewReady === true oznacza, że skrypt JS wewnątrz webview (media/app.js)
-    // faktycznie się załadował i zarejestrował swój listener na wiadomości
-    // (patrz media/messageHandler.js) - a nie tylko że sam kontener webview
-    // istnieje. To ważne rozróżnienie: samo istnienie `this._view` (ustawiane
-    // w resolveWebviewView()) NIE gwarantuje, że webview jest już w stanie
-    // odebrać postMessage() - ładowanie strony webview jest asynchroniczne
-    // (osobny sandboxowany proces/iframe), więc bez tego rozróżnienia
-    // wiadomości wysłane zbyt wcześnie (np. 'queryStarted', wyniki zapytania)
-    // mogły ginąć, mimo że zapytanie SQL wykonywało się poprawnie w tle.
-    private _viewReady = false;
-    private _resolveViewReady?: (value: boolean) => void;
+    private _resolveView?: (value: boolean) => void;
     private _currentSqlFile = '';
     private _queryRunning = false;
 
@@ -98,11 +88,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
-
-        // Nowa instancja webviewView = zupełnie nowa strona, która musi się
-        // dopiero załadować od zera - resetujemy flagę gotowości, żeby nie
-        // dziedziczyć stanu "gotowy" z ewentualnego poprzedniego widoku.
-        this._viewReady = false;
 
         webviewView.webview.options = {
             enableScripts: true,
@@ -125,31 +110,22 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // nowy, aktywny widok. Ten warunek zapobiega takiemu nadpisaniu.
             if (this._view === webviewView) {
                 this._view = undefined; // Dzięki temu program wie, że stary widok już nie istnieje!
-                this._viewReady = false;
             }
         });
+
+        // Sygnał, że widok został zainicjalizowany - CELOWO na końcu funkcji,
+        // już PO ustawieniu this._view, wywołaniu updateHtml() i zarejestrowaniu
+        // handlerów (onDidDispose/onDidReceiveMessage), żeby kod czekający w
+        // waitForView() zastał widok w pełni gotowy do użycia, a nie tylko
+        // częściowo skonfigurowany.
+        if (this._resolveView) {
+            this._resolveView(true);
+            this._resolveView = undefined;
+        }
 
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             if (!SqlResultsProvider.isValidWebviewMessage(msg)) {
                 console.error('Ignored malformed message from webview:', msg);
-                return;
-            }
-
-            if (msg.command === 'webviewReady') {
-                // Sygnał, że skrypt JS wewnątrz TEGO KONKRETNEGO webview
-                // faktycznie się załadował i jest gotowy odbierać kolejne
-                // postMessage() (np. wyniki zapytania). To jedyny wiarygodny
-                // moment, w którym wiemy, że webview jest naprawdę gotowy -
-                // w przeciwieństwie do samego utworzenia kontenera przez
-                // resolveWebviewView(), które nie gwarantuje, że strona
-                // skończyła się ładować.
-                if (this._view === webviewView) {
-                    this._viewReady = true;
-                    if (this._resolveViewReady) {
-                        this._resolveViewReady(true);
-                        this._resolveViewReady = undefined;
-                    }
-                }
                 return;
             }
 
@@ -270,7 +246,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                     typeof edit.columnName === 'string'
                 );
 
-            case 'webviewReady':
             case 'changeConnection':
             case 'openRecentFiles':
             case 'exportCSV':
@@ -1083,19 +1058,18 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
     
-    private async waitForViewReady(): Promise<boolean> {
-        if (this._viewReady) {return true;}
+    private async waitForView(): Promise<boolean> {
+        if (this._view) {return true;}
         
         return new Promise(resolve => {
-            this._resolveViewReady = resolve;
-            // Timeout dla bezpieczeństwa - jeśli webview nie zasygnalizuje
-            // gotowości na czas (np. skrypt się nie załadował z jakiegoś
-            // powodu), rozwiązujemy z false i CZYŚCIMY _resolveViewReady,
-            // żeby nie zostawiać nieaktualnej referencji do już
-            // rozstrzygniętego Promise'a.
+            this._resolveView = resolve;
+            // Timeout dla bezpieczeństwa - jeśli widok nie powstanie na czas,
+            // rozwiązujemy z false i CZYŚCIMY _resolveView (tak samo jak robi
+            // to resolveWebviewView() w normalnej ścieżce), żeby nie zostawiać
+            // nieaktualnej referencji do już rozstrzygniętego Promise'a.
             setTimeout(() => {
-                resolve(this._viewReady);
-                this._resolveViewReady = undefined;
+                resolve(!!this._view);
+                this._resolveView = undefined;
             }, 5000);
         });
     }
@@ -1103,26 +1077,21 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     public async executeQuery(sql: string, sqlFile: string, wholeFile = false) {
         this._currentSqlFile = sqlFile;
         
-        // Pokazujemy widok - to jednocześnie obsługuje przypadek "widoku jeszcze
-        // nie było" (VS Code utworzy nowy kontener i wywoła resolveWebviewView())
-        // jak i "widok już istnieje, ale użytkownik był przełączony na inną
-        // zakładkę np. terminal" (zwykłe show()).
-        await this.show({ preserveFocus: true });
-
-        // Czekamy, aż webview faktycznie zasygnalizuje gotowość - czyli aż jego
-        // skrypt JS się załaduje i będzie w stanie odebrać kolejne postMessage()
-        // (patrz komentarz przy polu _viewReady). Samo istnienie this._view
-        // (czyli tylko utworzenie kontenera) NIE wystarczy - w tej samej chwili
-        // strona webview może być jeszcze w trakcie ładowania. W zdecydowanej
-        // większości przypadków (widok był już wcześniej użyty w tej sesji VS
-        // Code) _viewReady jest już true i w ogóle tu nie czekamy.
-        if (!this._viewReady) {
-            await this.waitForViewReady();
-        }
-
-        if (!this._viewReady || !this._view) {
-            vscode.window.showErrorMessage("Failed to open the SQL results window.");
-            return;
+        // czasami widok może nie istnieć, np. przy pierwszym uruchomieniu SQL lub kiedy plik .sql został zamknięty
+        if (!this._view) {
+            // to tworzy this._view 
+            await this.show({ preserveFocus: true });
+            
+            // czekamy asynchronicznie, aż VS Code stworzy widok
+            await this.waitForView();
+            if (!this._view) {
+                vscode.window.showErrorMessage("Failed to open the SQL results window.");
+                return;
+            }
+            
+            this.updateHtml();
+        } else { // rozwiązuje brak przełączenia na zakładkę SQL, jeśli wcześniej było przełączone np. na zakładkę "terminal"
+            await this.show({ preserveFocus: true });
         }
         
         // dzięki temu jeśli nie jest przypisane połączenie do pliku SQL nie wystaruje webview

@@ -25,12 +25,11 @@ export function getHtml(
     const nonce = getNonce();
 
     // Ścisła CSP: skrypty tylko z tym konkretnym nonce (żaden inline onclick/onerror
-    // się nie wykona), zewnętrzne style tylko z zasobów tego webview + jeden konkretny
-    // inline <style> dozwolony przez ten sam nonce (patrz komentarz przy tym stylu
-    // w <head>), brak dostępu do sieci/obrazów spoza webview.
+    // się nie wykona), style i skrypty tylko z zasobów tego webview, brak dostępu
+    // do sieci/obrazów spoza webview.
     const csp = [
         `default-src 'none'`,
-        `style-src ${webview.cspSource} 'nonce-${nonce}'`,
+        `style-src ${webview.cspSource}`,
         `script-src 'nonce-${nonce}'`,
         `img-src ${webview.cspSource}`,
         `font-src ${webview.cspSource}`,
@@ -44,24 +43,6 @@ export function getHtml(
 
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
-
-<!-- Krytyczny styl "na już" - ładuje się razem z samym HTML-em (bez osobnego
-     żądania sieciowego), więc obowiązuje natychmiast, zanim zdąży się
-     załadować pełny "${styleUri}" poniżej. Bez tego, przy tworzeniu
-     zupełnie nowej instancji webview (np. świeży start VS Code), przez
-     krótką chwilę widać "goły", niestylowany HTML (białe tło, tekst bez
-     formatowania) zanim arkusz stylów dotrze - co wygląda jak błąd, mimo
-     że to tylko normalne, krótkie ładowanie strony. Dublujemy tu tylko
-     najważniejsze reguły z "html, body" w styles.css (tło + brak
-     przewijania/marginesów) - resztę i tak zaraz nadpisze pełny arkusz. -->
-<style nonce="${nonce}">
-html, body {
-    background: var(--vscode-editor-background);
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-}
-</style>
 
 <link rel="stylesheet" href="${styleUri}">
 
