@@ -81,7 +81,6 @@ html, body {
 /* Hover dla nagłówków kolumn - są klikalne (zaznaczanie kolumny),
    ale brakowało stylu, więc kursor się nie zmieniał i nie było podświetlenia */
 .header-cell:not(.lp-cell):hover {
-    background-color: var(--vscode-list-hoverBackground);
     cursor: pointer;
 }
 .lp-cell {
