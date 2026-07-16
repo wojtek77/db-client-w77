@@ -1,5 +1,14 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
+// Import CSS jako zwykły string - esbuild (loader: { '.css': 'text' }, patrz
+// esbuild.js) wkleja całą zawartość media/styles.css do bundla extension.js
+// już W CZASIE BUDOWANIA. W runtime nie ma więc żadnego odczytu z dysku (nie
+// ma nawet osobnego pliku dist/styles.css) - `cssContent` to zwykła stała
+// stringowa, dostępna od razu, bez żadnego kosztu przy każdym wywołaniu
+// getHtml() (a getHtml() i tak jest wywoływane tylko raz na cykl życia
+// webview - patrz SqlResultsProvider.updateHtml() - ale przy tym podejściu
+// nie ma znaczenia, ile razy zostałoby wywołane).
+import cssContent from '../../media/styles.css';
 
 function getNonce(): string {
     // 32 losowe bajty zakodowane jako base64 - wystarczająco silne dla CSP script-src nonce
@@ -20,16 +29,30 @@ export function getHtml(
             )
         );
 
-    const styleUri = toUri('styles.css');
     const appUri = toUri('app.js');
     const nonce = getNonce();
 
+    // CSS wklejamy bezpośrednio do <style> w <head>, zamiast linkować plik
+    // przez <link href="...">. Dlaczego to ma znaczenie: <link href>
+    // wskazywałby na specjalny URI (vscode-webview-resource:), który webview
+    // musiałby dociągnąć OSOBNYM, asynchronicznym żądaniem przez wewnętrzny
+    // mechanizm VS Code. Przy pierwszym otwarciu widoku w danej sesji (np.
+    // zaraz po starcie edytora, gdy resolveWebviewView() odpala się od zera)
+    // HTML z pustym <body> potrafi zostać wyrenderowany, zanim ten plik
+    // zdąży dojechać - stąd widoczne przez ułamek sekundy niestylowane
+    // elementy (surowe przyciski, ukryte spany, emoji zamiast ikon), czyli
+    // klasyczny FOUC. Gdy CSS jest wklejony inline (i to jeszcze jako stała
+    // wbudowana już w czasie kompilacji, patrz import na górze pliku), jest
+    // obecny w DOM od pierwszej klatki - nie ma tu żadnego oddzielnego
+    // ładowania ani odczytu z dysku, więc nie ma też okna czasowego na FOUC.
+
     // Ścisła CSP: skrypty tylko z tym konkretnym nonce (żaden inline onclick/onerror
-    // się nie wykona), style i skrypty tylko z zasobów tego webview, brak dostępu
-    // do sieci/obrazów spoza webview.
+    // się nie wykona); inline <style> też wymaga tego samego nonce, bo style-src
+    // już nie wskazuje na zasoby webview (nie ma tam już żadnego pliku .css) -
+    // brak dostępu do sieci/obrazów spoza webview.
     const csp = [
         `default-src 'none'`,
-        `style-src ${webview.cspSource}`,
+        `style-src 'nonce-${nonce}'`,
         `script-src 'nonce-${nonce}'`,
         `img-src ${webview.cspSource}`,
         `font-src ${webview.cspSource}`,
@@ -44,7 +67,9 @@ export function getHtml(
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 
-<link rel="stylesheet" href="${styleUri}">
+<style nonce="${nonce}">
+${cssContent}
+</style>
 
 </head>
 

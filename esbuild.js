@@ -37,18 +37,29 @@ async function main() {
 		outfile: 'dist/extension.js',
 		external: ['vscode'],
 		logLevel: 'silent',
+		// loader 'text' dla .css: src/panel/html.ts robi `import cssContent
+		// from '../../media/styles.css'` - dzięki temu loaderowi esbuild nie
+		// próbuje tego parsować jako CSS, tylko wkleja całą zawartość pliku
+		// jako zwykły string wprost do bundla extension.js. Efekt: CSS
+		// webview jest dostępny w runtime bez żadnego I/O (fs.readFileSync)
+		// i bez osobnego pliku dist/styles.css - patrz komentarz w html.ts.
+		loader: {
+			'.css': 'text',
+		},
 		plugins: [
 			/* add to the end of plugins array */
 			esbuildProblemMatcherPlugin,
 		],
 	});
 
-	// Bundluje pliki webview (media/*.js + styles.css) w dwa pliki
-	// wyjściowe w dist zamiast trzymać osiem osobnych plików w media/.
+	// Bundluje JS webview (media/app.js) do dist/app.js. Samego styles.css
+	// już tu NIE bundlujemy jako osobny plik wyjściowy - jego treść trafia
+	// inline do HTML-a przez import w html.ts (patrz wyżej), więc dist/app.js
+	// jest teraz jedynym plikiem webview referencjonowanym z html.ts przez
+	// <script src="...">.
 	const ctxMedia = await esbuild.context({
 		entryPoints: [
-			'media/app.js',
-			'media/styles.css'
+			'media/app.js'
 		],
 		bundle: true,
 		format: 'iife',
