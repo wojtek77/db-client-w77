@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.17
+
+### Fixed
+- Column header cells no longer changed background color on hover. This
+  hover effect made sense for the row highlight, but on column headers it
+  was misleading since only the header cell changed background while the
+  column's data cells stayed unaffected.
+
 ## 0.2.16
 
 ### Fixed
