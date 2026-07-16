@@ -210,6 +210,7 @@ export class RecentSqlFiles {
                         label: `${fileName}`, // To co widzi użytkownik
                         description: `(${connectionName}) ${orderNumber}.`,                     // Opcjonalnie: podgląd pełnej ścieżki na dole
                         value: filePath,                     // Ukryta wartość, którą chcemy wyciągnąć
+                        connectionName: connectionName,      // nazwa połączenia (potrzebna np. przy komunikacie o usunięciu z listy)
                         buttons: [removeItemButton]          // ikona kosza przy tej pozycji - usuwa tylko ją
                     };
                 });
@@ -221,7 +222,7 @@ export class RecentSqlFiles {
             tooltip: 'Trim list (keep only N most recent files)'
         };
 
-        const quickPick = vscode.window.createQuickPick<{ label: string; description: string; value: string; buttons?: readonly vscode.QuickInputButton[] }>();
+        const quickPick = vscode.window.createQuickPick<{ label: string; description: string; value: string; connectionName: string; buttons?: readonly vscode.QuickInputButton[] }>();
         quickPick.items = buildQuickPickItems();
         quickPick.placeholder = 'select SQL file';
         quickPick.ignoreFocusOut = true;
@@ -294,7 +295,7 @@ export class RecentSqlFiles {
         });
 
         // Wyświetlenie menu użytkownikowi
-        const selectedItem = await new Promise<{ label: string; description: string; value: string } | undefined>(res => {
+        const selectedItem = await new Promise<{ label: string; description: string; value: string; connectionName: string } | undefined>(res => {
             quickPick.onDidAccept(() => { res(quickPick.selectedItems[0]); quickPick.hide(); });
             quickPick.onDidHide(() => { res(undefined); quickPick.dispose(); });
             quickPick.show();
@@ -303,7 +304,6 @@ export class RecentSqlFiles {
         // OTWARCIE PLIKU W EDYTORZE
         if (selectedItem) {
             const sqlFile = selectedItem.value;
-            // const connectionName = sqlFiles.get(sqlFile);
             
             try {
                 // Zamiana ścieżki tekstowej na obiekt Uri wymagany przez VS Code
@@ -314,7 +314,17 @@ export class RecentSqlFiles {
                     preserveFocus: false  // opcjonalnie: od razu aktywuje edytor
                 });
             } catch (error) {
-                vscode.window.showErrorMessage(`Could not open file: ${error instanceof Error ? error.message : error}`);
+                // plik mógł zostać usunięty lub zmieniona jego nazwa na dysku -
+                // sprawdzamy, czy faktycznie już nie istnieje
+                if (!fs.existsSync(sqlFile)) {
+                    const instance = RecentSqlFiles.getInstance();
+                    instance.delete(sqlFile);
+                    void instance.persist();
+                    const fileName = path.basename(sqlFile);
+                    vscode.window.showWarningMessage(`File "${fileName}" no longer exists and has been removed from the list of recent SQL files`);
+                } else {
+                    vscode.window.showErrorMessage(`Could not open file: ${error instanceof Error ? error.message : error}`);
+                }
             }
         }
     }
