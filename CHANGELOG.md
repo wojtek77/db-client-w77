@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.16
+
+### Fixed
+- Occasional `"Failed to open the SQL results window."` error when running
+  a SQL query immediately after opening a `.sql` file (e.g. via
+  `Ctrl+Enter`), before the extension had finished starting up. The
+  `sqlResultsView` webview is gated behind the `dbClientActive` context
+  key, which is set asynchronously during extension start; `runSQLCommand`
+  and `runSqlWholeFileCommand` now explicitly wait for the extension to be
+  running (`isExtensionRunning`/`safeStartExtension`) before trying to show
+  the results view, instead of assuming it was already started.
+- Hardened webview lifecycle handling in `SqlResultsProvider` as a
+  defensive follow-up to the above: the "view ready" signal now fires only
+  after the view is fully set up (HTML loaded, event handlers registered)
+  instead of before; `onDidDispose` now checks that the disposed webview
+  is still the current one before clearing it, so a late dispose event
+  from a stale/replaced view can no longer wipe out a newer, active view;
+  and the `waitForView` timeout path now clears its pending resolver the
+  same way the normal path already did, avoiding a stale reference.
+
 ## 0.2.15
 
 ### Fixed
