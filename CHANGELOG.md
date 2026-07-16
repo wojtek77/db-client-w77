@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.21
+
+### Fixed
+- Opening a file from the recent SQL files list (F3) when the underlying
+  file had been renamed or deleted on disk showed a generic
+  `Could not open file: ...` error message and left the stale entry in
+  the list. The recent files list now detects this case (checks whether
+  the file still exists on disk), automatically removes the missing
+  entry from the list, persists the updated list, and shows a clear
+  warning message (`File "..." no longer exists and has been removed
+  from the list of recent SQL files`) instead of the raw error.
+
 ## 0.2.20
 
 ### Fixed
