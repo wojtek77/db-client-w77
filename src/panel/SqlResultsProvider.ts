@@ -96,19 +96,32 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             ]
         };
 
-        // Sygnał, że widok został zainicjalizowany
-        if (this._resolveView) {
-            this._resolveView(true);
-            this._resolveView = undefined;
-        }
-
         this.updateHtml();
         
         // ⭐ REWELACYJNE ZABEZPIECZENIE:
         webviewView.onDidDispose(() => {
-            
-            this._view = undefined; // Dzięki temu program wie, że stary widok już nie istnieje!
+            // Sprawdzamy tożsamość: ten callback jest przypisany do KONKRETNEJ
+            // instancji webviewView (przez domknięcie), ale odwołuje się do
+            // współdzielonego pola this._view. Gdyby VS Code z jakiegoś powodu
+            // utworzył NOWY widok (nowe wywołanie resolveWebviewView, nowe
+            // this._view) zanim formalnie zutylizuje ten STARY widok, to dispose
+            // starej, "zombie" instancji odpaliłby się później i wyzerowałby
+            // this._view, mimo że w tym momencie wskazuje ono już na całkiem
+            // nowy, aktywny widok. Ten warunek zapobiega takiemu nadpisaniu.
+            if (this._view === webviewView) {
+                this._view = undefined; // Dzięki temu program wie, że stary widok już nie istnieje!
+            }
         });
+
+        // Sygnał, że widok został zainicjalizowany - CELOWO na końcu funkcji,
+        // już PO ustawieniu this._view, wywołaniu updateHtml() i zarejestrowaniu
+        // handlerów (onDidDispose/onDidReceiveMessage), żeby kod czekający w
+        // waitForView() zastał widok w pełni gotowy do użycia, a nie tylko
+        // częściowo skonfigurowany.
+        if (this._resolveView) {
+            this._resolveView(true);
+            this._resolveView = undefined;
+        }
 
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             if (!SqlResultsProvider.isValidWebviewMessage(msg)) {
@@ -1050,8 +1063,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         
         return new Promise(resolve => {
             this._resolveView = resolve;
-            // Timeout dla bezpieczeństwa
-            setTimeout(() => resolve(!!this._view), 5000);
+            // Timeout dla bezpieczeństwa - jeśli widok nie powstanie na czas,
+            // rozwiązujemy z false i CZYŚCIMY _resolveView (tak samo jak robi
+            // to resolveWebviewView() w normalnej ścieżce), żeby nie zostawiać
+            // nieaktualnej referencji do już rozstrzygniętego Promise'a.
+            setTimeout(() => {
+                resolve(!!this._view);
+                this._resolveView = undefined;
+            }, 5000);
         });
     }
 
