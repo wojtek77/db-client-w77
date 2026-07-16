@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.20
+
+### Fixed
+- Brief flash of unstyled content (raw buttons, hidden spans, emoji instead
+  of icons) that could still appear for a moment when the results webview
+  was created for the very first time in a session (e.g. right after
+  opening VS Code, followed immediately by `Ctrl+Enter`). The 0.2.19 fix
+  only papered over this with a small inline critical style; the actual
+  cause was that the real stylesheet was still linked via
+  `<link rel="stylesheet" href="...">`, pointing at a
+  `vscode-webview-resource:` URI that the webview had to fetch through an
+  extra, asynchronous round trip - and the page could be painted before
+  that request completed. The full stylesheet is now inlined directly into
+  a `<style>` tag in the webview HTML, so it's present from the very first
+  paint and there's no window left for the flash to occur.
+
+### Changed
+- The webview's CSS is no longer read from disk at runtime, nor shipped as
+  a separate `dist/styles.css` file. It's now imported directly in source
+  (`import cssContent from '../../media/styles.css'`) and inlined by
+  esbuild at build time (`loader: { '.css': 'text' }`), so it ends up as a
+  plain string constant baked into `dist/extension.js` - zero disk I/O,
+  zero extra files, no repeated reads no matter how many times a query is
+  run.
+
 ## 0.2.19
 
 ### Removed
