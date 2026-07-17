@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.22
+
+### Fixed
+- `SqlUtil.appendLimit` failed to append `LIMIT 200` to SELECT queries
+  starting with a single-line comment (`#` or `--`). The comment-stripping
+  regex left a trailing newline before `SELECT`, breaking the `^select`
+  anchor check used to detect whether a `LIMIT` clause was needed.
+
 ## 0.2.21
 
 ### Fixed
