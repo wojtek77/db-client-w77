@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.23
+
+### Fixed
+- Rare, hard-to-reproduce bug where a file other than `.sql` could appear
+  in the recent SQL files list (F3). `RecentSqlFiles.getConnectionName()`
+  re-read `vscode.window.activeTextEditor` after `executeQuery()` had
+  already awaited webview readiness (`waitForViewReady`, which can take
+  up to 5s on the very first run in a session). If the user switched to
+  a different file during that window, that file - not the one the query
+  was actually run from - got recorded as the "recent SQL file" for that
+  editor. `getConnectionName()` now accepts the SQL file explicitly from
+  the caller instead of re-resolving it later.
+
 ## 0.2.22
 
 ### Fixed
