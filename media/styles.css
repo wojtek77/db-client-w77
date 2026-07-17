@@ -322,6 +322,13 @@ button.btn:disabled {
     cursor: pointer;
     color: var(--vscode-errorForeground);
 }
+.cancel-query.cancelling {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+.cancel-query.cancelling:hover {
+    color: inherit;
+}
 .cancel-query svg {
     vertical-align: bottom;
 }

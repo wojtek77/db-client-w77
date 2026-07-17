@@ -895,6 +895,24 @@ function initCancelButton(vscode) {
     const btn = document.getElementById('cancelQuery');
     if (btn) {
         btn.addEventListener('click', () => {
+            // Ochrona przed wielokrotnym KILL QUERY: przy połączeniach
+            // międzykontynentalnych round-trip do bazy trwa kilka sekund, więc bez
+            // tej blokady użytkownik mógłby zdążyć kliknąć "cancel" kilka razy,
+            // zanim przyjdzie pierwsza odpowiedź.
+            if (btn.classList.contains('cancelling')) {
+                return;
+            }
+            btn.classList.add('cancelling');
+
+            // Feedback natychmiast, PRZED odpowiedzią z rozszerzenia - właśnie to
+            // czekanie (KILL QUERY do bazy po drugiej stronie świata) jest tym, co
+            // wcześniej sprawiało wrażenie "zawieszenia" na kilka sekund. Tutaj nie
+            // czekamy na nic - to czysta zmiana DOM w webview, widoczna od razu.
+            const loadingText = document.querySelector('.loading-text');
+            if (loadingText) {
+                loadingText.textContent = 'Cancelling query…';
+            }
+
             vscode.postMessage({
                 command: 'cancelQuery'
             });

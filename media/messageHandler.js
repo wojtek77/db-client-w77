@@ -137,6 +137,12 @@ window.addEventListener('message', event => {
     
     if (msg.command === 'queryStarted') {
         cancelBtn.style.display = 'inline-block';
+        // Nowe zapytanie startuje "na czysto" - usuń ewentualny stan "cancelling"
+        // (i tekst "Cancelling query…") pozostały po poprzednim anulowaniu
+        cancelBtn.classList.remove('cancelling');
+        if (loadingText) {
+            loadingText.textContent = 'Loading data...';
+        }
         
         // postęp czasu w czasie wykonywania SQL-a
         stopQueryTimer();
@@ -155,6 +161,7 @@ window.addEventListener('message', event => {
 
     if (msg.command === 'queryFinished') {
         cancelBtn.style.display = 'none';
+        cancelBtn.classList.remove('cancelling');
         stopQueryTimer();
     }
     
