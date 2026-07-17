@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.25
+
+### Fixed
+- Format SQL (Ctrl+Shift+F) did not uppercase `ASC`/`DESC` in `ORDER BY`
+  (and legacy `GROUP BY ... ASC/DESC`) clauses, leaving them in
+  whatever case was typed.
+- `BETWEEN x AND y` was incorrectly split across two lines, since the
+  formatter treated the `AND` belonging to `BETWEEN` as if it were a
+  boolean `AND` starting a new condition. Also fixed for multiple
+  `BETWEEN`s and `NOT BETWEEN` in the same clause.
+- Format SQL left several reserved keywords in their original case
+  instead of uppercasing them like `SELECT`/`FROM`/`WHERE`: `DISTINCT`,
+  `AS`, `IS NULL`/`IS NOT NULL`, `IN`/`NOT IN`, `LIKE`/`NOT LIKE`,
+  `NOT`, `EXISTS`, `CASE`/`WHEN`/`THEN`/`ELSE`/`END`, `NULL`/`TRUE`/
+  `FALSE`. String literals and backtick-quoted identifiers are left
+  untouched.
+- Fixed along the way: keywords occurring inside a string literal
+  (e.g. `WHERE note = 'select this and where that'`) could be
+  mistaken for a real clause boundary, corrupting the formatted
+  output.
+
 ## 0.2.24
 
 ### Improved
