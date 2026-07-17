@@ -126,6 +126,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (this._view === webviewView) {
                 this._view = undefined; // Dzięki temu program wie, że stary widok już nie istnieje!
                 this._viewReady = false;
+                console.log('WEBVIEW_CLOSE');
             }
         });
 
@@ -149,6 +150,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                         this._resolveViewReady(true);
                         this._resolveViewReady = undefined;
                     }
+                    console.log('WEBVIEW_START');
                 }
                 return;
             }
@@ -362,6 +364,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 this._extensionUri
             );
             this._view.webview.html = html;
+            console.log('WEBVIEW_HTML_UPDATE');
         }
     }
 
