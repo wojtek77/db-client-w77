@@ -21,6 +21,66 @@ const RESET_INDENT_KEYWORDS = new Set([
 
 function tabs(n: number): string { return '\t'.repeat(n); }
 
+const ORDER_DIRECTION_KEYWORDS = new Set(['ORDER BY', 'GROUP BY']);
+
+// Uppercase ASC/DESC w klauzuli ORDER BY (i GROUP BY - stara składnia MySQL/MariaDB)
+function uppercaseOrderDirection(text: string): string {
+    return text.replace(/\b(asc|desc)\b/gi, m => m.toUpperCase());
+}
+
+// Pozostałe słowa kluczowe SQL, które fmt nie traktuje jako granice klauzul,
+// ale mimo to warto ujednolicić ich wielkość liter (spójnie z SELECT/FROM/WHERE/...).
+// 'AND' jest tu też potrzebny, bo BETWEEN...AND nie jest wykrywany jako granica
+// klauzuli (patrz neutralizeBetweenAnd) i inaczej zostałby nietknięty.
+const RESERVED_KEYWORDS_TO_UPPERCASE = [
+    'IS NOT NULL', 'IS NULL', 'NOT BETWEEN', 'NOT LIKE', 'NOT IN',
+    'BETWEEN', 'DISTINCT', 'EXISTS', 'LIKE', 'IN', 'NOT', 'AND', 'AS',
+    'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+    'NULL', 'TRUE', 'FALSE',
+];
+
+// Uppercase powyższych słów kluczowych, pomijając zawartość literałów tekstowych
+// ('...', "...", `...`), żeby np. nazwa kolumny w cudzysłowie nie została ruszona.
+function uppercaseReservedWords(sql: string): string {
+    const masked = maskStringLiterals(sql);
+    const chars = sql.split('');
+    for (const kw of RESERVED_KEYWORDS_TO_UPPERCASE) {
+        const pattern = kw.replace(/ /g, '\\s+');
+        const re = new RegExp(`\\b${pattern}\\b`, 'gi');
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(masked)) !== null) {
+            for (let i = m.index; i < m.index + m[0].length; i++) {
+                chars[i] = chars[i].toUpperCase();
+            }
+        }
+    }
+    return chars.join('');
+}
+
+// BETWEEN x AND y - to "AND" nie jest granicą klauzuli tylko częścią BETWEEN,
+// więc trzeba je "zneutralizować" (podmienić na znaki niepasujące do wzorca
+// klauzul) zanim findClauses zacznie szukać granic - inaczej BETWEEN 1 AND 2
+// zostaje błędnie rozbite na dwie linie, jakby to były dwa osobne warunki.
+function neutralizeBetweenAnd(sql: string, dep: number[]): string {
+    const chars = sql.split('');
+    const betweenRe = /\bBETWEEN\b/gi;
+    let m: RegExpExecArray | null;
+    while ((m = betweenRe.exec(sql)) !== null) {
+        const d = dep[m.index];
+        const andRe = /\bAND\b/gi;
+        andRe.lastIndex = m.index + m[0].length;
+        let am: RegExpExecArray | null;
+        while ((am = andRe.exec(sql)) !== null) {
+            if (dep[am.index] < d) { break; } // wyszliśmy poza nawias, w którym jest BETWEEN
+            if (dep[am.index] === d) {
+                for (let i = am.index; i < am.index + am[0].length; i++) { chars[i] = '#'; }
+                break;
+            }
+        }
+    }
+    return chars.join('');
+}
+
 // ─── Wyciąganie i przywracanie komentarzy ─────────────────────────────────────
 
 interface CommentSlot { placeholder: string; comment: string; standalone: boolean; }
@@ -121,12 +181,16 @@ function findClauses(sql: string): ClauseMatch[] {
         dep[i] = d;
         if (masked[i] === ')') { d--; }
     }
+    // Szukamy granic klauzul na wersji z zamaskowanymi literałami tekstowymi,
+    // żeby np. słowo "where" wewnątrz stringa ('select this and where that')
+    // nie zostało błędnie wzięte za prawdziwą klauzulę i nie rozwaliło zapytania.
+    const search = neutralizeBetweenAnd(masked, dep);
     const pattern = CLAUSE_KEYWORDS.map(k => k.replace(/ /g, '\\s+')).join('|');
     // Dodajemy wzorzec na placeholdery komentarzy
     const re = new RegExp(`(?<![\\w])(${pattern}|__CMT_\\d+__)(?![\\w])`, 'gi');
     const out: ClauseMatch[] = [];
     let m: RegExpExecArray | null;
-    while ((m = re.exec(sql)) !== null) {
+    while ((m = re.exec(search)) !== null) {
         if (dep[m.index] === 0) {
             out.push({ index: m.index, rawLen: m[0].length, keyword: m[0].replace(/\s+/g, ' ').toUpperCase() });
         }
@@ -137,7 +201,7 @@ function findClauses(sql: string): ClauseMatch[] {
 // ─── Główna funkcja formatująca (rekurencyjna) ───────────────────────────────
 
 function fmt(sql: string, lvl: number): string {
-    const norm = normalize(sql);
+    const norm = uppercaseReservedWords(normalize(sql));
     const clauses = findClauses(norm);
     if (clauses.length === 0) { return tabs(lvl) + norm; }
 
@@ -197,7 +261,9 @@ function fmt(sql: string, lvl: number): string {
         afterJoin = JOIN_KEYWORDS.has(kw);
 
         // Uppercase słowa kluczowego ON w tekście po JOIN
-        const restFmt = afterJoin ? rest.replace(/\bon\b/gi, 'ON') : rest;
+        let restFmt = afterJoin ? rest.replace(/\bon\b/gi, 'ON') : rest;
+        // Uppercase ASC/DESC w ORDER BY / GROUP BY
+        if (ORDER_DIRECTION_KEYWORDS.has(kw)) { restFmt = uppercaseOrderDirection(restFmt); }
 
         if (INDENTED_KEYWORDS.has(kw) && afterWhere) {
             lines.push(`${pad}\t${kw}${restFmt ? ' ' + restFmt : ''}`);
@@ -268,6 +334,13 @@ function fmtSelect(rest: string, lvl: number): string {
     return lines.join('\n');
 }
 
+// ─── Publiczna, czysta funkcja formatująca (bez zależności od vscode) ────────
+
+export function formatSql(sql: string): string {
+    const { sql: sqlNoComments, slots } = extractComments(sql);
+    return restoreComments(fmt(sqlNoComments, 0), slots);
+}
+
 // ─── Komenda VS Code ──────────────────────────────────────────────────────────
 
 export async function formatSqlCommand(): Promise<void> {
@@ -280,8 +353,7 @@ export async function formatSqlCommand(): Promise<void> {
         return;
     }
 
-    const { sql: sqlNoComments, slots } = extractComments(editor.document.getText(selection));
-    const formatted = restoreComments(fmt(sqlNoComments, 0), slots);
+    const formatted = formatSql(editor.document.getText(selection));
 
     await editor.edit(eb => eb.replace(selection, formatted));
 }
