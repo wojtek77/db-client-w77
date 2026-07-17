@@ -1,8 +1,16 @@
 const REGEX_TRAILING_SEMICOLON =
     /;$/;
 
+// Usuwamy razem z kończącym znakiem nowej linii (\n?) - z tego samego
+// powodu co REGEX_HASH_COMMENTS poniżej
 const REGEX_SINGLE_LINE_COMMENTS =
-    /--.*$/gm;
+    /--.*\n?/gm;
+
+// Komentarze jednowierszowe w stylu MySQL/MariaDB (np. "# komentarz").
+// Usuwamy razem z kończącym znakiem nowej linii (\n?), żeby po wycięciu
+// komentarza "select" był pierwszym tokenem (bez pozostałości \n przed nim)
+const REGEX_HASH_COMMENTS =
+    /#.*\n?/gm;
 
 const REGEX_MULTI_LINE_COMMENTS =
     /\/\*.*?\*\//gs;
@@ -62,16 +70,19 @@ export class SqlUtil {
     }
     
     private static hasNoLimit(sql: string): boolean {
-        // 1. Usuń komentarze jednowierszowe
+        // 1. Usuń komentarze jednowierszowe (styl "-- ...")
         let cleaned = sql.replace(REGEX_SINGLE_LINE_COMMENTS, '');
-        
-        // 2. Usuń komentarze wielowierszowe
+
+        // 2. Usuń komentarze jednowierszowe (styl MySQL "# ...")
+        cleaned = cleaned.replace(REGEX_HASH_COMMENTS, '');
+
+        // 3. Usuń komentarze wielowierszowe
         cleaned = cleaned.replace(REGEX_MULTI_LINE_COMMENTS, '');
         
-        // 3. Usuń stringi literałowe (opcjonalnie – mogą zawierać 'limit')
+        // 4. Usuń stringi literałowe (opcjonalnie – mogą zawierać 'limit')
         cleaned = cleaned.replace(REGEX_STRING_LITERALS, "''");
         
-        // 4. Teraz sprawdź
+        // 5. Teraz sprawdź
         return REGEX_SELECT_WITHOUT_LIMIT.test(cleaned);
     }
 }
