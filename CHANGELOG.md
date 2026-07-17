@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.24
+
+### Improved
+- Cancelling a running query now shows immediate feedback ("Cancelling
+  query…") instead of appearing to hang. Previously the UI gave no
+  response to a cancel click until the extension's `KILL QUERY`
+  round-trip finished, which could take several seconds on high-latency
+  (intercontinental) DB connections. The button click is now handled
+  entirely in the webview, with no waiting involved, and is also
+  guarded against duplicate clicks firing multiple `KILL QUERY`
+  commands while one is already in flight.
+
 ## 0.2.23
 
 ### Fixed
