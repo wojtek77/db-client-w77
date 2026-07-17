@@ -1126,7 +1126,16 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
         
         // dzięki temu jeśli nie jest przypisane połączenie do pliku SQL nie wystaruje webview
-        const dBconnectionName = await RecentSqlFiles.getInstance().getConnectionName();
+        //
+        // WAŻNE: przekazujemy jawnie "sqlFile" (zapamiętane na samym początku tej metody,
+        // patrz "this._currentSqlFile = sqlFile" powyżej), a NIE pozwalamy, żeby
+        // getConnectionName() samo na nowo odczytało vscode.window.activeTextEditor.
+        // Powyżej były dwa awaity (this.show() oraz ewentualnie waitForViewReady(),
+        // które przy pierwszym uruchomieniu webview może czekać do 5 sekund) - w tym
+        // czasie użytkownik mógł zdążyć przełączyć się na inny plik. Bez tej poprawki
+        // prowadziło to do rzadkiego błędu: na liście ostatnich plików SQL (F3)
+        // pojawiał się plik inny niż ten, dla którego faktycznie uruchomiono zapytanie.
+        const dBconnectionName = await RecentSqlFiles.getInstance().getConnectionName(false, sqlFile);
         
         this._queryRunning = true;
         this._view.webview.postMessage({

@@ -88,13 +88,26 @@ export class RecentSqlFiles {
         }
     }
     
-    public async getConnectionName(isOnlyUpdate = false) {
-        // ścieżka do pliku SQL, który jest teraz otwarty w edytorze vscode
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            throw new Error("no editor is currently active");
+    public async getConnectionName(isOnlyUpdate = false, sqlFileOverride?: string) {
+        // ścieżka do pliku SQL: jeśli wywołujący przekazał konkretny plik (np. ten,
+        // który był aktywny w momencie uruchomienia zapytania), używamy go zamiast
+        // odczytywać "vscode.window.activeTextEditor" w TYM momencie.
+        //
+        // Jest to ważne, bo między momentem uruchomienia zapytania a wywołaniem tej
+        // metody może upłynąć trochę czasu (np. oczekiwanie na gotowość webview w
+        // SqlResultsProvider.executeQuery() - do 5 sekund przy pierwszym uruchomieniu).
+        // Jeśli w tym czasie użytkownik przełączy się na inny (dowolny, niekoniecznie
+        // .sql) plik, "activeTextEditor" wskazywałby już na niego, co prowadziło do
+        // rzadkiego, trudnego do odtworzenia błędu: na liście ostatnich plików SQL
+        // (F3) pojawiał się plik inny niż .sql.
+        let sqlFile = sqlFileOverride;
+        if (!sqlFile) {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                throw new Error("no editor is currently active");
+            }
+            sqlFile = editor.document.fileName;
         }
-        const sqlFile = editor.document.fileName;
         let connectionName = this.get(sqlFile);
         const configs = ConnectionManager.getInstance().getConfigs();
         
