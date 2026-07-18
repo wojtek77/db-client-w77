@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.2.26
+
+### Changed
+- Rewrote the SQL formatter (`formatSqlCommand.ts`) from a regex/string-
+  masking approach to a proper tokenizer. Should be more robust against
+  edge cases (nested parens, literals, comments) going forward, and is
+  easier to extend correctly - clause names are now a `ClauseName` enum
+  matched against a per-clause formatter map instead of raw strings
+  compared in an if/else-if chain.
+- SELECT column list now wraps at 160 characters per line (was 120),
+  packing as many columns as fit rather than one per line.
+- Comma spacing in the formatted output is now context-aware: lists
+  like ORDER BY columns, VALUES rows, and the `(col1, col2)` tuple
+  before an `IN` list get `", "`; argument-style lists like
+  `IN (1,2)` or `INSERT INTO t (a,b)` get `","` with no space, matching
+  how they're conventionally written.
+- `(` now keeps the spacing it had in the original text, so
+  `count(*)` stays tight while grouping parens (`AND (...)`, `IN (...)`)
+  stay loose - instead of a single blanket rule for all parens.
+
+### Added
+- Basic `INSERT INTO t (...) VALUES (...)` formatting.
+- Double-quoted identifiers (`"column"`, common in PostgreSQL) are now
+  left untouched, matching the existing handling of `'...'` and
+  `` `...` ``.
+- Text before the first recognized clause (e.g. an `UPDATE ... SET`,
+  `DELETE FROM`, or `CREATE/ALTER/DROP TABLE` statement) is no longer
+  silently dropped if the formatter doesn't recognize it as a clause -
+  it's passed through unchanged instead.
+
+### Known limitations (regression vs. 0.2.25, tracked as follow-up)
+- Large subqueries nested inside SELECT columns are no longer broken
+  out onto their own indented, recursively-formatted block - they stay
+  on one line.
+- Long `JOIN ... ON ... AND ...` conditions no longer wrap onto a new
+  line when they exceed the line width.
+- `UPDATE`, `DELETE FROM`, `CREATE/ALTER/DROP TABLE`, `UNION`, `SET`,
+  and `OFFSET` are not yet formatted as proper clauses (no keyword
+  casing, no line breaks) - they're preserved as-is rather than
+  formatted, whereas 0.2.25 handled them like any other clause keyword.
+
 ## 0.2.25
 
 ### Fixed
