@@ -1,347 +1,4 @@
 import * as vscode from 'vscode';
-import { maskStringLiterals } from '../sql/maskStringLiterals.js';
-
-const SELECT_WRAP_AT = 120;
-const SUBQUERY_LARGE = 80;  // subquery >= tej długości idzie na nową linię
-
-const CLAUSE_KEYWORDS = [
-    'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN', 'CROSS JOIN', 'INNER JOIN',
-    'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN', 'INSERT INTO', 'DELETE FROM', 'CREATE TABLE',
-    'ALTER TABLE', 'DROP TABLE', 'UNION ALL', 'GROUP BY', 'ORDER BY',
-    'SELECT', 'FROM', 'JOIN', 'WHERE', 'AND', 'OR', 'HAVING', 'LIMIT', 'OFFSET',
-    'VALUES', 'UPDATE', 'SET', 'UNION', 'EXCEPT', 'INTERSECT',
-];
-
-const INDENTED_KEYWORDS = new Set(['AND', 'OR']);
-const RESET_INDENT_KEYWORDS = new Set([
-    'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'FROM', 'JOIN',
-    'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN', 'CROSS JOIN',
-    'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN', 'UNION', 'UNION ALL',
-]);
-
-function tabs(n: number): string { return '\t'.repeat(n); }
-
-const ORDER_DIRECTION_KEYWORDS = new Set(['ORDER BY', 'GROUP BY']);
-
-// Uppercase ASC/DESC w klauzuli ORDER BY (i GROUP BY - stara składnia MySQL/MariaDB)
-function uppercaseOrderDirection(text: string): string {
-    return text.replace(/\b(asc|desc)\b/gi, m => m.toUpperCase());
-}
-
-// Pozostałe słowa kluczowe SQL, które fmt nie traktuje jako granice klauzul,
-// ale mimo to warto ujednolicić ich wielkość liter (spójnie z SELECT/FROM/WHERE/...).
-// 'AND' jest tu też potrzebny, bo BETWEEN...AND nie jest wykrywany jako granica
-// klauzuli (patrz neutralizeBetweenAnd) i inaczej zostałby nietknięty.
-const RESERVED_KEYWORDS_TO_UPPERCASE = [
-    'IS NOT NULL', 'IS NULL', 'NOT BETWEEN', 'NOT LIKE', 'NOT IN',
-    'BETWEEN', 'DISTINCT', 'EXISTS', 'LIKE', 'IN', 'NOT', 'AND', 'AS',
-    'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
-    'NULL', 'TRUE', 'FALSE',
-];
-
-// Uppercase powyższych słów kluczowych, pomijając zawartość literałów tekstowych
-// ('...', "...", `...`), żeby np. nazwa kolumny w cudzysłowie nie została ruszona.
-function uppercaseReservedWords(sql: string): string {
-    const masked = maskStringLiterals(sql);
-    const chars = sql.split('');
-    for (const kw of RESERVED_KEYWORDS_TO_UPPERCASE) {
-        const pattern = kw.replace(/ /g, '\\s+');
-        const re = new RegExp(`\\b${pattern}\\b`, 'gi');
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(masked)) !== null) {
-            for (let i = m.index; i < m.index + m[0].length; i++) {
-                chars[i] = chars[i].toUpperCase();
-            }
-        }
-    }
-    return chars.join('');
-}
-
-// BETWEEN x AND y - to "AND" nie jest granicą klauzuli tylko częścią BETWEEN,
-// więc trzeba je "zneutralizować" (podmienić na znaki niepasujące do wzorca
-// klauzul) zanim findClauses zacznie szukać granic - inaczej BETWEEN 1 AND 2
-// zostaje błędnie rozbite na dwie linie, jakby to były dwa osobne warunki.
-function neutralizeBetweenAnd(sql: string, dep: number[]): string {
-    const chars = sql.split('');
-    const betweenRe = /\bBETWEEN\b/gi;
-    let m: RegExpExecArray | null;
-    while ((m = betweenRe.exec(sql)) !== null) {
-        const d = dep[m.index];
-        const andRe = /\bAND\b/gi;
-        andRe.lastIndex = m.index + m[0].length;
-        let am: RegExpExecArray | null;
-        while ((am = andRe.exec(sql)) !== null) {
-            if (dep[am.index] < d) { break; } // wyszliśmy poza nawias, w którym jest BETWEEN
-            if (dep[am.index] === d) {
-                for (let i = am.index; i < am.index + am[0].length; i++) { chars[i] = '#'; }
-                break;
-            }
-        }
-    }
-    return chars.join('');
-}
-
-// ─── Wyciąganie i przywracanie komentarzy ─────────────────────────────────────
-
-interface CommentSlot { placeholder: string; comment: string; standalone: boolean; }
-
-function extractComments(sql: string): { sql: string; slots: CommentSlot[] } {
-    const slots: CommentSlot[] = [];
-    const lines = sql.replace(/\r\n/g, '\n').split('\n');
-    const out: string[] = [];
-
-    for (const line of lines) {
-        const idx = line.indexOf('--');
-        if (idx === -1) { out.push(line); continue; }
-
-        const before = line.slice(0, idx).trim();
-        const comment = line.slice(idx).trimEnd();
-        const n = slots.length;
-        const placeholder = `__CMT_${n}__`;
-
-        if (before === '') {
-            // Samodzielny komentarz – wstawiamy placeholder jako osobny "token" w strumieniu.
-            // Żeby normalize go nie scalił z sąsiednimi liniami, owijamy go separatorami
-            // które przetrwają normalizację (normalize zamienia \n na spację, więc
-            // używamy specjalnego prefiksu który fmt rozpozna).
-            slots.push({ placeholder, comment, standalone: true });
-            out.push(placeholder);
-        } else {
-            // Komentarz końcowy – SQL przed nim + placeholder na końcu linii
-            slots.push({ placeholder, comment, standalone: false });
-            out.push(`${before} ${placeholder}`);
-        }
-    }
-
-    return { sql: out.join('\n'), slots };
-}
-
-function restoreComments(formatted: string, slots: CommentSlot[]): string {
-    let result = formatted;
-    for (const { placeholder, comment } of slots) {
-        // Samodzielny: placeholder jest całą linią (może mieć wcięcie nadane przez fmt)
-        result = result.replace(
-            new RegExp(`^([ \\t]*)${placeholder}[ \\t]*$`, 'm'),
-            (_m, indent) => `${indent}${comment}`,
-        );
-        // Końcowy: placeholder na końcu linii
-        result = result.replace(placeholder, comment);
-    }
-    return result;
-}
-
-
-// ─── Normalizacja wejścia ─────────────────────────────────────────────────────
-
-function normalize(sql: string): string {
-    return sql.replace(/\r\n/g, '\n').replace(/[\n\r\t]/g, ' ').replace(/ {2,}/g, ' ').trim();
-}
-
-// ─── Podział kolumn SELECT respektujący nawiasy ───────────────────────────────
-
-function splitColumns(text: string): string[] {
-    const masked = maskStringLiterals(text);
-    const cols: string[] = [];
-    let depth = 0, start = 0;
-    for (let i = 0; i < text.length; i++) {
-        const ch = masked[i];
-        if (ch === '(') { depth++; }
-        else if (ch === ')') { depth--; }
-        else if (ch === ',' && depth === 0) { cols.push(text.slice(start, i).trim()); start = i + 1; }
-    }
-    const last = text.slice(start).trim();
-    if (last) { cols.push(last); }
-    return cols;
-}
-
-// ─── Wyciąganie zawartości nawiasów ──────────────────────────────────────────
-
-function extractParen(col: string): { inner: string; suffix: string } | null {
-    if (!col.startsWith('(')) { return null; }
-    const masked = maskStringLiterals(col);
-    let depth = 0, closeIdx = -1;
-    for (let i = 0; i < masked.length; i++) {
-        if (masked[i] === '(') { depth++; }
-        else if (masked[i] === ')') { depth--; if (depth === 0) { closeIdx = i; break; } }
-    }
-    if (closeIdx === -1) { return null; }
-    return { inner: col.slice(1, closeIdx).trim(), suffix: col.slice(closeIdx + 1).trim() };
-}
-
-// ─── Klauzule na poziomie głównym (poza nawiasami) ───────────────────────────
-
-interface ClauseMatch { index: number; rawLen: number; keyword: string; }
-
-function findClauses(sql: string): ClauseMatch[] {
-    const masked = maskStringLiterals(sql);
-    const dep: number[] = new Array(sql.length).fill(0);
-    let d = 0;
-    for (let i = 0; i < sql.length; i++) {
-        if (masked[i] === '(') { d++; }
-        dep[i] = d;
-        if (masked[i] === ')') { d--; }
-    }
-    // Szukamy granic klauzul na wersji z zamaskowanymi literałami tekstowymi,
-    // żeby np. słowo "where" wewnątrz stringa ('select this and where that')
-    // nie zostało błędnie wzięte za prawdziwą klauzulę i nie rozwaliło zapytania.
-    const search = neutralizeBetweenAnd(masked, dep);
-    const pattern = CLAUSE_KEYWORDS.map(k => k.replace(/ /g, '\\s+')).join('|');
-    // Dodajemy wzorzec na placeholdery komentarzy
-    const re = new RegExp(`(?<![\\w])(${pattern}|__CMT_\\d+__)(?![\\w])`, 'gi');
-    const out: ClauseMatch[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(search)) !== null) {
-        if (dep[m.index] === 0) {
-            out.push({ index: m.index, rawLen: m[0].length, keyword: m[0].replace(/\s+/g, ' ').toUpperCase() });
-        }
-    }
-    return out;
-}
-
-// ─── Główna funkcja formatująca (rekurencyjna) ───────────────────────────────
-
-function fmt(sql: string, lvl: number): string {
-    const norm = uppercaseReservedWords(normalize(sql));
-    const clauses = findClauses(norm);
-    if (clauses.length === 0) { return tabs(lvl) + norm; }
-
-    const segs: Array<{ kw: string; rest: string }> = [];
-    const pre = norm.slice(0, clauses[0].index).trim();
-    if (pre) { segs.push({ kw: '', rest: pre }); }
-    for (let i = 0; i < clauses.length; i++) {
-        const c = clauses[i];
-        const end = i + 1 < clauses.length ? clauses[i + 1].index : norm.length;
-        segs.push({ kw: c.keyword, rest: norm.slice(c.index + c.rawLen, end).trim() });
-    }
-
-    const pad = tabs(lvl);
-    const lines: string[] = [];
-    let afterWhere = false;
-    let afterJoin = false;
-
-    const JOIN_KEYWORDS = new Set([
-        'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN', 'CROSS JOIN',
-        'LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN',
-    ]);
-
-    const CMT_RE = /^__CMT_\d+__$/;
-
-    for (const { kw, rest } of segs) {
-        if (!kw) { lines.push(pad + rest); continue; }
-
-        // Samodzielny komentarz – emituj z wcięciem odpowiadającym bieżącemu kontekstowi
-        if (CMT_RE.test(kw)) {
-            const cmtIndent = afterWhere ? pad + '\t' : pad;
-            lines.push(`${cmtIndent}${kw}`);
-            continue;
-        }
-
-        if (kw === 'SELECT') {
-            afterWhere = false; afterJoin = false;
-            lines.push(fmtSelect(rest, lvl));
-            continue;
-        }
-
-        // AND/OR po JOIN – doklejamy do linii JOIN lub łamiemy z wcięciem
-        if (INDENTED_KEYWORDS.has(kw) && afterJoin) {
-            const restFmt = rest.replace(/\bon\b/gi, 'ON');
-            const lastLine = lines[lines.length - 1] ?? '';
-            const candidate = lastLine + ` ${kw}${restFmt ? ' ' + restFmt : ''}`;
-            if (candidate.length <= SELECT_WRAP_AT) {
-                lines[lines.length - 1] = candidate;
-            } else {
-                lines.push(`${pad}\t\t${kw}${restFmt ? ' ' + restFmt : ''}`);
-            }
-            continue; // afterJoin pozostaje true
-        }
-
-        if (RESET_INDENT_KEYWORDS.has(kw)) { afterWhere = false; }
-        if (kw === 'WHERE') { afterWhere = true; }
-
-        afterJoin = JOIN_KEYWORDS.has(kw);
-
-        // Uppercase słowa kluczowego ON w tekście po JOIN
-        let restFmt = afterJoin ? rest.replace(/\bon\b/gi, 'ON') : rest;
-        // Uppercase ASC/DESC w ORDER BY / GROUP BY
-        if (ORDER_DIRECTION_KEYWORDS.has(kw)) { restFmt = uppercaseOrderDirection(restFmt); }
-
-        if (INDENTED_KEYWORDS.has(kw) && afterWhere) {
-            lines.push(`${pad}\t${kw}${restFmt ? ' ' + restFmt : ''}`);
-        } else {
-            lines.push(`${pad}${kw}${restFmt ? ' ' + restFmt : ''}`);
-        }
-    }
-
-    return lines.join('\n');
-}
-
-// ─── Formatowanie listy kolumn po SELECT ─────────────────────────────────────
-
-function fmtSelect(rest: string, lvl: number): string {
-    const cols = splitColumns(rest);
-    if (!cols.length) { return tabs(lvl) + 'SELECT'; }
-
-    const pad = tabs(lvl);
-    const cont = tabs(lvl + 1);   // wcięcie kontynuacji i subquery
-    const lines: string[] = [];
-    let cur = pad + 'SELECT ';
-
-    const flush = () => {
-        const t = cur.trimEnd();
-        if (t && t !== pad + 'SELECT') { lines.push(t); }
-        cur = cont;
-    };
-
-    for (let i = 0; i < cols.length; i++) {
-        const col = cols[i];
-        const comma = i < cols.length - 1 ? ',' : '';
-        const p = extractParen(col);
-
-        if (p !== null) {
-            // Całkowita długość subquery = '(' + inner + ')' + suffix
-            const full = `(${p.inner})${p.suffix ? ' ' + p.suffix : ''}`;
-            const isLarge = full.length >= SUBQUERY_LARGE;
-
-            if (!isLarge) {
-                // Małe – jak zwykła kolumna
-                const add = full + comma;
-                if ((cur + add).length > SELECT_WRAP_AT && cur.trim() && cur.trim() !== (pad + 'SELECT').trim()) {
-                    flush();
-                }
-                cur += add + ' ';
-            } else {
-                // Duże – nowa linia: '(' na początku, rekurencja, ')' na końcu
-                flush();
-                lines.push(cont + '(');
-                lines.push(fmt(p.inner, lvl + 2));
-                lines.push(`${cont})${p.suffix ? ' ' + p.suffix : ''}${comma}`);
-                cur = cont;
-            }
-        } else {
-            const add = col + comma;
-            if ((cur + add).length > SELECT_WRAP_AT && cur.trim() && cur.trim() !== (pad + 'SELECT').trim()) {
-                flush();
-            }
-            cur += add + ' ';
-        }
-    }
-
-    const last = cur.trimEnd();
-    if (last && last !== pad + 'SELECT' && last.trim() && last.trim() !== cont.trim()) {
-        lines.push(last);
-    }
-
-    return lines.join('\n');
-}
-
-// ─── Publiczna, czysta funkcja formatująca (bez zależności od vscode) ────────
-
-export function formatSql(sql: string): string {
-    const { sql: sqlNoComments, slots } = extractComments(sql);
-    return restoreComments(fmt(sqlNoComments, 0), slots);
-}
-
-// ─── Komenda VS Code ──────────────────────────────────────────────────────────
 
 export async function formatSqlCommand(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
@@ -356,4 +13,536 @@ export async function formatSqlCommand(): Promise<void> {
     const formatted = formatSql(editor.document.getText(selection));
 
     await editor.edit(eb => eb.replace(selection, formatted));
+}
+
+// Słowa kluczowe zawsze pisane wielkimi literami, niezależnie od miejsca wystąpienia
+// (operatory/literały). Celowo NIE ma tu słów "strukturalnych" (SELECT, FROM, WHERE, GROUP,
+// ORDER, HAVING, LIMIT, INSERT, INTO, VALUES) - te są renderowane osobno przez formatSql
+// jako nagłówki klauzul, dzięki czemu to samo słowo pojawiające się "przypadkiem" wewnątrz
+// nieparsowanego podzapytania (np. w NOT EXISTS (select 1 from x)) zostaje bez zmian.
+const KEYWORDS = new Set([
+    'AND', 'OR', 'NOT', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER', 'CROSS', 'ON',
+    'IN', 'AS', 'IS', 'LIKE', 'BETWEEN', 'EXISTS', 'DISTINCT', 'UNION', 'ALL',
+    'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'NULL', 'TRUE', 'FALSE',
+]);
+
+// ASC/DESC są wielkimi literami TYLKO w kontekście ORDER BY / GROUP BY - w innych klauzulach
+// mogą być zwykłą nazwą kolumny (np. WHERE asc = 1) i nie wolno ich ruszać.
+const ORDER_GROUP_EXTRA_KEYWORDS = new Set(['ASC', 'DESC']);
+
+type TokenType = 'comment' | 'word' | 'comma' | 'lparen' | 'rparen' | 'string';
+
+interface Token {
+    type: TokenType;
+    value: string;
+    // Tylko dla 'lparen': czy w oryginalnym tekście przed "(" była spacja.
+    // Dzięki temu "count(*)" (wywołanie funkcji, bez spacji) i "t (a,b)" / "AND (...)"
+    // (grupowanie, ze spacją) zachowują swój charakter zamiast być normalizowane na siłę.
+    spaceBefore?: boolean;
+}
+
+// Zamienia tekst SQL na listę tokenów. Komentarze liniowe (--), literały tekstowe ('...', "...")
+// oraz identyfikatory w cudzysłowie wstecznym (`...`) są traktowane jako pojedynczy token,
+// więc ich zawartość (w tym słowa kluczowe SQL wewnątrz) nigdy nie jest analizowana ani zmieniana.
+function tokenize(sql: string): Token[] {
+    const tokens: Token[] = [];
+    let i = 0;
+    const n = sql.length;
+    let sawSpace = true;
+
+    while (i < n) {
+        const ch = sql[i];
+
+        if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+            i++;
+            sawSpace = true;
+            continue;
+        }
+
+        if (ch === '-' && sql[i + 1] === '-') {
+            let j = i;
+            while (j < n && sql[j] !== '\n') { j++; }
+            tokens.push({ type: 'comment', value: sql.slice(i, j).trimEnd() });
+            i = j; sawSpace = false; continue;
+        }
+
+        if (ch === "'") {
+            let j = i + 1;
+            while (j < n && sql[j] !== "'") { j++; }
+            j++; // domykający apostrof
+            tokens.push({ type: 'string', value: sql.slice(i, j) });
+            i = j; sawSpace = false; continue;
+        }
+
+        if (ch === '"') {
+            let j = i + 1;
+            while (j < n && sql[j] !== '"') { j++; }
+            j++; // domykający cudzysłów
+            tokens.push({ type: 'string', value: sql.slice(i, j) });
+            i = j; sawSpace = false; continue;
+        }
+
+        if (ch === '`') {
+            let j = i + 1;
+            while (j < n && sql[j] !== '`') { j++; }
+            j++; // domykający backtick
+            tokens.push({ type: 'string', value: sql.slice(i, j) });
+            i = j; sawSpace = false; continue;
+        }
+
+        if (ch === ',') { tokens.push({ type: 'comma', value: ',' }); i++; sawSpace = false; continue; }
+        if (ch === '(') { tokens.push({ type: 'lparen', value: '(', spaceBefore: sawSpace }); i++; sawSpace = false; continue; }
+        if (ch === ')') { tokens.push({ type: 'rparen', value: ')' }); i++; sawSpace = false; continue; }
+
+        let j = i;
+        while (
+            j < n &&
+            !' \t\n\r,()'.includes(sql[j]) &&
+            !(sql[j] === '-' && sql[j + 1] === '-') &&
+            sql[j] !== "'" && sql[j] !== '`' && sql[j] !== '"'
+        ) { j++; }
+        if (j === i) { j++; }
+        tokens.push({ type: 'word', value: sql.slice(i, j) });
+        i = j; sawSpace = false;
+    }
+
+    return tokens;
+}
+
+// Dla każdego tokena liczy głębokość zagnieżdżenia w nawiasach (0 = poziom najwyższy).
+function computeDepths(tokens: Token[]): number[] {
+    const depths: number[] = [];
+    let d = 0;
+    for (const t of tokens) {
+        if (t.type === 'lparen') { depths.push(d); d++; }
+        else if (t.type === 'rparen') { d--; depths.push(d); }
+        else { depths.push(d); }
+    }
+    return depths;
+}
+
+// Zwraca zawartość nawiasu (bez samych nawiasów) oraz indeks domykającego ')'.
+function extractParenGroup(tokens: Token[], lparenIdx: number): [Token[], number] {
+    let d = 0;
+    for (let k = lparenIdx; k < tokens.length; k++) {
+        if (tokens[k].type === 'lparen') { d++; }
+        else if (tokens[k].type === 'rparen') {
+            d--;
+            if (d === 0) { return [tokens.slice(lparenIdx + 1, k), k]; }
+        }
+    }
+    return [tokens.slice(lparenIdx + 1), tokens.length - 1];
+}
+
+// Dzieli listę tokenów po przecinkach znajdujących się na najwyższym poziomie zagnieżdżenia.
+function splitTopLevelByComma(tokens: Token[]): Token[][] {
+    const depths = computeDepths(tokens);
+    const groups: Token[][] = [];
+    let cur: Token[] = [];
+    for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i].type === 'comma' && depths[i] === 0) {
+            groups.push(cur);
+            cur = [];
+        } else {
+            cur.push(tokens[i]);
+        }
+    }
+    groups.push(cur);
+    return groups.filter(g => g.length > 0);
+}
+
+interface AppendOptions {
+    looseCommas?: boolean;
+    // Wymusza/wyklucza spację przed tokenem niezależnie od domyślnej reguły
+    // (używane tylko dla "(", żeby zachować oryginalny charakter: count(*) vs t (a,b)).
+    forceSpaceBefore?: boolean;
+}
+
+// Dokłada kolejny token do stringa, dbając o poprawne spacje:
+// - brak spacji przed "," i ")",
+// - brak spacji zaraz po "(",
+// - po przecinku spacja jest dodawana tylko gdy looseCommas === true
+//   (np. ORDER BY, wiersz VALUES, krotka przed IN), w przeciwnym razie nie
+//   (np. lista argumentów IN(...), lista kolumn w INSERT).
+function appendTok(out: string, val: string, opts: AppendOptions = {}): string {
+    if (out === '') { return val; }
+    if (val === ',' || val === ')') { return out + val; }
+    const prevChar = out[out.length - 1];
+    if (prevChar === '(') { return out + val; }
+    if (opts.forceSpaceBefore === false) { return out + val; }
+    if (opts.forceSpaceBefore === true) { return out + ' ' + val; }
+    if (prevChar === ',' && !opts.looseCommas) { return out + val; }
+    return out + ' ' + val;
+}
+
+function renderWord(value: string, extraKeywords?: Set<string>): string {
+    if (/^[A-Za-z_]+$/.test(value)) {
+        const upper = value.toUpperCase();
+        if (KEYWORDS.has(upper) || (extraKeywords && extraKeywords.has(upper))) { return upper; }
+    }
+    return value;
+}
+
+// Renderuje listę tokenów do postaci tekstu.
+//
+// looseCommas - czy po przecinku na najwyższym poziomie TEGO wywołania ma być spacja
+// (np. ORDER BY, wiersz VALUES, krotka przed IN) czy nie (np. lista argumentów IN(...),
+// lista kolumn w INSERT). Przekazywane jawnie przez wywołującego, bo nie da się tego
+// wywnioskować z samej głębokości zagnieżdżenia nawiasów - te same nawiasy pełnią różne role.
+//
+// extraKeywords - dodatkowe słowa traktowane jak słowa kluczowe tylko w tym wywołaniu
+// (używane do ASC/DESC w ORDER BY / GROUP BY).
+//
+// Szczególne przypadki:
+// - "IN (...)" zawierające kilka krotek ('a','b'), ('c','d') jest rozbijane na wiele linii.
+// - "(col1, col2) IN (...)" - krotka poprzedzająca IN - renderowana jest zawsze z odstępem
+//   po przecinku (loose), niezależnie od trybu otoczenia.
+// - Odstęp przed "(" jest brany z oryginalnego tekstu (Token.spaceBefore), dzięki czemu
+//   "count(*)" (wywołanie funkcji) i "t (a,b)" / "AND (...)" (grupowanie) wyglądają naturalnie.
+function renderTokens(tokens: Token[], indent: string, looseCommas = false, extraKeywords?: Set<string>): string {
+    let out = '';
+    let i = 0;
+
+    while (i < tokens.length) {
+        const t = tokens[i];
+
+        if (t.type === 'word' && t.value.toUpperCase() === 'IN' && tokens[i + 1]?.type === 'lparen') {
+            const [inner, endIdx] = extractParenGroup(tokens, i + 1);
+            const groups = splitTopLevelByComma(inner);
+            const looksLikeTupleList = groups.length > 1 &&
+                groups.every(g => g[0]?.type === 'lparen' && g[g.length - 1]?.type === 'rparen');
+
+            if (looksLikeTupleList) {
+                out = appendTok(out, 'IN', { looseCommas });
+                out += ' (\n';
+                groups.forEach((g, idx) => {
+                    out += indent + '\t' + renderTokens(g, indent + '\t', true, extraKeywords);
+                    out += idx < groups.length - 1 ? ',\n' : '\n';
+                });
+                out += indent + ')';
+                i = endIdx + 1;
+                continue;
+            }
+        }
+
+        if (t.type === 'lparen') {
+            const [inner, endIdx] = extractParenGroup(tokens, i);
+            const next = tokens[endIdx + 1];
+            const followedByIn = next?.type === 'word' && next.value.toUpperCase() === 'IN';
+            const hasTopComma = splitTopLevelByComma(inner).length > 1;
+
+            if (followedByIn && hasTopComma) {
+                const rendered = '(' + renderTokens(inner, indent, true, extraKeywords) + ')';
+                out = appendTok(out, rendered, { looseCommas, forceSpaceBefore: t.spaceBefore });
+                i = endIdx + 1;
+                continue;
+            }
+
+            out = appendTok(out, '(', { looseCommas, forceSpaceBefore: t.spaceBefore });
+            i++;
+            continue;
+        }
+
+        const val = t.type === 'word' ? renderWord(t.value, extraKeywords) : t.value;
+        out = appendTok(out, val, { looseCommas });
+        i++;
+    }
+
+    return out;
+}
+
+// Nazwy klauzul jako enum zamiast gołych stringów - literówka w 'SELECT'/'FROM' itp.
+// przy dodawaniu nowej klauzuli skończy się błędem kompilacji, a nie cichym brakiem
+// dopasowania w formatSql.
+enum ClauseName {
+    Unknown = 'UNKNOWN', // tekst przed pierwszą rozpoznaną klauzulą - patrz segmentClauses
+    Select = 'SELECT',
+    From = 'FROM',
+    Where = 'WHERE',
+    Having = 'HAVING',
+    GroupBy = 'GROUP_BY',
+    OrderBy = 'ORDER_BY',
+    Limit = 'LIMIT',
+    Insert = 'INSERT',
+    InsertInto = 'INSERT_INTO',
+    Values = 'VALUES',
+}
+
+interface Clause {
+    name: ClauseName;
+    // Dokładny tekst nagłówka klauzuli do wypisania (np. "GROUP BY", "INSERT INTO") -
+    // enum ClauseName służy tylko do dopasowania odpowiedniego formattera.
+    displayName: string;
+    tokens: Token[];
+}
+
+// Pojedyncze słowo (wielkimi literami) rozpoczynające klauzulę -> jej nazwa (enum).
+// GROUP/ORDER/INSERT mogą zostać "podbite" do dwuwyrazowej klauzuli - patrz CLAUSE_COMBO.
+const WORD_TO_CLAUSE: Record<string, ClauseName> = {
+    SELECT: ClauseName.Select,
+    FROM: ClauseName.From,
+    WHERE: ClauseName.Where,
+    HAVING: ClauseName.Having,
+    LIMIT: ClauseName.Limit,
+    GROUP: ClauseName.GroupBy,
+    ORDER: ClauseName.OrderBy,
+    INSERT: ClauseName.Insert,
+    VALUES: ClauseName.Values,
+};
+
+const CLAUSE_WORDS = Object.keys(WORD_TO_CLAUSE);
+
+// Dwuwyrazowe nagłówki klauzul: GROUP BY, ORDER BY, INSERT INTO.
+const CLAUSE_COMBO: Record<string, { nextWord: string; combined: ClauseName }> = {
+    GROUP: { nextWord: 'BY', combined: ClauseName.GroupBy },
+    ORDER: { nextWord: 'BY', combined: ClauseName.OrderBy },
+    INSERT: { nextWord: 'INTO', combined: ClauseName.InsertInto },
+};
+
+// Dzieli cały zapytanie na główne klauzule (SELECT / FROM / WHERE / GROUP BY / ORDER BY / ...),
+// biorąc pod uwagę tylko słowa kluczowe na najwyższym poziomie zagnieżdżenia - dzięki temu
+// to samo słowo wewnątrz literału tekstowego albo zagnieżdżonego podzapytania nie jest
+// mylnie traktowane jako granica klauzuli.
+//
+// Jeśli przed pierwszą rozpoznaną klauzulą (albo w ogóle nie znajdziemy żadnej - np. UPDATE,
+// DELETE FROM, CREATE/ALTER/DROP TABLE, UNION - żadne z nich nie jest tu jeszcze rozpoznawane)
+// zostaje jakiś tekst, NIE jest on cicho gubiony - trafia jako osobny segment ClauseName.Unknown
+// i zostaje wypisany "as-is" (bez specjalnego formatowania, ale też bez utraty danych).
+function segmentClauses(tokens: Token[]): Clause[] {
+    const depths = computeDepths(tokens);
+    const boundaries: { name: ClauseName; displayName: string; start: number; bodyStart: number }[] = [];
+
+    for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (depths[i] === 0 && t.type === 'word' && CLAUSE_WORDS.includes(t.value.toUpperCase())) {
+            const word = t.value.toUpperCase();
+            let name = WORD_TO_CLAUSE[word];
+            let displayName = word;
+            let skip = 1;
+
+            const combo = CLAUSE_COMBO[word];
+            if (combo && tokens[i + 1]?.type === 'word' && tokens[i + 1].value.toUpperCase() === combo.nextWord) {
+                name = combo.combined;
+                displayName = word + ' ' + combo.nextWord;
+                skip = 2;
+            }
+
+            boundaries.push({ name, displayName, start: i, bodyStart: i + skip });
+        }
+    }
+
+    const clauses: Clause[] = [];
+    const firstBoundaryStart = boundaries.length ? boundaries[0].start : tokens.length;
+    if (firstBoundaryStart > 0) {
+        clauses.push({ name: ClauseName.Unknown, displayName: '', tokens: tokens.slice(0, firstBoundaryStart) });
+    }
+    for (let b = 0; b < boundaries.length; b++) {
+        const bodyEnd = b + 1 < boundaries.length ? boundaries[b + 1].start : tokens.length;
+        clauses.push({ name: boundaries[b].name, displayName: boundaries[b].displayName, tokens: tokens.slice(boundaries[b].bodyStart, bodyEnd) });
+    }
+    return clauses;
+}
+
+type SelectItem =
+    | { type: 'col'; tokens: Token[] }
+    | { type: 'comment'; value: string };
+
+// Maksymalna szerokość linii dla pakowanych kolumn w SELECT (w znakach).
+const SELECT_MAX_WIDTH = 160;
+
+// Formatuje listę kolumn po SELECT: kolumny są pakowane do linii o długości do
+// SELECT_MAX_WIDTH znaków (rozdzielane ", "), a przecinek na końcu linii pojawia się,
+// jeśli po niej są jeszcze kolejne rzeczywiste kolumny. Komentarz zawsze zaczyna nową
+// linię i nie jest łączony z kolumnami.
+function formatSelect(tokens: Token[]): string {
+    const depths = computeDepths(tokens);
+    const items: SelectItem[] = [];
+    let cur: Token[] = [];
+
+    for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.type === 'comma' && depths[i] === 0) {
+            items.push({ type: 'col', tokens: cur });
+            cur = [];
+        } else if (t.type === 'comment') {
+            if (cur.length > 0) { items.push({ type: 'col', tokens: cur }); cur = []; }
+            items.push({ type: 'comment', value: t.value });
+        } else {
+            cur.push(t);
+        }
+    }
+    if (cur.length > 0) { items.push({ type: 'col', tokens: cur }); }
+
+    const colIndices = items.map((it, idx) => (it.type === 'col' ? idx : -1)).filter(x => x >= 0);
+    const lastColIdx = colIndices[colIndices.length - 1];
+
+    const lines: string[] = [];
+    let currentParts: string[] = [];
+    let currentIsFirstLine = true;
+
+    const currentPrefix = () => (currentIsFirstLine ? 'SELECT ' : '\t');
+
+    const flush = () => {
+        if (currentParts.length === 0) { return; }
+        lines.push(currentPrefix() + currentParts.join(' '));
+        currentParts = [];
+        currentIsFirstLine = false;
+    };
+
+    items.forEach((it, idx) => {
+        if (it.type === 'comment') {
+            flush();
+            lines.push('\t' + it.value);
+            return;
+        }
+
+        const isLastCol = idx === lastColIdx;
+        const part = renderTokens(it.tokens, '\t') + (isLastCol ? '' : ',');
+        const candidateLength = currentPrefix().length +
+            (currentParts.length === 0 ? part.length : currentParts.join(' ').length + 1 + part.length);
+
+        if (currentParts.length > 0 && candidateLength > SELECT_MAX_WIDTH) {
+            flush();
+        }
+        currentParts.push(part);
+    });
+    flush();
+
+    return lines.join('\n');
+}
+
+const JOIN_MODIFIERS = new Set(['INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER', 'CROSS']);
+
+// Formatuje FROM oraz kolejne JOIN-y - każdy JOIN (wraz z ON) na osobnej linii,
+// bez dodatkowego wcięcia (tak jak w docelowym stylu).
+function formatFrom(tokens: Token[]): string {
+    const depths = computeDepths(tokens);
+    const boundaries: number[] = [];
+
+    for (let i = 0; i < tokens.length; i++) {
+        if (depths[i] === 0 && tokens[i].type === 'word' && tokens[i].value.toUpperCase() === 'JOIN') {
+            let start = i;
+            while (start - 1 >= 0 && tokens[start - 1].type === 'word' &&
+                JOIN_MODIFIERS.has(tokens[start - 1].value.toUpperCase())) {
+                start--;
+            }
+            boundaries.push(start);
+        }
+    }
+
+    const firstTable = tokens.slice(0, boundaries.length ? boundaries[0] : tokens.length);
+    const lines = ['FROM ' + renderTokens(firstTable, '')];
+
+    boundaries.forEach((b, idx) => {
+        const end = idx + 1 < boundaries.length ? boundaries[idx + 1] : tokens.length;
+        lines.push(renderTokens(tokens.slice(b, end), ''));
+    });
+
+    return lines.join('\n');
+}
+
+type CondItem =
+    | { type: 'cond'; tokens: Token[]; keyword: string | null }
+    | { type: 'comment'; value: string };
+
+// Formatuje WHERE (i podobne klauzule oparte o AND/OR): pierwszy warunek trafia w tę samą
+// linię co słowo kluczowe, kolejne są poprzedzone AND/OR na nowej, wciętej linii.
+// Komentarze zachowują swoją pozycję w sekwencji warunków.
+//
+// BETWEEN x AND y: "AND" będące częścią BETWEEN nie jest traktowane jako separator warunków -
+// liczymy je (betweenPending), żeby odróżnić je od kolejnego, prawdziwego AND łączącego warunki.
+function formatWhereLike(tokens: Token[], keyword: string): string {
+    const depths = computeDepths(tokens);
+    const items: CondItem[] = [];
+    let cur: Token[] = [];
+    let pendingKeyword: string | null = null;
+    let betweenPending = 0;
+
+    for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i];
+        const isAndOr = depths[i] === 0 && t.type === 'word' &&
+            (t.value.toUpperCase() === 'AND' || t.value.toUpperCase() === 'OR');
+
+        if (isAndOr && t.value.toUpperCase() === 'AND' && betweenPending > 0) {
+            cur.push(t);
+            betweenPending--;
+            continue;
+        }
+
+        if (isAndOr) {
+            if (cur.length > 0) {
+                items.push({ type: 'cond', tokens: cur, keyword: pendingKeyword });
+                cur = [];
+            }
+            pendingKeyword = t.value.toUpperCase();
+            continue;
+        }
+
+        if (t.type === 'comment') {
+            if (cur.length > 0) {
+                items.push({ type: 'cond', tokens: cur, keyword: pendingKeyword });
+                pendingKeyword = null;
+                cur = [];
+            }
+            items.push({ type: 'comment', value: t.value });
+            continue;
+        }
+
+        if (depths[i] === 0 && t.type === 'word' && t.value.toUpperCase() === 'BETWEEN') {
+            betweenPending++;
+        }
+        cur.push(t);
+    }
+    if (cur.length > 0 || items.length === 0) {
+        items.push({ type: 'cond', tokens: cur, keyword: pendingKeyword });
+    }
+
+    const lines = items.map((it, idx) => {
+        if (it.type === 'comment') { return '\t' + it.value; }
+        const rendered = renderTokens(it.tokens, '\t');
+        return idx === 0 ? keyword + ' ' + rendered : '\t' + it.keyword + ' ' + rendered;
+    });
+
+    return lines.join('\n');
+}
+
+type ClauseFormatter = (tokens: Token[], displayName: string) => string;
+
+// Formatter dla każdej klauzuli. Dodanie nowej klauzuli (np. SET/UNION) sprowadza się do:
+// 1) wpisu w WORD_TO_CLAUSE (i ewentualnie CLAUSE_COMBO, jeśli nagłówek jest dwuwyrazowy),
+// 2) wpisu tutaj - bez dotykania samej funkcji formatSql.
+const CLAUSE_FORMATTERS: Map<ClauseName, ClauseFormatter> = new Map([
+    // Nierozpoznana klauzula (np. UPDATE/DELETE FROM/CREATE TABLE) - nie formatujemy jej
+    // specjalnie, ale też jej nie tracimy (patrz komentarz przy segmentClauses).
+    [ClauseName.Unknown, (tokens) => renderTokens(tokens, '')],
+    [ClauseName.Select, (tokens) => formatSelect(tokens)],
+    [ClauseName.From, (tokens) => formatFrom(tokens)],
+    [ClauseName.Where, (tokens) => formatWhereLike(tokens, 'WHERE')],
+    [ClauseName.Having, (tokens) => formatWhereLike(tokens, 'HAVING')],
+    [ClauseName.GroupBy, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '', true, ORDER_GROUP_EXTRA_KEYWORDS)],
+    [ClauseName.OrderBy, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '', true, ORDER_GROUP_EXTRA_KEYWORDS)],
+    [ClauseName.Limit, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '', true)],
+    [ClauseName.Insert, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '')],
+    [ClauseName.InsertInto, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '')],
+    [ClauseName.Values, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '', true)],
+]);
+
+// Formatuje fragment SQL do przyjętego stylu: słowa kluczowe wielkimi literami (kontekstowo
+// dla ASC/DESC), kolumny SELECT pakowane do linii o długości do SELECT_MAX_WIDTH znaków,
+// JOIN-y bez wcięcia, warunki WHERE/HAVING łączone przez AND/OR na kolejnych wciętych liniach
+// (z poprawną obsługą BETWEEN x AND y), wielowierszowe listy krotek w IN (...), podstawowa
+// obsługa INSERT INTO ... VALUES (...) oraz zachowane komentarze i literały tekstowe/backtick.
+export function formatSql(sql: string): string {
+    const tokens = tokenize(sql);
+    const clauses = segmentClauses(tokens);
+    const out: string[] = [];
+
+    for (const c of clauses) {
+        const formatter = CLAUSE_FORMATTERS.get(c.name);
+        if (formatter) {
+            out.push(formatter(c.tokens, c.displayName));
+        }
+    }
+
+    return out.join('\n');
 }
