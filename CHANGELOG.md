@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.28
+
+### Fixed
+- The "no database connection configured" first-run prompt now shows only
+  once per VS Code session (checked once in `activate`), instead of every
+  time the extension starts - previously it reappeared each time the last
+  `.sql` tab was closed and a new one opened.
+
 ## 0.2.27
 
 ### Fixed
