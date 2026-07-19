@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { SqlResultsProvider } from './panel/SqlResultsProvider.js';
 import { RecentSqlFiles } from './recentFiles/RecentSqlFiles.js';
-import { closeSqlFile, isExtensionRunning, safeStartExtension, startExtension, stopExtension } from './lifecycle/extensionLifecycle.js';
+import { checkFirstRunConfig, closeSqlFile, isExtensionRunning, safeStartExtension, startExtension, stopExtension } from './lifecycle/extensionLifecycle.js';
 import { TableCompletionProvider } from './completion/TableCompletionProvider.js';
 import { runSQLCommand } from './commands/runSqlCommand.js';
 import { openRecentFilesCommand } from './commands/openRecentFilesCommand.js';
@@ -146,6 +146,14 @@ export async function activate(context: vscode.ExtensionContext) {
     if (previousOpenSqlFiles.size > 0) {
         await safeStartExtension(context);
     }
+
+    // Sprawdzenie braku konfiguracji (prompt o utworzeniu domyślnego
+    // połączenia) - CELOWO tylko tutaj, raz na sesję VS Code, niezależnie
+    // od tego czy jakiś plik .sql jest akurat otwarty. Dzięki temu
+    // zamykanie/otwieranie plików .sql w trakcie sesji (co wielokrotnie
+    // uruchamia/zatrzymuje samo rozszerzenie przez safeStartExtension) nie
+    // odpala tego promptu ponownie.
+    await checkFirstRunConfig();
 
     context.subscriptions.push(
         vscode.window.tabGroups.onDidChangeTabs(() => handleTabsChanged(context))

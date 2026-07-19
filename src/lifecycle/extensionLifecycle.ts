@@ -59,13 +59,18 @@ export async function startExtension(context: vscode.ExtensionContext) {
 }
 
 /**
- * Uruchamia rozszerzenie, a w razie błędu (np. brak katalogu konfiguracji
- * przy pierwszym uruchomieniu) pokazuje przyjazny ekran zamiast surowego
- * błędu aktywacji rozszerzenia.
+ * Uruchamia rozszerzenie, a w razie błędu pokazuje komunikat zamiast
+ * surowego błędu aktywacji rozszerzenia.
  *
  * Przeniesione tu z extension.ts (zamiast zostawać lokalną funkcją) tak,
  * żeby komendy typu runSQLCommand/runSqlWholeFileCommand mogły z niej
  * skorzystać bez cyklicznego importu z extension.ts.
+ *
+ * UWAGA: to jest wołane za KAŻDYM razem, gdy rozszerzenie przechodzi ze
+ * stanu stopped -> running (czyli też przy każdym otwarciu pierwszego pliku
+ * .sql po zamknięciu poprzedniego) - dlatego nie ma tu już sprawdzania braku
+ * konfiguracji (patrz checkFirstRunConfig poniżej, wołane tylko raz z
+ * extension.ts/activate).
  */
 export async function safeStartExtension(context: vscode.ExtensionContext) {
     try {
@@ -78,48 +83,8 @@ export async function safeStartExtension(context: vscode.ExtensionContext) {
         }
         // gdy nie ma żadnego połączenia (brak katalogu ALBO pusty katalog) -
         // startExtension() sam w sobie NIE rzuca (loadConfigs celowo tego nie
-        // robi), więc ten przypadek i tak trafia do promptu poniżej
-    }
-
-    const cm = ConnectionManager.getInstance();
-
-    // Uruchomienie rozszerzenia samo w sobie się udaje nawet bez żadnego
-    // skonfigurowanego połączenia (żeby nie psuć aktywacji) - dlatego to
-    // sprawdzamy oddzielnie i ZAWSZE informujemy użytkownika, niezależnie od
-    // tego, czy powyższy try/catch coś złapał.
-    //
-    // Celowo NIE rozróżniamy tutaj "katalog w ogóle nie istnieje" od "katalog
-    // istnieje, ale jest pusty" - w obu przypadkach obsługa jest identyczna
-    // (createConfigDirCommand tworzy katalog tylko jeśli faktycznie brakuje).
-    // To sprawdzamy TYLKO raz, przy starcie - nie przy każdym uruchomieniu SQL-a.
-    if (cm.hasNoConnections()) {
-        const createLabel = 'Create Default Connection (localhost)';
-
-        // modal: true - zwykła (nie-modalna) notyfikacja w prawym dolnym rogu VS Code
-        // sama się chowa po kilku sekundach do Notification Center, więc łatwo ją
-        // przegapić. To jest pierwsza rzecz, jaką widzi użytkownik przy pierwszym
-        // uruchomieniu, więc ma zostać na ekranie, aż świadomie ją zamknie/wybierze opcję.
-        //
-        // WAŻNE: przy modal:true VS Code SAM dokłada domyślny przycisk "Cancel"
-        // (jako close affordance) - jeśli tutaj dodamy własny "Cancel" jako kolejny
-        // element listy, użytkownik zobaczy DWA przyciski "Cancel". Dlatego podajemy
-        // TYLKO przycisk potwierdzający; zamknięcie okna / X / Esc = anulowanie.
-        const choice = await vscode.window.showWarningMessage(
-            `DB client: no database connection configured yet. Create a default localhost connection to get started ` +
-            `(you can edit it afterwards), or set it up manually in "${cm.getConfigDir()}".`,
-            { modal: true },
-            createLabel
-        );
-
-        try {
-            if (choice === createLabel) {
-                await vscode.commands.executeCommand('db-client.createConfigDir');
-            }
-        } catch (err: any) {
-            // gdyby samo wykonanie komendy się nie powiodło, użytkownik MA to zobaczyć,
-            // zamiast ciche niepowodzenie wyglądające jak "przycisk nic nie robi"
-            vscode.window.showErrorMessage(`DB client: action failed: ${err.message}`);
-        }
+        // robi), więc ten przypadek nie generuje tu żadnego komunikatu -
+        // obsługuje go checkFirstRunConfig (raz, przy starcie VS Code)
     }
 
     // CELOWO nie próbujemy tu proaktywnie łączyć się z bazą, nawet gdy jest
@@ -128,6 +93,57 @@ export async function safeStartExtension(context: vscode.ExtensionContext) {
     // starcie rozszerzenia. Jeśli ten jedyny plik .cnf jest błędny, obsłuży
     // to reaktywny fallback w SqlResultsProvider.executeQuery (przycisk
     // "Edit <plik>.cnf" przy błędzie zapytania).
+}
+
+/**
+ * Sprawdza, czy jest skonfigurowane jakiekolwiek połączenie z bazą i jeśli
+ * nie - pokazuje przyjazny prompt z opcją utworzenia domyślnego połączenia
+ * (localhost).
+ *
+ * CELOWO wołane TYLKO RAZ, bezpośrednio z extension.ts/activate() - a więc
+ * raz na sesję VS Code, niezależnie od tego, ile razy w międzyczasie
+ * rozszerzenie faktycznie wystartuje/zatrzyma się (otwieranie/zamykanie
+ * plików .sql). Jeśli user przy pierwszym pokazaniu zrobi Cancel, nie ma
+ * sensu go tym więcej meczyć w tej samej sesji.
+ *
+ * Celowo NIE rozróżniamy tutaj "katalog w ogóle nie istnieje" od "katalog
+ * istnieje, ale jest pusty" - w obu przypadkach obsługa jest identyczna
+ * (createConfigDirCommand tworzy katalog tylko jeśli faktycznie brakuje).
+ */
+export async function checkFirstRunConfig() {
+    const cm = ConnectionManager.getInstance();
+
+    if (!cm.hasNoConnections()) {
+        return;
+    }
+
+    const createLabel = 'Create Default Connection (localhost)';
+
+    // modal: true - zwykła (nie-modalna) notyfikacja w prawym dolnym rogu VS Code
+    // sama się chowa po kilku sekundach do Notification Center, więc łatwo ją
+    // przegapić. To jest pierwsza rzecz, jaką widzi użytkownik przy pierwszym
+    // uruchomieniu, więc ma zostać na ekranie, aż świadomie ją zamknie/wybierze opcję.
+    //
+    // WAŻNE: przy modal:true VS Code SAM dokłada domyślny przycisk "Cancel"
+    // (jako close affordance) - jeśli tutaj dodamy własny "Cancel" jako kolejny
+    // element listy, użytkownik zobaczy DWA przyciski "Cancel". Dlatego podajemy
+    // TYLKO przycisk potwierdzający; zamknięcie okna / X / Esc = anulowanie.
+    const choice = await vscode.window.showWarningMessage(
+        `DB client: no database connection configured yet. Create a default localhost connection to get started ` +
+        `(you can edit it afterwards), or set it up manually in "${cm.getConfigDir()}".`,
+        { modal: true },
+        createLabel
+    );
+
+    try {
+        if (choice === createLabel) {
+            await vscode.commands.executeCommand('db-client.createConfigDir');
+        }
+    } catch (err: any) {
+        // gdyby samo wykonanie komendy się nie powiodło, użytkownik MA to zobaczyć,
+        // zamiast ciche niepowodzenie wyglądające jak "przycisk nic nie robi"
+        vscode.window.showErrorMessage(`DB client: action failed: ${err.message}`);
+    }
 }
 
 export async function stopExtension(all = false) {
