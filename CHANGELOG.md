@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.27
+
+### Fixed
+- Cancel query spinner now turns red (`--vscode-errorForeground`) as soon
+  as the cancel button is clicked, instead of keeping its normal blue/
+  amber color while the "Cancelling query…" text is shown.
+- Starting a new query now clears any error message left over from the
+  previous run - previously a stale error stayed visible even after a
+  successful query started.
+
 ## 0.2.26
 
 ### Changed
