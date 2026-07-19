@@ -911,6 +911,7 @@ function initCancelButton(vscode) {
             const loadingText = document.querySelector('.loading-text');
             if (loadingText) {
                 loadingText.textContent = 'Cancelling query…';
+                document.querySelector('.spinner').style.borderTopColor = 'var(--vscode-errorForeground)';
             }
 
             vscode.postMessage({
