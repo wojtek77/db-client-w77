@@ -157,6 +157,8 @@ window.addEventListener('message', event => {
         
         startSpinner();
         spinner.style.borderTopColor = '#ffb937';
+        
+        updateErrorMessage();
     }
 
     if (msg.command === 'queryFinished') {
