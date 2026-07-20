@@ -4,6 +4,7 @@ import { CompletionAbstract } from "./CompletionAbstract.js";
 import { CompletionInterface } from './CompletionInterface.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
+import { tokenize, computeDepths, currentDepth } from '../sql/tokenizer.js';
 
 // wyrażenia regularne dla sekcji tabel (operujące na linePrefix)
 const REGEX_DELETE_SCHEMA_TABLE = /\b([\w]+)\.([\w]*)$/i;
@@ -32,6 +33,26 @@ const FORBIDDEN_KEYWORDS = new Set([
     'limit'
 ]);
 
+// sprawdza, czy kursor jest w kontekście kolumnowym (WHERE albo JOIN...ON), na głębokości zagnieżdżenia kursora
+// (podzapytania w WHERE nie mylą tego z klauzulami zewnętrznymi) - idziemy po tokenach, więc np. kolumna "from_date"
+// w WHERE nie jest już mylnie brana za nowe FROM, tak jak działo się to przy dawnym indexOf('from') na surowym tekście
+export function isInColumnContext(sqlBeforeCursor: string): boolean {
+    const tokens = tokenize(sqlBeforeCursor);
+    const depths = computeDepths(tokens);
+    const targetDepth = currentDepth(tokens);
+
+    let inColumnContext = false;
+    for (let i = 0; i < tokens.length; i++) {
+        if (depths[i] !== targetDepth) { continue; }
+        const t = tokens[i];
+        if (t.type !== 'word') { continue; }
+        const upper = t.value.toUpperCase();
+        if (upper === 'WHERE' || upper === 'ON') { inColumnContext = true; }
+        else if (upper === 'FROM' || upper === 'JOIN') { inColumnContext = false; }
+    }
+    return inColumnContext;
+}
+
 export class CompletionDelete extends CompletionAbstract implements CompletionInterface {
     
     public async complete(
@@ -47,20 +68,14 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
             return [];
         }
 
-        const beforeCursorLower = sqlBeforeCursor.toLowerCase();
-        const fromIndex = beforeCursorLower.lastIndexOf('from');
-        const whereIndex = beforeCursorLower.lastIndexOf('where');
-
         // określamy domyślny kontekst bazy danych
         const defaultSchema = db.getDatabase();
 
         // sprawdzamy, w której sekcji zapytania znajduje się kursor
-        const isInWhereClause = whereIndex > -1 && (fromIndex === -1 || whereIndex > fromIndex);
-        const isAfterDelete = beforeCursorLower.includes('delete');
-        const isInJoinOnClause = isAfterDelete && !isInWhereClause && beforeCursorLower.lastIndexOf(' on ') > beforeCursorLower.lastIndexOf('join');
+        const isInWhereClause = isInColumnContext(sqlBeforeCursor);
 
         // 1. Jeśli jesteśmy w kontekście kolumnowym (WHERE lub JOIN ON)
-        if (isInWhereClause || isInJoinOnClause) {
+        if (isInWhereClause) {
             
             // budowanie pełnej listy tabel – A. pobieramy tabele standardowym parserem (allTableRefs zawężone do zasięgu kursora)
             const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db, sqlBeforeCursor.length);

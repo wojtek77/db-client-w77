@@ -4,6 +4,7 @@ import { CompletionAbstract } from "./CompletionAbstract.js";
 import { CompletionInterface } from './CompletionInterface.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
+import { tokenize, computeDepths, currentDepth } from '../sql/tokenizer.js';
 
 // uproszczone wyrażenia regularne dla sekcji tabel (operujące na linePrefix)
 const REGEX_UPDATE_SCHEMA_TABLE = /\b([\w]+)\.([\w]*)$/i;
@@ -11,6 +12,25 @@ const REGEX_UPDATE_OBJECT = /\b([\w]*)$/i;
 
 // wyrażenie do wykrywania, czy kursor stoi bezpośrednio po aliasie i kropce, np. `s.|` lub `c.|`
 const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+)\.$/;
+
+// sprawdza, czy kursor jest w kontekście kolumnowym (SET, WHERE albo JOIN...ON), na głębokości zagnieżdżenia kursora
+// analogicznie do isInColumnContext w CompletionDelete.ts - JOIN resetuje kontekst z powrotem na "tabele" (kolejny alias po JOIN, przed jego własnym ON)
+export function isInColumnContext(sqlBeforeCursor: string): boolean {
+    const tokens = tokenize(sqlBeforeCursor);
+    const depths = computeDepths(tokens);
+    const targetDepth = currentDepth(tokens);
+
+    let inColumnContext = false;
+    for (let i = 0; i < tokens.length; i++) {
+        if (depths[i] !== targetDepth) { continue; }
+        const t = tokens[i];
+        if (t.type !== 'word') { continue; }
+        const upper = t.value.toUpperCase();
+        if (upper === 'SET' || upper === 'WHERE' || upper === 'ON') { inColumnContext = true; }
+        else if (upper === 'JOIN') { inColumnContext = false; }
+    }
+    return inColumnContext;
+}
 
 export class CompletionUpdate extends CompletionAbstract implements CompletionInterface {
     
@@ -27,21 +47,14 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
             return [];
         }
 
-        const beforeCursorLower = sqlBeforeCursor.toLowerCase();
-        const setIndex = beforeCursorLower.lastIndexOf('set');
-        const whereIndex = beforeCursorLower.lastIndexOf('where');
-
         // określamy domyślny kontekst bazy danych
         const defaultSchema = db.getDatabase();
 
         // sprawdzamy, w której sekcji zapytania znajduje się kursor
-        const isInSetClause = setIndex > -1 && (whereIndex === -1 || setIndex > whereIndex);
-        const isInWhereClause = whereIndex > -1 && whereIndex > setIndex;
-        const isAfterUpdate = beforeCursorLower.includes('update');
-        const isInJoinOnClause = isAfterUpdate && !isInSetClause && !isInWhereClause && beforeCursorLower.lastIndexOf(' on ') > beforeCursorLower.lastIndexOf('join');
+        const isInColumnCtx = isInColumnContext(sqlBeforeCursor);
 
         // 1. Jeśli jesteśmy w kontekście kolumnowym (SET, WHERE lub JOIN ON)
-        if (isInSetClause || isInWhereClause || isInJoinOnClause) {
+        if (isInColumnCtx) {
             
             // budowanie pełnej listy tabel – A. pobieramy tabele z JOIN standardowym parserem (allTableRefs zawężone do zasięgu kursora)
             const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db, sqlBeforeCursor.length);
