@@ -165,6 +165,14 @@ window.addEventListener('message', event => {
         cancelBtn.style.display = 'none';
         cancelBtn.classList.remove('cancelling');
         stopQueryTimer();
+        if (msg.connectionFailed) {
+            // Przy błędzie połączenia backend nigdy nie wyśle 'appendData' (to ono
+            // normalnie woła stopSpinner() po udanym zapytaniu) - więc trzeba to zrobić
+            // tutaj, inaczej spinner zostaje widoczny na zawsze. Przy sukcesie NIE
+            // wołamy tego tutaj, żeby nie ukrywać spinnera przed fazą 'loadingWebview'
+            // (niebieski) i 'appendData', które i tak zrobią to we właściwym momencie.
+            stopSpinner();
+        }
     }
     
     if (msg.command === 'loadingWebview') {

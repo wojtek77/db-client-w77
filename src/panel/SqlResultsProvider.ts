@@ -1159,21 +1159,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         } catch (err: any) {
             errorMessage = err.message;
 
-            // Przypadek "brak żadnego skonfigurowanego połączenia" jest już
-            // obsłużony RAZ, przy starcie rozszerzenia (safeStartExtension w
-            // extension.ts) - nie sprawdzamy/nie proponujemy tego ponownie przy
-            // każdym Run SQL, bo nie ma po co (jak ktoś już to skonfiguruje,
-            // zawsze będzie dobrze).
-            //
-            // Nie próbujemy zgadywać, CO dokładnie jest nie tak w pliku .cnf
-            // (to zadanie użytkownika) - jedyne, co sprawdzamy, to czy istnieje
-            // dokładnie jeden plik .cnf. Wtedy możemy jednoznacznie zaproponować
-            // jego edycję, bo nie ma dwuznaczności, który plik otworzyć.
+            // Znamy dBconnectionName, więc jeśli istnieje dla niego plik .cnf, oferujemy jego edycję.
             const configs = ConnectionManager.getInstance().getConfigs();
-            const configNames = Object.keys(configs);
+            const cnfPath = configs[dBconnectionName];
 
-            if (configNames.length === 1) {
-                const cnfPath = configs[configNames[0]];
+            if (cnfPath) {
                 const editLabel = `Edit ${path.basename(cnfPath)}`;
                 vscode.window.showErrorMessage(errorMessage, editLabel).then((choice) => {
                     if (choice === editLabel) {
@@ -1189,7 +1179,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // zawsze wrócić do stanu spoczynku.
             this._queryRunning = false;
             this._view?.webview.postMessage({
-                command: 'queryFinished'
+                command: 'queryFinished',
+                // Gdy nie udało się uzyskać połączenia (db === undefined), dalsza część metody
+                // kończy się wcześniejszym "return" i NIGDY nie wysyła 'appendData' (to ono normalnie
+                // wywołuje stopSpinner() po stronie webview) - więc frontend musi wtedy ukryć
+                // spinner już tutaj. Przy sukcesie NIE ukrywamy go teraz, bo dopiero za chwilę
+                // wysyłamy 'loadingWebview' (niebieski spinner) i 'appendData' - zrobienie tego
+                // tutaj ukrywałoby spinner przedwcześnie, zanim ta faza się w ogóle pokaże.
+                connectionFailed: !db
             });
         }
 
