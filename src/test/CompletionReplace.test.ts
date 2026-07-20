@@ -2,10 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { getCompletions, insertTextOf, labelOf, makeColumn } from './testHelpers.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CompletionReplace — podpowiedzi dla zapytań REPLACE INTO
-// (logika analogiczna do CompletionInsert, stąd podobny zestaw testów)
-// ─────────────────────────────────────────────────────────────────────────────
+// CompletionReplace — podpowiedzi dla zapytań REPLACE INTO (logika jak w CompletionInsert)
 
 suite('CompletionReplace — table / schema suggestions', () => {
 

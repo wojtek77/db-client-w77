@@ -19,8 +19,7 @@ export function initEditor(vscode) {
     });
 }
 
-// Typy kolumn, dla których edycja odbywa się w polu wieloliniowym (textarea).
-// Wszystko poza tą listą (np. varchar, char, int, decimal, date...) dostaje zwykły <input>.
+// typy kolumn, dla których edycja odbywa się w textarea, wszystko poza tą listą dostaje zwykły <input>
 const MULTILINE_COLUMN_TYPES = new Set([
     'text',
     'tinytext',
@@ -28,13 +27,8 @@ const MULTILINE_COLUMN_TYPES = new Set([
     'longtext'
 ]);
 
-// Przyciski zależne od zaznaczenia wierszy - stałe ID w markupie (patrz src/panel/html.ts).
-// Pobieramy je przez getElementById (szybkie, bez przeszukiwania całego drzewa DOM jak
-// querySelectorAll('.tools-btn')), ale NIE cache'ujemy wyniku w zmiennej modułu: ten kod
-// wykonałby się raz, w momencie importu modułu - zanim strona (a w testach: jsdom) w ogóle
-// zbuduje DOM, więc `document` mogłoby jeszcze nie istnieć albo elementy byłyby nieaktualne
-// po ponownym zbudowaniu DOM. getRowToolsBtnElements() woła getElementById na żądanie.
-// saveColumnEditsBtn celowo pominięty - jego widocznością steruje updateSaveColumnEditsButtonVisibility.
+// przyciski zależne od zaznaczenia wierszy pobieramy przez getElementById na żądanie, nie cache'ujemy w module (bo `document` mógłby jeszcze nie istnieć)
+// saveColumnEditsBtn celowo pominięty – jego widocznością steruje updateSaveColumnEditsButtonVisibility
 function getRowToolsBtnElements() {
     return [
         'generateInsertBtn',
@@ -49,9 +43,7 @@ function isMultilineColumnType(columnType) {
     return MULTILINE_COLUMN_TYPES.has(columnType.toLowerCase());
 }
 
-// Przenosi fokus klawiatury z edytora SQL do siatki wyników.
-// Bez tego kliknięcie w wynikach nie zabiera fokusu edytorowi (bo mousedown ma preventDefault
-// dla ochrony przed zaznaczaniem tekstu), przez co np. Ctrl+C trafiał wciąż do edytora.
+// przenosi fokus klawiatury z edytora SQL do siatki wyników – bez tego Ctrl+C trafiał wciąż do edytora (mousedown ma preventDefault chroniący zaznaczanie)
 function focusGridContainer() {
     const gridContainer = document.getElementById('gridContainer');
     if (gridContainer) {
@@ -68,25 +60,17 @@ function initCellEditing(vscode) {
     gridBody.addEventListener('dblclick', (event) => {
         const cell = event.target.closest('.grid-cell');
 
-        // Blokujemy nagłówki, LP oraz sytuację gdy pole edycji już istnieje
+        // blokujemy nagłówki, LP oraz sytuację gdy pole edycji już istnieje
         if (!cell || cell.classList.contains('lp-cell') || cell.querySelector('input, textarea')) {return;}
 
         startEditingCell(cell, vscode);
     });
 
-    // ENTER na zaznaczonej (ale nie edytowanej) komórce - wejście w tryb edycji, tak samo
-    // jak dblclick. Reagujemy tylko gdy dokładnie jedna komórka jest zaznaczona (bez sensu
-    // przy zaznaczeniu wielu komórek/wiersza/kolumny) i gdy fokus nie jest już w polu edycji.
+    // ENTER na zaznaczonej komórce wchodzi w tryb edycji jak dblclick – tylko gdy dokładnie jedna komórka jest zaznaczona i fokus nie jest już w polu edycji
     document.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter') {return;}
 
-        // Uwaga: NIE sprawdzamy tu document.activeElement, tylko event.target.
-        // event.target jest stały przez całe bąbelkowanie eventu, podczas gdy
-        // input.blur() (wywoływane w handlerze keydown na samym polu edycji,
-        // patrz startEditingCell) synchronicznie zmienia document.activeElement
-        // jeszcze zanim ten sam event Enter dobąbelkuje do document. Sprawdzanie
-        // activeElement powodowało, że ten listener odpalał się ponownie tuż po
-        // saveEdit() i natychmiast otwierał nowy input w tej samej komórce.
+        // sprawdzamy event.target, nie activeElement – blur() w startEditingCell zmienia activeElement przed dobąbelkowaniem, stąd ponowne otwarcie inputu
         const target = event.target;
         if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {return;}
 
@@ -122,7 +106,7 @@ function startEditingCell(cell, vscode) {
     } else {
         input.rows = 4;
         input.classList.add('grid-edit-input-multiline');
-        // Cały wiersz rośnie, żeby zmieściła się textarea (bez rozjeżdżania innych wierszy)
+        // cały wiersz rośnie, żeby zmieściła się textarea (bez rozjeżdżania innych wierszy)
         if (row) {row.classList.add('editing-row');}
     }
     input.value = oldValue;
@@ -133,10 +117,7 @@ function startEditingCell(cell, vscode) {
     input.focus();
     input.select();
 
-    // Zapis następuje wyłącznie po naciśnięciu ENTER (ustawia committed = true przed
-    // wywołaniem input.blur()). Każde inne "opuszczenie" pola - kliknięcie poza komórką,
-    // Escape, przełączenie okna itp. - trafia do blura z committed = false i anuluje edycję
-    // (przywraca oldValue), zamiast zapisywać wpisaną wartość.
+    // zapis następuje wyłącznie po ENTER (committed = true przed blur()) – inne opuszczenie pola trafia do blura z committed = false i anuluje edycję
     let committed = false;
 
     function cancelEdit() {
@@ -156,16 +137,15 @@ function startEditingCell(cell, vscode) {
         const isColumnSelected = State.getInstance().selectedColIndexes.has(colIndex);
 
         if (isColumnSelected) {
-            // Cała kolumna jest zaznaczona -> zamiast update'ować jeden wiersz,
-            // startujemy (wyłącznie wizualny) podgląd zbiorczej edycji tej kolumny
+            // cała kolumna jest zaznaczona -> zamiast update'ować jeden wiersz, startujemy wyłącznie wizualny podgląd zbiorczej edycji tej kolumny
             startColumnEdit(colIndex, newValue);
             return;
         }
 
-        // Tekst zmieniamy tymczasowo, pełne potwierdzenie (zielony błysk) przyjdzie z bazy danych
+        // tekst zmieniamy tymczasowo, pełne potwierdzenie (zielony błysk) przyjdzie z bazy danych
         cell.textContent = newValue;
 
-        // Wysyłamy dokładnie to, co odbiera: msg.rowIndex, msg.columnIndex, msg.value
+        // wysyłamy dokładnie to, co odbiera: msg.rowIndex, msg.columnIndex, msg.value
         vscode.postMessage({
             command: 'updateCell',
             rowIndex: rowIndex,
@@ -509,17 +489,14 @@ export function initColumnSelection() {
             State.getInstance().selectedColIndexes.delete(colIndex);
         }
 
-        // odznaczenie kolumny -> anuluj ewentualną niezapisaną edycję tej kolumny
-        // (znika czerwone podświetlenie, wraca prawdziwa wartość, znika przycisk Save
-        // jeśli nie ma innych oczekujących edycji)
+        // odznaczenie kolumny -> anuluj niezapisaną edycję tej kolumny (znika podświetlenie, wraca wartość, znika przycisk Save jeśli brak innych edycji)
         if (!select) {
             cancelColumnEdit(colIndex);
         }
     }
 
     function clearAllColumns(headerCells) {
-        // headerCells pochodzi z cachedHeaderHtml.slice(1), więc pozycja w tablicy
-        // JEST indeksem kolumny - nie trzeba już parsować dataset.columnIndex
+        // headerCells pochodzi z cachedHeaderHtml.slice(1), więc pozycja w tablicy jest indeksem kolumny – nie trzeba parsować dataset.columnIndex
         headerCells.forEach((hc, idx) => selectColumn(idx, false));
     }
 
@@ -713,8 +690,7 @@ export function initCellSelection() {
 
     });
 
-    // nawigacja strzałkami - przesuwa zaznaczenie do sąsiedniej komórki (góra/dół/lewo/prawo).
-    // Działa tylko gdy dokładnie jedna komórka jest zaznaczona i nie trwa edycja.
+    // nawigacja strzałkami przesuwa zaznaczenie do sąsiedniej komórki – działa tylko gdy jedna komórka jest zaznaczona i nie trwa edycja
     const ARROW_DELTAS = {
         ArrowUp: [-1, 0],
         ArrowDown: [1, 0],
@@ -768,8 +744,7 @@ export function initClipboard() {
         return cell ? cell.textContent : '';
     }
 
-    // zbiera pozycje (row-col) ze wszystkich trzech typów zaznaczenia - wprost
-    // z Setów w State, bez przeszukiwania DOM po klasach 'selected-row'/'selected-col'/'selected-cell'
+    // zbiera pozycje (row-col) ze wszystkich trzech typów zaznaczenia wprost z Setów w State, bez przeszukiwania DOM po klasach
     function collectSelectedPositions() {
         const positions = new Set();
         const state = State.getInstance();
@@ -796,9 +771,7 @@ export function initClipboard() {
         return positions;
     }
 
-    // buduje tekst w formacie TSV (wklejalny wprost do Excela/Sheets),
-    // odtwarzając prostokąt na podstawie użytych wierszy/kolumn;
-    // pola spoza zaznaczenia (ale w obrębie prostokąta) wychodzą puste
+    // buduje tekst TSV (wklejalny do Excela/Sheets) odtwarzając prostokąt z użytych wierszy/kolumn – pola spoza zaznaczenia wychodzą puste
     function buildClipboardText(positions) {
         if (positions.size === 0) {
             return '';
@@ -895,19 +868,13 @@ function initCancelButton(vscode) {
     const btn = document.getElementById('cancelQuery');
     if (btn) {
         btn.addEventListener('click', () => {
-            // Ochrona przed wielokrotnym KILL QUERY: przy połączeniach
-            // międzykontynentalnych round-trip do bazy trwa kilka sekund, więc bez
-            // tej blokady użytkownik mógłby zdążyć kliknąć "cancel" kilka razy,
-            // zanim przyjdzie pierwsza odpowiedź.
+            // ochrona przed wielokrotnym KILL QUERY – przy połączeniach międzykontynentalnych round-trip trwa sekundy, bez blokady można kliknąć kilka razy
             if (btn.classList.contains('cancelling')) {
                 return;
             }
             btn.classList.add('cancelling');
 
-            // Feedback natychmiast, PRZED odpowiedzią z rozszerzenia - właśnie to
-            // czekanie (KILL QUERY do bazy po drugiej stronie świata) jest tym, co
-            // wcześniej sprawiało wrażenie "zawieszenia" na kilka sekund. Tutaj nie
-            // czekamy na nic - to czysta zmiana DOM w webview, widoczna od razu.
+            // feedback natychmiast, przed odpowiedzią z rozszerzenia – czekanie na KILL QUERY sprawiało wrażenie zawieszenia, tu to zmiana DOM od razu
             const loadingText = document.querySelector('.loading-text');
             if (loadingText) {
                 loadingText.textContent = 'Cancelling query…';

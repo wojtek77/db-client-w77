@@ -3,14 +3,8 @@ import assert from 'node:assert/strict';
 import { setupDom } from './domTestUtils.js';
 import { State } from '../state.js';
 
-// messageHandler.js czyta elementy DOM (document.getElementById) już w momencie
-// importu, więc document/window muszą istnieć ZANIM ten moduł zostanie
-// załadowany - stąd setupDom() przed dynamicznym importem, zamiast statycznego
-// importu na górze pliku (który wykonałby się przed setupDom()).
-//
-// Listener 'message' zostaje podpięty pod TO konkretne `dom.window` - więc w
-// testach poniżej trzeba dispatchować eventy na tym samym obiekcie, a nie na
-// nowym `window` z kolejnego setupDom().
+// messageHandler.js czyta DOM już w momencie importu, więc setupDom() musi być przed dynamicznym importem, nie statycznym na górze pliku
+// listener 'message' jest podpięty pod to konkretne `dom.window` – testy muszą dispatchować eventy na tym samym obiekcie
 const dom = setupDom();
 await import('../messageHandler.js');
 
@@ -27,8 +21,7 @@ describe('messageHandler - obsługa komendy clearCache', () => {
 
         postMessageToWebview({ command: 'clearCache', sqlFile: 'clear-cmd-a.sql' });
 
-        // po wyczyszczeniu ponowny init tego samego pliku ma dać ŚWIEŻY,
-        // domyślny stan - a nie odzyskać poprzednie 'headers'
+        // po wyczyszczeniu ponowny init tego samego pliku ma dać świeży, domyślny stan, a nie odzyskać poprzednie 'headers'
         assert.deepEqual(State.init('clear-cmd-a.sql').headers, []);
 
         // plik, którego nie dotyczyło czyszczenie, zachowuje swój stan

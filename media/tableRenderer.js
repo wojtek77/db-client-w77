@@ -10,14 +10,14 @@ export function renderHeaders(pageRows) {
         return;
     }
 
-    // 🚀 INTELIGENTNE OBLICZANIE SZEROKOŚCI KOLUMN
+    // inteligentne obliczanie szerokości kolumn
     const columnWidths = [];
     
     for (let j = 0; j < headers.length; j++) {
-        // Zaczynamy od długości samej nazwy nagłówka
+        // zaczynamy od długości samej nazwy nagłówka
         let maxCharCount = headers[j] ? headers[j].length : 5;
 
-        // Skanujemy 200 wierszy dla tej konkretnej kolumny, aby znaleźć najdłuższy tekst
+        // skanujemy 200 wierszy dla tej konkretnej kolumny, aby znaleźć najdłuższy tekst
         if (pageRows) {
             for (let i = 0; i < pageRows.length; i++) {
                 const val = pageRows[i][j];
@@ -30,13 +30,12 @@ export function renderHeaders(pageRows) {
             }
         }
 
-        // Zamieniamy liczbę znaków na piksele (średnio 8-9px na znak + padding komórki)
-        // Ograniczamy szerokość: minimum 80px, maksimum 350px (żeby bardzo długie teksty nie rozjechały tabeli)
+        // zamieniamy liczbę znaków na piksele (~8-9px + padding), ograniczamy szerokość do 80-350px, żeby długie teksty nie rozjechały tabeli
         let calculatedWidth = Math.max(80, Math.min(350, maxCharCount * 8.5 + 24));
         columnWidths.push(`${calculatedWidth}px`);
     }
 
-    // Składamy finalny szablon: 50px dla LP + unikalna szerokość dla każdej kolumny
+    // składamy finalny szablon: 50px dla LP + unikalna szerokość dla każdej kolumny
     const gridTemplate = `50px ${columnWidths.join(' ')}`;
     
     const gridContainer = document.querySelector('.grid-container');
@@ -45,7 +44,7 @@ export function renderHeaders(pageRows) {
     }
     State.getInstance().cachedGridTemplate = gridTemplate;
     
-    // Budujemy nagłówki HTML
+    // budujemy nagłówki HTML
     const fragment = document.createDocumentFragment();
     const lpHeader = document.createElement('div');
     lpHeader.className = 'grid-cell header-cell lp-cell';
@@ -99,9 +98,7 @@ export function initializeGrid(currentRows) {
     for (let i = 0; i < rowCount; ++i) {
         const rowDiv = document.createElement('div');
         rowDiv.className = 'grid-row';
-        // podobnie jak przy komórkach (cell._index), zapamiętujemy indeks wiersza
-        // bezpośrednio na węźle DOM - pozwala to później odczytać "który to wiersz"
-        // bez przeszukiwania DOM (querySelector/indexOf)
+        // podobnie jak przy komórkach (cell._index) zapamiętujemy indeks wiersza na węźle DOM, żeby odczytać 'który to wiersz' bez przeszukiwania DOM
         rowDiv._rowIndex = i;
 
         const cells = [];

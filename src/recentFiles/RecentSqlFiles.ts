@@ -73,7 +73,7 @@ export class RecentSqlFiles {
         try {
             const storagePath = this.getStorageDir();
             
-            // Upewniamy się, że katalog globalStorageUri istnieje
+            // upewniamy się, że katalog globalStorageUri istnieje
             if (!fs.existsSync(storagePath)) {
                 fs.mkdirSync(storagePath, { recursive: true });
             }
@@ -81,7 +81,7 @@ export class RecentSqlFiles {
             const filePath = this.getStorageFilePath();
             const dataToSave = JSON.stringify(Array.from(this.sqlFiles.entries()));
 
-            // Blokujący zapis synchroniczny - VS Code nie ubije procesu przed zakończeniem zapisu
+            // blokujący zapis synchroniczny - VS Code nie ubije procesu przed zakończeniem zapisu
             fs.writeFileSync(filePath, dataToSave, 'utf-8');
         } catch (err) {
             console.error('RecentSqlFiles: Critical write error in dispose:', err);
@@ -89,17 +89,8 @@ export class RecentSqlFiles {
     }
     
     public async getConnectionName(isOnlyUpdate = false, sqlFileOverride?: string) {
-        // ścieżka do pliku SQL: jeśli wywołujący przekazał konkretny plik (np. ten,
-        // który był aktywny w momencie uruchomienia zapytania), używamy go zamiast
-        // odczytywać "vscode.window.activeTextEditor" w TYM momencie.
-        //
-        // Jest to ważne, bo między momentem uruchomienia zapytania a wywołaniem tej
-        // metody może upłynąć trochę czasu (np. oczekiwanie na gotowość webview w
-        // SqlResultsProvider.executeQuery() - do 5 sekund przy pierwszym uruchomieniu).
-        // Jeśli w tym czasie użytkownik przełączy się na inny (dowolny, niekoniecznie
-        // .sql) plik, "activeTextEditor" wskazywałby już na niego, co prowadziło do
-        // rzadkiego, trudnego do odtworzenia błędu: na liście ostatnich plików SQL
-        // (F3) pojawiał się plik inny niż .sql.
+        // jeśli wywołujący przekazał konkretny plik, używamy go zamiast activeTextEditor w tym momencie
+        // między uruchomieniem zapytania a tym wywołaniem może minąć czas (do 5s), a activeTextEditor mógłby już wskazywać na inny plik
         let sqlFile = sqlFileOverride;
         if (!sqlFile) {
             const editor = vscode.window.activeTextEditor;
@@ -119,10 +110,7 @@ export class RecentSqlFiles {
             connectionName = undefined;
         }
         
-        // kiedy wywołanie jest z ConnectionManager (nie jest to zmiana połączenia)
-        // i nie jest ustawione połączenie z DB dla pliku
-        // wtedy zostanie ustawione ostatnio używane połączenie DB
-        // jest to analogiczne działanie do tego co jest w DBeaver
+        // gdy wywołanie jest z ConnectionManager i plik nie ma ustawionego połączenia, ustawiamy ostatnio używane połączenie DB (analogicznie jak w DBeaver)
         if (!isOnlyUpdate && !connectionName) {
             connectionName = ConnectionManager.getInstance().getCurrentNameConnection();
         }
@@ -191,11 +179,11 @@ export class RecentSqlFiles {
             const openFilePaths = new Set<string>();
             for (const group of vscode.window.tabGroups.all) {
                 for (const tab of group.tabs) {
-                    // Sprawdzamy, czy karta to plik tekstowy
+                    // sprawdzamy, czy karta to plik tekstowy
                     if (tab.input instanceof vscode.TabInputText) {
                         const filePath = tab.input.uri.fsPath;
 
-                        // Warunek: interesują nas tylko pliki z rozszerzeniem .sql
+                        // warunek: interesują nas tylko pliki z rozszerzeniem .sql
                         if (filePath.toLowerCase().endsWith('.sql')) {
                             openFilePaths.add(filePath);
                         }
@@ -208,12 +196,11 @@ export class RecentSqlFiles {
                 sqlFiles.delete(filePath);
             }
 
-            // Mapowanie na elementy QuickPickItem w odwróconej kolejności (od końca)
-            // Zamieniamy wpisy mapy na tablicę i odwracamy ją za pomocą .reverse()
+            // mapowanie na elementy QuickPickItem w odwróconej kolejności – zamieniamy wpisy mapy na tablicę i odwracamy przez .reverse()
             return Array.from(sqlFiles.entries())
                 .reverse()
                 .map(([filePath, connectionName], index) => {
-                    // Pobieramy samą nazwę pliku (np. "query.sql")
+                    // pobieramy samą nazwę pliku (np. "query.sql")
                     const fileName = path.basename(filePath);
 
                     const orderNumber = index + 1;
@@ -287,8 +274,7 @@ export class RecentSqlFiles {
                 return;
             }
 
-            // zapamiętujemy indeks usuwanej pozycji, aby po odświeżeniu listy
-            // zaznaczenie zostało w tym samym miejscu, a nie wróciło na początek
+            // zapamiętujemy indeks usuwanej pozycji, żeby po odświeżeniu listy zaznaczenie zostało w tym samym miejscu
             const removedIndex = quickPick.items.indexOf(event.item);
 
             const instance = RecentSqlFiles.getInstance();
@@ -299,15 +285,14 @@ export class RecentSqlFiles {
             const newItems = buildQuickPickItems();
             quickPick.items = newItems;
 
-            // ustawiamy aktywną pozycję na tym samym indeksie co usunięta
-            // (a jeśli to była ostatnia pozycja - na nowym ostatnim elemencie)
+            // ustawiamy aktywną pozycję na tym samym indeksie co usunięta (a przy ostatniej pozycji – na nowym ostatnim elemencie)
             if (newItems.length > 0) {
                 const newActiveIndex = Math.min(removedIndex, newItems.length - 1);
                 quickPick.activeItems = [newItems[newActiveIndex]];
             }
         });
 
-        // Wyświetlenie menu użytkownikowi
+        // wyświetlenie menu użytkownikowi
         const selectedItem = await new Promise<{ label: string; description: string; value: string; connectionName: string } | undefined>(res => {
             quickPick.onDidAccept(() => { res(quickPick.selectedItems[0]); quickPick.hide(); });
             quickPick.onDidHide(() => { res(undefined); quickPick.dispose(); });
@@ -319,7 +304,7 @@ export class RecentSqlFiles {
             const sqlFile = selectedItem.value;
             
             try {
-                // Zamiana ścieżki tekstowej na obiekt Uri wymagany przez VS Code
+                // zamiana ścieżki tekstowej na obiekt Uri wymagany przez VS Code
                 const fileUri = vscode.Uri.file(sqlFile);
                 
                 await vscode.window.showTextDocument(fileUri, {
@@ -327,8 +312,7 @@ export class RecentSqlFiles {
                     preserveFocus: false  // opcjonalnie: od razu aktywuje edytor
                 });
             } catch (error) {
-                // plik mógł zostać usunięty lub zmieniona jego nazwa na dysku -
-                // sprawdzamy, czy faktycznie już nie istnieje
+                // plik mógł zostać usunięty lub zmieniona jego nazwa na dysku – sprawdzamy, czy faktycznie już nie istnieje
                 if (!fs.existsSync(sqlFile)) {
                     const instance = RecentSqlFiles.getInstance();
                     instance.delete(sqlFile);

@@ -8,12 +8,7 @@ import { CompletionInterface } from './CompletionInterface.js';
 
 const REGEX_SCHEMA_TABLE = /\b(?:from|join)\s+(\w+)\.(\w*)$/i;
 const REGEX_FROM_OBJECT = /\b(?:from|join)\s+(\w*)$/i;
-// Uwaga: grupa 2 (\w*) obsługuje przypadek, gdy po `alias.` jest już częściowo
-// wpisana nazwa kolumny, np. `l.date_ent|`. Bez tego regex dopasowywał się tylko
-// gdy kursor stał bezpośrednio po kropce (`l.|`), a przy dalszym pisaniu tracił
-// kontekst aliasu i wpadał w ogólną gałąź zwracającą kolumny ze WSZYSTKICH tabel
-// zapytania (patrz addColumnsFromQueryTables) — stąd np. `l.date_entered` mogło
-// pokazywać podpowiedzi tej kolumny również z innych tabel w zapytaniu.
+// grupa 2 (\\w*) obsługuje częściowo wpisaną nazwę kolumny po `alias.` (np. `l.date_ent|`) – bez niej kontekst aliasu gubił się przy dalszym pisaniu
 const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)\.(\w*)$/;
 
 export class CompletionSelect extends CompletionAbstract implements CompletionInterface {
@@ -75,14 +70,13 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         if (isInHavingClause) {
             const result: vscode.CompletionItem[] = [];
 
-            // Sprawdzamy czy kursor jest wewnątrz nawiasów funkcji, np. GROUP_CONCAT(|)
-            // Jeśli tak, pomijamy analizę SELECT i od razu serwujemy kolumny z tabel zapytania
+            // sprawdzamy czy kursor jest wewnątrz nawiasów funkcji (np. GROUP_CONCAT(|)) – jeśli tak, pomijamy SELECT i serwujemy kolumny z tabel zapytania
             if (this.isCursorInsideFunctionCall(sqlBeforeCursor, havingIndex)) {
                 await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);
                 return result;
             }
 
-            // Wyciągamy fragment SELECT...FROM z tego samego poziomu zagnieżdżenia
+            // wyciągamy fragment SELECT...FROM z tego samego poziomu zagnieżdżenia
             const selectPart = this.extractSelectPartAtCursorLevel(sqlBeforeCursor);
             const candidates = this.extractHavingCandidates(selectPart);
 
@@ -104,7 +98,7 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 }
             }
 
-            // Wspólna metoda: Ładujemy kolumny z tabel na podstawie gwiazdek
+            // wspólna metoda: Ładujemy kolumny z tabel na podstawie gwiazdek
             if (shouldLoadAllTables) {
                 await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);
             } else if (specificAliasesToLoad.size > 0) {
@@ -207,11 +201,7 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 };
             }
 
-            // Pre-fetch kolumn dla wszystkich tabel w zapytaniu (w tym JOIN-ów) — wypełnia cache jednym
-            // batchem. Celowo BEZ ograniczenia zasięgiem (cursorOffset) — sugestia i tak buduje się
-            // wyłącznie z jednego konkretnego `tableRef` ustalonego wyżej, więc scoping nic by tu nie
-            // poprawił, a jedynie zmniejszyłby ten batch i wymusił dodatkowe zapytania do bazy przy
-            // późniejszym przejściu kursora do innego zakresu (np. wnętrza podzapytania).
+            // pre-fetch kolumn dla wszystkich tabel jednym batchem, celowo bez scopingu po cursorOffset – sugestia i tak buduje się z jednego `tableRef`
             const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db);
             const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(
                 allTableRefs.length > 0 ? allTableRefs : [tableRef]
@@ -227,7 +217,7 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         if (isInSelectClause || isInWhereClause || isInGroupClause || isInOrderClause) {
             const result: vscode.CompletionItem[] = [];
 
-            // Wspólna metoda: Ładujemy wszystkie kolumny dla klauzul strukturalnych
+            // wspólna metoda: Ładujemy wszystkie kolumny dla klauzul strukturalnych
             await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);
 
             for (const fn of SQL_FUNCTIONS) {

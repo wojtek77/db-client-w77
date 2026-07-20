@@ -4,10 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { CnfLoader } from '../db/CnfLoader.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CnfLoader — tylko znane opcje liczbowe/logiczne wolno konwertować z typu string;
-// hasła, nazwy użytkowników, hostów i baz muszą zawsze pozostać stringiem.
-// ─────────────────────────────────────────────────────────────────────────────
+// CnfLoader — tylko znane opcje liczbowe/logiczne wolno konwertować z typu string, hasła/nazwy/hosty zawsze zostają stringiem
 
 async function withTempCnf(content: string, run: (filePath: string) => Promise<void>) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-client-cnf-'));
@@ -133,9 +130,7 @@ suite('CnfLoader', () => {
             '[client]\nhost = 127.0.0.1\nproduction = true\n',
             async (filePath) => {
                 const opts = await CnfLoader.getOptionsFromCnf(filePath);
-                // Celowo NIE oczekujemy opts.production === true - ta opcja działa
-                // tylko w sekcji [db-client], nie w [client] (żeby ten sam plik dało
-                // się nadal użyć jako --defaults-file dla prawdziwego klienta mysql/mariadb).
+                // celowo nie oczekujemy opts.production === true – ta opcja działa tylko w [db-client], nie w [client] (żeby plik szedł jako --defaults-file)
                 assert.strictEqual(opts.production, undefined);
             }
         );

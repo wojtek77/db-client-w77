@@ -30,10 +30,10 @@ type Cache = Record<
 export class TableColumnsCache {
     private static instance: TableColumnsCache | null = null;
     
-    // Prywatny cache dostępny tylko przez metody klasy
+    // prywatny cache dostępny tylko przez metody klasy
     private tableColumnsCache: Cache = {};
     
-    // Prywatny konstruktor
+    // prywatny konstruktor
     private constructor() {}
     
     /**
@@ -99,11 +99,7 @@ export class TableColumnsCache {
             result[key] = tableColumns;
         }
 
-        // Tabele, dla których baza nie zwróciła żadnych kolumn (np. literówka
-        // w nazwie / tabela nie istnieje) też zapisujemy do cache jako pustą
-        // tablicę. Dzięki temu przy kolejnym zapytaniu o tę samą
-        // (connection, schema, table) trafimy w cache zamiast bez końca
-        // odpytywać bazę o coś, czego i tak tam nie ma.
+        // tabele bez zwróconych kolumn (literówka / nie istnieje) też cache'ujemy jako pustą tablicę, żeby nie odpytywać bazy w kółko
         for (const tableRef of missing) {
             const key = this.getTableRefKey(tableRef);
             if (key in grouped) {
@@ -130,7 +126,7 @@ export class TableColumnsCache {
         return this.tableColumnsCache;
     }
 
-    // Prywatne metody pomocnicze ukryte przed światem zewnętrznym
+    // prywatne metody pomocnicze ukryte przed światem zewnętrznym
     private getCachedEntry(
         connectionName: string,
         schema: string,

@@ -117,8 +117,7 @@ suite('formatSql - ujednolicone wielkie litery pozostałych słów kluczowych', 
 });
 
 suite('formatSql - słowa kluczowe wewnątrz literału tekstowego nie są granicą klauzuli', () => {
-    // Bug znaleziony przy okazji naprawy BETWEEN: findClauses szukał granic klauzul
-    // na surowym tekście, więc np. "where"/"and" wewnątrz stringa rozwalało formatowanie.
+    // bug znaleziony przy naprawie BETWEEN: findClauses szukał granic klauzul w surowym tekście, więc 'where'/'and' w stringu psuło formatowanie
     test('nie rozbija stringa zawierającego słowa kluczowe SQL', () => {
         assert.strictEqual(
             formatSql("select id from t where note = 'select this and where that'"),

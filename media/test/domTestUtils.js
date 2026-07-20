@@ -2,8 +2,7 @@ import { JSDOM } from 'jsdom';
 import { State } from '../state.js';
 import { renderHeaders, initializeGrid, renderPage } from '../tableRenderer.js';
 
-// Minimalny szkielet HTML odpowiadający strukturze z src/panel/html.ts -
-// tylko elementy, na których faktycznie operuje media/*.js.
+// minimalny szkielet HTML odpowiadający strukturze z src/panel/html.ts – tylko elementy, na których operuje media/*.js
 const BASE_HTML = `<!doctype html>
 <html>
 <body>
@@ -30,8 +29,7 @@ export function setupDom() {
 
     global.window = dom.window;
     global.document = dom.window.document;
-    // Node (>=21) już ma własny, tylko-do-odczytu globalny `navigator` - trzeba go
-    // nadpisać przez defineProperty, zwykłe przypisanie rzuci TypeError.
+    // Node (>=21) ma własny, tylko-do-odczytu `navigator` – trzeba go nadpisać przez defineProperty, zwykłe przypisanie rzuci TypeError
     Object.defineProperty(global, 'navigator', {
         value: dom.window.navigator,
         configurable: true,
@@ -62,8 +60,7 @@ export function buildGrid(filename, { headers, columnTypes = [], currentRows }) 
     renderHeaders(currentRows);
     initializeGrid(currentRows);
 
-    // tak samo jak w messageHandler.js: currentRows musi być "undefined" przed renderPage(),
-    // inaczej renderPage porówna dane ze sobą, uzna wiersze za "bez zmian" i nie wypełni komórek
+    // tak samo jak w messageHandler.js: currentRows musi być 'undefined' przed renderPage(), inaczej uzna wiersze za bez zmian i nie wypełni komórek
     state.currentRows = undefined;
     renderPage(currentRows);
 

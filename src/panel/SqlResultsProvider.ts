@@ -73,15 +73,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _errorMessage = '';
     private readonly ROWS_PER_PAGE = 200;
     private _context?: vscode.ExtensionContext;
-    // _viewReady === true oznacza, że skrypt JS wewnątrz webview (media/app.js)
-    // faktycznie się załadował i zarejestrował swój listener na wiadomości
-    // (patrz media/messageHandler.js) - a nie tylko że sam kontener webview
-    // istnieje. To ważne rozróżnienie: samo istnienie `this._view` (ustawiane
-    // w resolveWebviewView()) NIE gwarantuje, że webview jest już w stanie
-    // odebrać postMessage() - ładowanie strony webview jest asynchroniczne
-    // (osobny sandboxowany proces/iframe), więc bez tego rozróżnienia
-    // wiadomości wysłane zbyt wcześnie (np. 'queryStarted', wyniki zapytania)
-    // mogły ginąć, mimo że zapytanie SQL wykonywało się poprawnie w tle.
+    // _viewReady === true oznacza, że skrypt JS w webview się załadował i zarejestrował listener – samo `this._view` tego nie gwarantuje
     private _viewReady = false;
     private _resolveViewReady?: (value: boolean) => void;
     private _currentSqlFile = '';
@@ -99,9 +91,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     ) {
         this._view = webviewView;
 
-        // Nowa instancja webviewView = zupełnie nowa strona, która musi się
-        // dopiero załadować od zera - resetujemy flagę gotowości, żeby nie
-        // dziedziczyć stanu "gotowy" z ewentualnego poprzedniego widoku.
+        // nowa instancja webviewView to nowa strona, musi się załadować od zera – resetujemy flagę gotowości, żeby nie dziedziczyć stanu z poprzedniego widoku
         this._viewReady = false;
 
         webviewView.webview.options = {
@@ -115,14 +105,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         
         // ⭐ REWELACYJNE ZABEZPIECZENIE:
         webviewView.onDidDispose(() => {
-            // Sprawdzamy tożsamość: ten callback jest przypisany do KONKRETNEJ
-            // instancji webviewView (przez domknięcie), ale odwołuje się do
-            // współdzielonego pola this._view. Gdyby VS Code z jakiegoś powodu
-            // utworzył NOWY widok (nowe wywołanie resolveWebviewView, nowe
-            // this._view) zanim formalnie zutylizuje ten STARY widok, to dispose
-            // starej, "zombie" instancji odpaliłby się później i wyzerowałby
-            // this._view, mimo że w tym momencie wskazuje ono już na całkiem
-            // nowy, aktywny widok. Ten warunek zapobiega takiemu nadpisaniu.
+            // sprawdzamy tożsamość – dispose starej 'zombie' instancji mógłby odpalić się po utworzeniu nowego widoku i wyzerować this._view
             if (this._view === webviewView) {
                 this._view = undefined; // Dzięki temu program wie, że stary widok już nie istnieje!
                 this._viewReady = false;
@@ -137,13 +120,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
 
             if (msg.command === 'webviewReady') {
-                // Sygnał, że skrypt JS wewnątrz TEGO KONKRETNEGO webview
-                // faktycznie się załadował i jest gotowy odbierać kolejne
-                // postMessage() (np. wyniki zapytania). To jedyny wiarygodny
-                // moment, w którym wiemy, że webview jest naprawdę gotowy -
-                // w przeciwieństwie do samego utworzenia kontenera przez
-                // resolveWebviewView(), które nie gwarantuje, że strona
-                // skończyła się ładować.
+                // sygnał, że skrypt JS tego webview jest gotowy na postMessage() – jedyny wiarygodny moment, w odróżnieniu od utworzenia kontenera
                 if (this._view === webviewView) {
                     this._viewReady = true;
                     if (this._resolveViewReady) {
@@ -158,8 +135,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (msg.command === 'loadPage') {
                 this._currentPage = msg.page;
                 
-                // zapamiętaj aktualną stronę w stanie tego pliku, żeby po ponownym
-                // uruchomieniu tego samego SQL-a można było na nią wrócić
+                // zapamiętaj aktualną stronę w stanie tego pliku, żeby po ponownym uruchomieniu tego samego SQL-a można było na nią wrócić
                 const fileState = this._fileStates.get(this._currentSqlFile);
                 if (fileState) {
                     fileState.currentPage = msg.page;
@@ -460,9 +436,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         try {
             const db = await ConnectionManager.getInstance().getDb();
 
-            // rowIndex przychodzi z webview jako indeks w obrębie aktualnie wyrenderowanej
-            // strony (0..ROWS_PER_PAGE-1) - doliczamy offset bieżącej strony, żeby trafić
-            // we właściwy wiersz w this._allRows (które trzyma pełny wynik zapytania)
+            // rowIndex przychodzi z webview jako indeks w obrębie wyrenderowanej strony – doliczamy offset, żeby trafić we właściwy wiersz w this._allRows
             const globalIndex = (this._currentPage - 1) * this.ROWS_PER_PAGE + rowIndex;
             const row = this._allRows[globalIndex];
 
@@ -572,8 +546,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
 
         try {
-            // rowIndexes przychodzą jako indeksy w obrębie aktualnie wyrenderowanej strony -
-            // doliczamy offset bieżącej strony (tak samo jak w updateCellInDB)
+            // rowIndexes przychodzą jako indeksy w obrębie wyrenderowanej strony – doliczamy offset bieżącej strony (tak samo jak w updateCellInDB)
             const globalIndexes = rowIndexes.map(
                 (rowIndex) => (this._currentPage - 1) * this.ROWS_PER_PAGE + rowIndex
             );
@@ -748,11 +721,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             const { tableName, qualifiedTable, columns, primaryKeys } = context;
 
-            // BEZPIECZEŃSTWO: edit.columnName pochodzi z webview (nie jest zaufanym
-            // źródłem) i jest wstawiane bezpośrednio do zapytania UPDATE (SET `<columnName>` = ?).
-            // Musi zostać porównane z zaufanymi metadanymi tabeli (columns, pochodzące
-            // z meta zapytania SELECT), zanim zostanie użyte - w przeciwnym razie
-            // dowolna wartość columnName pozwoliłaby na wstrzyknięcie SQL.
+            // bezpieczeństwo: edit.columnName z webview trafia wprost do UPDATE (SET `<columnName>` = ?), musi być zweryfikowane, inaczej SQL injection
             const trustedColumnNames = new Set(columns.map((c) => c.name));
             const unknownColumn = edits.find((edit) => !trustedColumnNames.has(edit.columnName));
             if (unknownColumn) {
@@ -769,8 +738,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            // ID (wartości PK) WSZYSTKICH wierszy z bieżących wyników SQL (this._allRows),
-            // nie tylko z aktualnie wyrenderowanej strony - to one wyznaczają zakres UPDATE-u
+            // ID (wartości PK) wszystkich wierszy z bieżących wyników (this._allRows), nie tylko z wyrenderowanej strony – to one wyznaczają zakres UPDATE-u
             const pkValueTuples = this._allRows.map(
                 (row) => primaryKeys.map((pk) => row[pk.index])
             );
@@ -844,17 +812,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 throw err;
             }
 
-            // backend jest źródłem prawdy - odzwierciedlamy zmianę we wszystkich
-            // lokalnie przechowywanych wierszach (this._allRows), żeby po odświeżeniu
-            // strony webview pokazał aktualne wartości
+            // backend jest źródłem prawdy – odzwierciedlamy zmianę we wszystkich wierszach (this._allRows), żeby webview pokazał aktualne wartości
             for (const edit of normalizedEdits) {
                 for (const row of this._allRows) {
                     row[edit.columnIndex] = edit.value;
                 }
             }
 
-            // odśwież widok: znika czerwone podświetlenie kolumny i przycisk zapisu,
-            // a komórki pokazują nową wartość
+            // odśwież widok: znika czerwone podświetlenie kolumny i przycisk zapisu, komórki pokazują nową wartość
             this.sendPage(this._currentPage, true);
 
             const columnNames = normalizedEdits.map((e) => `\`${e.columnName}\``).join(', ');
@@ -1091,11 +1056,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         
         return new Promise(resolve => {
             this._resolveViewReady = resolve;
-            // Timeout dla bezpieczeństwa - jeśli webview nie zasygnalizuje
-            // gotowości na czas (np. skrypt się nie załadował z jakiegoś
-            // powodu), rozwiązujemy z false i CZYŚCIMY _resolveViewReady,
-            // żeby nie zostawiać nieaktualnej referencji do już
-            // rozstrzygniętego Promise'a.
+            // timeout dla bezpieczeństwa – jeśli webview nie zasygnalizuje gotowości na czas, rozwiązujemy z false i czyścimy _resolveViewReady
             setTimeout(() => {
                 resolve(this._viewReady);
                 this._resolveViewReady = undefined;
@@ -1106,19 +1067,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     public async executeQuery(sql: string, sqlFile: string, wholeFile = false) {
         this._currentSqlFile = sqlFile;
         
-        // Pokazujemy widok - to jednocześnie obsługuje przypadek "widoku jeszcze
-        // nie było" (VS Code utworzy nowy kontener i wywoła resolveWebviewView())
-        // jak i "widok już istnieje, ale użytkownik był przełączony na inną
-        // zakładkę np. terminal" (zwykłe show()).
+        // pokazujemy widok – obsługuje 'widoku jeszcze nie było' (nowy kontener, resolveWebviewView()) i 'widok już istnieje' (zwykłe show())
         await this.show({ preserveFocus: true });
 
-        // Czekamy, aż webview faktycznie zasygnalizuje gotowość - czyli aż jego
-        // skrypt JS się załaduje i będzie w stanie odebrać kolejne postMessage()
-        // (patrz komentarz przy polu _viewReady). Samo istnienie this._view
-        // (czyli tylko utworzenie kontenera) NIE wystarczy - w tej samej chwili
-        // strona webview może być jeszcze w trakcie ładowania. W zdecydowanej
-        // większości przypadków (widok był już wcześniej użyty w tej sesji VS
-        // Code) _viewReady jest już true i w ogóle tu nie czekamy.
+        // czekamy, aż webview zasygnalizuje gotowość (patrz _viewReady) – samo this._view nie wystarczy, strona może się jeszcze ładować
         if (!this._viewReady) {
             await this.waitForViewReady();
         }
@@ -1128,16 +1080,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             return;
         }
         
-        // dzięki temu jeśli nie jest przypisane połączenie do pliku SQL nie wystaruje webview
-        //
-        // WAŻNE: przekazujemy jawnie "sqlFile" (zapamiętane na samym początku tej metody,
-        // patrz "this._currentSqlFile = sqlFile" powyżej), a NIE pozwalamy, żeby
-        // getConnectionName() samo na nowo odczytało vscode.window.activeTextEditor.
-        // Powyżej były dwa awaity (this.show() oraz ewentualnie waitForViewReady(),
-        // które przy pierwszym uruchomieniu webview może czekać do 5 sekund) - w tym
-        // czasie użytkownik mógł zdążyć przełączyć się na inny plik. Bez tej poprawki
-        // prowadziło to do rzadkiego błędu: na liście ostatnich plików SQL (F3)
-        // pojawiał się plik inny niż ten, dla którego faktycznie uruchomiono zapytanie.
+        // jeśli nie ma przypisanego połączenia do pliku SQL, webview nie wystartuje
+        // przekazujemy jawnie zapamiętane 'sqlFile' zamiast pozwolić getConnectionName() odczytać activeTextEditor na nowo (użytkownik mógł zmienić plik)
         const dBconnectionName = await RecentSqlFiles.getInstance().getConnectionName(false, sqlFile);
         
         this._queryRunning = true;
@@ -1159,7 +1103,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         } catch (err: any) {
             errorMessage = err.message;
 
-            // Znamy dBconnectionName, więc jeśli istnieje dla niego plik .cnf, oferujemy jego edycję.
+            // znamy dBconnectionName, więc jeśli istnieje dla niego plik .cnf, oferujemy jego edycję
             const configs = ConnectionManager.getInstance().getConfigs();
             const cnfPath = configs[dBconnectionName];
 
@@ -1174,25 +1118,17 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 vscode.window.showErrorMessage(errorMessage);
             }
         } finally {
-            // Niezależnie od tego, czy zapytanie się powiodło, czy nawet nie udało się
-            // uzyskać połączenia z bazą - spinner ładowania i przycisk "cancel" muszą
-            // zawsze wrócić do stanu spoczynku.
+            // niezależnie od wyniku zapytania (nawet przy braku połączenia z bazą) spinner ładowania i przycisk 'cancel' muszą zawsze wrócić do stanu spoczynku
             this._queryRunning = false;
             this._view?.webview.postMessage({
                 command: 'queryFinished',
-                // Gdy nie udało się uzyskać połączenia (db === undefined), dalsza część metody
-                // kończy się wcześniejszym "return" i NIGDY nie wysyła 'appendData' (to ono normalnie
-                // wywołuje stopSpinner() po stronie webview) - więc frontend musi wtedy ukryć
-                // spinner już tutaj. Przy sukcesie NIE ukrywamy go teraz, bo dopiero za chwilę
-                // wysyłamy 'loadingWebview' (niebieski spinner) i 'appendData' - zrobienie tego
-                // tutaj ukrywałoby spinner przedwcześnie, zanim ta faza się w ogóle pokaże.
+                // przy błędzie chowamy spinner tutaj, bo 'appendData' (które normalnie go chowa) nie zostanie wysłane
                 connectionFailed: !db
             });
         }
 
         if (!db) {
-            // Nie udało się nawet uzyskać połączenia z bazą - nie mamy czym
-            // zaktualizować widoku wyników (connectionName/connectionTime itd.)
+            // nie udało się uzyskać połączenia z bazą – nie mamy czym zaktualizować widoku wyników (connectionName/connectionTime itd.)
             return;
         }
         
@@ -1201,9 +1137,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // rows = [];
         }
         
-        // jeśli to jest DOKŁADNIE ten sam SQL co poprzednio uruchomiony dla tego pliku,
-        // zostajemy na tej samej stronie co poprzednio; w przeciwnym razie (nowy/inny SQL)
-        // zawsze wracamy do strony 1
+        // jeśli to dokładnie ten sam SQL co poprzednio dla tego pliku, zostajemy na tej samej stronie, w przeciwnym razie wracamy do strony 1
         const previousFileState = this._fileStates.get(sqlFile);
         const isSameQueryAsBefore = previousFileState?.sql === sql;
         
@@ -1224,8 +1158,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         
         const totalPages = Math.max(1, Math.ceil(this._allRows.length / this.ROWS_PER_PAGE));
         if (isSameQueryAsBefore) {
-            // ten sam SQL co poprzednio -> zostajemy na poprzedniej stronie (przycięte do zakresu,
-            // gdyby liczba wierszy się zmieniła i poprzednia strona już nie istniała)
+            // ten sam SQL co poprzednio -> zostajemy na poprzedniej stronie (przycięte do zakresu, gdyby liczba wierszy się zmieniła)
             this._currentPage = Math.min(previousFileState!.currentPage, totalPages);
         } else {
             // inny/nowy SQL -> zawsze strona 1
@@ -1297,8 +1230,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const preserveFocus = options?.preserveFocus ?? true;
         
         if (this._view) {
-            // ! WAŻNE: W VS Code flaga 'preserveFocus' działa odwrotnie niż Twój stary wpis.
-            // Przekazanie true oznacza: ZACHOWAJ FOKUS W EDYTORZE (nie kradnij go).
+            // ważne: w VS Code flaga 'preserveFocus' działa odwrotnie niż stary wpis – true oznacza 'zachowaj fokus w edytorze' (nie kradnij go)
             this._view.show?.(preserveFocus); 
         } else {
             await vscode.commands.executeCommand('sqlResultsView.focus', { preserveFocus: preserveFocus });
@@ -1343,7 +1275,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         this._connectionColor = newColor;
 
-        // Zaktualizuj kolor we wszystkich zapisanych stanach dla tego połączenia
+        // zaktualizuj kolor we wszystkich zapisanych stanach dla tego połączenia
         for (const [file, state] of this._fileStates.entries()) {
             if (state.connectionName === this._connectionName) {
                 state.connectionColor = newColor;
@@ -1427,7 +1359,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const escapeCell = (value: unknown): string =>
                 value === null || value === undefined ? '' : String(value);
 
-            // Szerokości kolumn — max z nagłówka i danych, ograniczone do 50
+            // szerokości kolumn — max z nagłówka i danych, ograniczone do 50
             const colWidths = headers.map((h, i) => {
                 let max = h.length;
                 for (const row of rows) {

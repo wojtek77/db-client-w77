@@ -39,11 +39,10 @@ export abstract class CompletionAbstract {
         sqlBeforeCursor: string,
         allowedAliases?: Set<string>
     ): Promise<void> {
-        // Zasięg widoczności — tylko te tabele trafią do listy podpowiedzi
+        // zasięg widoczności — tylko te tabele trafią do listy podpowiedzi
         const scopedTableRefs = findQueryTables(fullText, defaultSchema ?? '', db, sqlBeforeCursor.length);
 
-        // Prefetch/cache-warming — jeden batch obejmujący WSZYSTKIE tabele w tekście,
-        // niezależnie od zasięgu (patrz komentarz metody)
+        // prefetch/cache-warming – jeden batch obejmujący wszystkie tabele w tekście, niezależnie od zasięgu (patrz komentarz metody)
         const allTableRefsForPrefetch = findQueryTables(fullText, defaultSchema ?? '', db);
         const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(allTableRefsForPrefetch);
 

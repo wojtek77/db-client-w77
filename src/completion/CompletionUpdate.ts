@@ -5,11 +5,11 @@ import { CompletionInterface } from './CompletionInterface.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 
-// Uproszczone wyrażenia regularne dla sekcji tabel (operujące na linePrefix)
+// uproszczone wyrażenia regularne dla sekcji tabel (operujące na linePrefix)
 const REGEX_UPDATE_SCHEMA_TABLE = /\b([\w]+)\.([\w]*)$/i;
 const REGEX_UPDATE_OBJECT = /\b([\w]*)$/i;
 
-// Wyrażenie do wykrywania, czy kursor stoi bezpośrednio po aliasie i kropce, np. `s.|` lub `c.|`
+// wyrażenie do wykrywania, czy kursor stoi bezpośrednio po aliasie i kropce, np. `s.|` lub `c.|`
 const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+)\.$/;
 
 export class CompletionUpdate extends CompletionAbstract implements CompletionInterface {
@@ -21,7 +21,7 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
         sqlBeforeCursor: string
     ): Promise<vscode.CompletionItem[]> {
 
-        // Blokowanie podpowiedzi wewnątrz stringów tekstowych
+        // blokowanie podpowiedzi wewnątrz stringów tekstowych
         const quotesCount = (linePrefix.match(/'/g) || []).length;
         if (quotesCount % 2 !== 0) {
             return [];
@@ -31,10 +31,10 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
         const setIndex = beforeCursorLower.lastIndexOf('set');
         const whereIndex = beforeCursorLower.lastIndexOf('where');
 
-        // Określamy domyślny kontekst bazy danych
+        // określamy domyślny kontekst bazy danych
         const defaultSchema = db.getDatabase();
 
-        // Sprawdzamy, w której sekcji zapytania znajduje się kursor
+        // sprawdzamy, w której sekcji zapytania znajduje się kursor
         const isInSetClause = setIndex > -1 && (whereIndex === -1 || setIndex > whereIndex);
         const isInWhereClause = whereIndex > -1 && whereIndex > setIndex;
         const isAfterUpdate = beforeCursorLower.includes('update');
@@ -43,20 +43,13 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
         // 1. Jeśli jesteśmy w kontekście kolumnowym (SET, WHERE lub JOIN ON)
         if (isInSetClause || isInWhereClause || isInJoinOnClause) {
             
-            // --- BUDOWANIE PEŁNEJ LISTY TABEL W ZAPYTANIU ---
-            // A. Pobieramy tabele z klauzul JOIN za pomocą standardowego parsera
-            //    (allTableRefs jest ZAWĘŻONE do zasięgu widoczności kursora — to ono
-            //    decyduje, co pokazujemy jako podpowiedzi)
+            // budowanie pełnej listy tabel – A. pobieramy tabele z JOIN standardowym parserem (allTableRefs zawężone do zasięgu kursora)
             const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db, sqlBeforeCursor.length);
 
-            // Prefetch/cache-warming — batch obejmujący WSZYSTKIE tabele w tekście,
-            // niezależnie od zasięgu kursora. Dzięki temu przesunięcie kursora do innego
-            // zakresu (np. do wnętrza podzapytania) nie wymaga kolejnego zapytania do bazy —
-            // kolumny są już w cache z wcześniejszego batcha. Ta lista NIE jest używana do
-            // budowania listy podpowiedzi, tylko do rozgrzania cache.
+            // prefetch/cache-warming – batch wszystkich tabel, żeby zmiana zakresu kursora trafiała w cache; służy tylko do rozgrzania, nie do podpowiedzi
             const allTableRefsForPrefetch = findQueryTables(fullText, defaultSchema ?? '', db);
             
-            // B. Multi-table UPDATE (Obsługa tabel po przecinku oraz tabeli głównej)
+            // b. Multi-table UPDATE (Obsługa tabel po przecinku oraz tabeli głównej)
             const updateSetRegex = /\bupdate\s+([\s\S]*?)\s+set/i;
             const updateSetMatch = fullText.match(updateSetRegex);
             
@@ -66,10 +59,10 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
                 // POPRAWKA: Globalne usuwanie wszystkich modyfikatorów (wielokrotne powtórzenia)
                 const cleanTablesPart = tablesPart.replace(/\b(low_priority|ignore)\b/gi, '').trim();
                 
-                // Rozbijamy tekst po przecinkach (np. "student s, client c")
+                // rozbijamy tekst po przecinkach (np. "student s, client c")
                 const tableTokens = cleanTablesPart.split(',');
                 
-                // Lista słów zastrzeżonych, których na pewno nie chcemy traktować jako nazw tabel
+                // lista słów zastrzeżonych, których na pewno nie chcemy traktować jako nazw tabel
                 const forbiddenKeywords = new Set(['update', 'ignore', 'low_priority', 'set']);
 
                 for (const token of tableTokens) {
@@ -77,7 +70,7 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
                     if (parts.length > 0 && parts[0]) {
                         let table = parts[0];
 
-                        // Zabezpieczenie przed pustymi tokenami lub słowami kluczowymi
+                        // zabezpieczenie przed pustymi tokenami lub słowami kluczowymi
                         if (!table || forbiddenKeywords.has(table.toLowerCase())) {
                             continue;
                         }
@@ -95,9 +88,7 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
                             continue;
                         }
 
-                        // Dodajemy tabelę do listy referencji, jeśli jeszcze nie została tam dodana
-                        // (do OBU list — findQueryTables szuka tylko FROM/JOIN, więc tabele z samej
-                        // klauzuli UPDATE t1, t2 SET nigdy tam nie trafią same z siebie)
+                        // dodajemy tabelę do obu list, jeśli jej tam nie ma – findQueryTables szuka tylko FROM/JOIN, samo UPDATE t1, t2 SET tam nie trafi
                         const exists = allTableRefs.some(
                             ref => ref.schema.toLowerCase() === schema.toLowerCase() && 
                                    ref.table.toLowerCase() === table.toLowerCase()
@@ -117,7 +108,7 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
                 const alias = aliasMatch[1].toLowerCase();
                 let matchedTableRef: TableRef | undefined;
 
-                // Szukamy w pełnym tekście zapytania, która tabela ma przypisany ten alias
+                // szukamy w pełnym tekście zapytania, która tabela ma przypisany ten alias
                 for (const ref of allTableRefs) {
                     const pattern = new RegExp(`\\b${ref.table}\\s+(?:as\\s+)?${alias}\\b`, 'i');
                     if (pattern.test(fullText)) {
@@ -126,7 +117,7 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
                     }
                 }
 
-                // Fallback: jeśli nie wykryto aliasu w tekście, traktujemy tekst przed kropką jako nazwę tabeli
+                // fallback: jeśli nie wykryto aliasu w tekście, traktujemy tekst przed kropką jako nazwę tabeli
                 if (!matchedTableRef) {
                     matchedTableRef = {
                         schema: defaultSchema || db.findSchemaByTable(alias) || '',
@@ -134,27 +125,26 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
                     };
                 }
 
-                // Pobieramy kolumny batchem (rozgrzewając cache dla CAŁEGO zapytania)
+                // pobieramy kolumny batchem (rozgrzewając cache dla CAŁEGO zapytania)
                 const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(
                     allTableRefsForPrefetch.length > 0 ? allTableRefsForPrefetch : [matchedTableRef]
                 );
                 const cacheKey = this.tableColumnsService.getTableRefKey(matchedTableRef);
                 const columns = columnsMap[cacheKey] ?? [];
 
-                // Zwracamy podpowiedzi kolumn dla tego aliasu
+                // zwracamy podpowiedzi kolumn dla tego aliasu
                 return columns.map((column: TableColumn) => this.createColumnItem(matchedTableRef!.table, column));
             }
 
             // PRZYPADEK 1B: Kursor stoi w wolnym miejscu (np. `WHERE 0 and |`)
             const result: vscode.CompletionItem[] = [];
 
-            // Wyciągamy filtr
+            // wyciągamy filtr
             const words = linePrefix.trim().split(/[\s,=+]+/);
             const lastWord = words[words.length - 1].toLowerCase();
             const filter = ['set', 'where', 'on', 'and', 'or'].includes(lastWord) ? '' : lastWord;
 
-            // Pobieramy kolumny (rozgrzewając cache dla CAŁEGO zapytania), ale wyświetlamy
-            // tylko tabele w zasięgu widoczności kursora (allTableRefs jest zawężone)
+            // pobieramy kolumny (rozgrzewając cache dla całego zapytania), ale wyświetlamy tylko tabele w zasięgu widoczności kursora
             if (allTableRefs.length > 0) {
                 const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(allTableRefsForPrefetch);
                 for (const ref of allTableRefs) {
@@ -175,10 +165,7 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
 
         // 2. Obsługa samej klauzuli UPDATE (Podpowiedzi TABEL i SCHEMATÓW przed klauzulą SET)
         
-        // Przypadek A: Kursor po kropce struktury bazy, np. `UPDATE zak_system.|`
-        // Uwaga: REGEX_ALIAS_DOT celowo NIE jest tu używane — w tej sekcji (przed SET)
-        // kropka zawsze oznacza `schema.tabela`, nigdy alias kolumny, więc nie trzeba
-        // (i nie da się poprawnie) odróżniać jej od aliasu jak w sekcji SET/WHERE/JOIN ON.
+        // przypadek A: kursor po kropce struktury bazy (`UPDATE zak_system.|`) – tu kropka zawsze oznacza `schema.tabela`, nigdy alias kolumny
         if (linePrefix.includes('.')) {
             const schemaTableMatch = linePrefix.match(REGEX_UPDATE_SCHEMA_TABLE);
             if (schemaTableMatch) {
@@ -192,7 +179,7 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
             }
         }
 
-        // Przypadek B: Kursor bezpośrednio po modyfikatorze lub słowie UPDATE, np. `UPDATE |`
+        // przypadek B: Kursor bezpośrednio po modyfikatorze lub słowie UPDATE, np. `UPDATE |`
         const objectMatch = linePrefix.trimEnd().match(REGEX_UPDATE_OBJECT);
         if (objectMatch) {
             const words = linePrefix.trim().split(/\s+/);

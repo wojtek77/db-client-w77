@@ -2,9 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { getCompletions, labelOf, makeColumn } from './testHelpers.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
 // CompletionUpdate — podpowiedzi dla zapytań UPDATE
-// ─────────────────────────────────────────────────────────────────────────────
 
 suite('CompletionUpdate — table / schema suggestions (before SET)', () => {
 
@@ -35,10 +33,7 @@ suite('CompletionUpdate — table / schema suggestions (before SET)', () => {
     });
 
     test('suggests tables after "UPDATE schema."', async () => {
-        // Regresja: warunek `!linePrefix.match(REGEX_ALIAS_DOT)` w CompletionUpdate.ts
-        // kiedyś zawsze blokował tę gałąź, bo REGEX_ALIAS_DOT dopasowuje się też do
-        // samego "schema." (nie tylko do aliasu kolumny). Zob. CompletionUpdate.ts,
-        // sekcja "Przypadek A" — poprawiono analogicznie do CompletionDelete.ts.
+        // regresja: `!linePrefix.match(REGEX_ALIAS_DOT)` blokował tę gałąź też dla samego 'schema.' – poprawiono jak w CompletionDelete.ts
         const sql = 'UPDATE public.';
         const items = await getCompletions(sql, sql.length, {
             getTables:                (schema) => schema === 'public' ? ['users', 'orders'] : [],

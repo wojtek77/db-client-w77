@@ -78,7 +78,7 @@ describe('row selection (clicking the row number / LP column)', () => {
         assert.equal(state.cachedGridHtml[1].classList.contains('selected-row'), false);
         assert.equal(state.cachedGridHtml[2].classList.contains('selected-row'), true);
 
-        // Ctrl+klik na już zaznaczonym wierszu odznacza tylko jego, reszta zostaje
+        // ctrl+klik na już zaznaczonym wierszu odznacza tylko jego, reszta zostaje
         click(lpCellOf(state, 0), { ctrlKey: true });
         assert.deepEqual([...state.selectedRowIndexes], [2]);
     });

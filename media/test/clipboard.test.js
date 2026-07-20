@@ -76,8 +76,7 @@ describe('copying the selection to the clipboard (Ctrl+C)', () => {
         click(dataCellOf(state, 1, 2), { ctrlKey: true }); // (1,2)
         ctrlC();
 
-        // prostokąt obejmujący wiersze 0-1, kolumny 0 i 2 (kolumna 1 nie jest użyta -> pomijana,
-        // bo colsSet budowany jest tylko z kolumn faktycznie obecnych w zaznaczeniu)
+        // prostokąt obejmujący wiersze 0-1, kolumny 0 i 2 (kolumna 1 pomijana, bo colsSet budowany jest tylko z kolumn obecnych w zaznaczeniu)
         assert.equal(getCopied(), '1\t\n\t6');
     });
 
@@ -115,8 +114,7 @@ describe('copying the selection to the clipboard (Ctrl+C)', () => {
 
         ctrlC();
 
-        // wiersze użyte: 0, 2; kolumny użyte: 0, 1 (bo wiersz 0 ma obie kolumny)
-        // (2,0) nie jest w zaznaczeniu -> puste pole
+        // wiersze użyte: 0, 2; kolumny użyte: 0, 1 (wiersz 0 ma obie); (2,0) nie jest w zaznaczeniu -> puste pole
         assert.equal(getCopied(), '1\t2\n\t6');
     });
 

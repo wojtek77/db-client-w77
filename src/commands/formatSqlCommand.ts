@@ -15,19 +15,14 @@ export async function formatSqlCommand(): Promise<void> {
     await editor.edit(eb => eb.replace(selection, formatted));
 }
 
-// Słowa kluczowe zawsze pisane wielkimi literami, niezależnie od miejsca wystąpienia
-// (operatory/literały). Celowo NIE ma tu słów "strukturalnych" (SELECT, FROM, WHERE, GROUP,
-// ORDER, HAVING, LIMIT, INSERT, INTO, VALUES) - te są renderowane osobno przez formatSql
-// jako nagłówki klauzul, dzięki czemu to samo słowo pojawiające się "przypadkiem" wewnątrz
-// nieparsowanego podzapytania (np. w NOT EXISTS (select 1 from x)) zostaje bez zmian.
+// słowa kluczowe zawsze wielkimi literami; celowo bez słów 'strukturalnych' (SELECT/FROM/WHERE...), bo te renderuje osobno formatSql jako nagłówki klauzul
 const KEYWORDS = new Set([
     'AND', 'OR', 'NOT', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER', 'CROSS', 'ON',
     'IN', 'AS', 'IS', 'LIKE', 'BETWEEN', 'EXISTS', 'DISTINCT', 'UNION', 'ALL',
     'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'NULL', 'TRUE', 'FALSE',
 ]);
 
-// ASC/DESC są wielkimi literami TYLKO w kontekście ORDER BY / GROUP BY - w innych klauzulach
-// mogą być zwykłą nazwą kolumny (np. WHERE asc = 1) i nie wolno ich ruszać.
+// ASC/DESC są wielkimi literami tylko w ORDER BY / GROUP BY, w innych klauzulach mogą być nazwą kolumny (np. WHERE asc = 1)
 const ORDER_GROUP_EXTRA_KEYWORDS = new Set(['ASC', 'DESC']);
 
 type TokenType = 'comment' | 'word' | 'comma' | 'lparen' | 'rparen' | 'string';
@@ -35,15 +30,11 @@ type TokenType = 'comment' | 'word' | 'comma' | 'lparen' | 'rparen' | 'string';
 interface Token {
     type: TokenType;
     value: string;
-    // Tylko dla 'lparen': czy w oryginalnym tekście przed "(" była spacja.
-    // Dzięki temu "count(*)" (wywołanie funkcji, bez spacji) i "t (a,b)" / "AND (...)"
-    // (grupowanie, ze spacją) zachowują swój charakter zamiast być normalizowane na siłę.
+    // tylko dla 'lparen': czy w oryginalnym tekście przed '(' była spacja, żeby 'count(*)' i 't (a,b)' zachowały swój charakter zamiast normalizacji
     spaceBefore?: boolean;
 }
 
-// Zamienia tekst SQL na listę tokenów. Komentarze liniowe (--), literały tekstowe ('...', "...")
-// oraz identyfikatory w cudzysłowie wstecznym (`...`) są traktowane jako pojedynczy token,
-// więc ich zawartość (w tym słowa kluczowe SQL wewnątrz) nigdy nie jest analizowana ani zmieniana.
+// zamienia tekst SQL na listę tokenów – komentarze (--), literały ('...', "...") i identyfikatory w `...` to pojedyncze tokeny, nigdy nie analizowane
 function tokenize(sql: string): Token[] {
     const tokens: Token[] = [];
     let i = 0;
@@ -109,7 +100,7 @@ function tokenize(sql: string): Token[] {
     return tokens;
 }
 
-// Dla każdego tokena liczy głębokość zagnieżdżenia w nawiasach (0 = poziom najwyższy).
+// dla każdego tokena liczy głębokość zagnieżdżenia w nawiasach (0 = poziom najwyższy)
 function computeDepths(tokens: Token[]): number[] {
     const depths: number[] = [];
     let d = 0;
@@ -121,7 +112,7 @@ function computeDepths(tokens: Token[]): number[] {
     return depths;
 }
 
-// Zwraca zawartość nawiasu (bez samych nawiasów) oraz indeks domykającego ')'.
+// zwraca zawartość nawiasu (bez samych nawiasów) oraz indeks domykającego ')'
 function extractParenGroup(tokens: Token[], lparenIdx: number): [Token[], number] {
     let d = 0;
     for (let k = lparenIdx; k < tokens.length; k++) {
@@ -134,7 +125,7 @@ function extractParenGroup(tokens: Token[], lparenIdx: number): [Token[], number
     return [tokens.slice(lparenIdx + 1), tokens.length - 1];
 }
 
-// Dzieli listę tokenów po przecinkach znajdujących się na najwyższym poziomie zagnieżdżenia.
+// dzieli listę tokenów po przecinkach znajdujących się na najwyższym poziomie zagnieżdżenia
 function splitTopLevelByComma(tokens: Token[]): Token[][] {
     const depths = computeDepths(tokens);
     const groups: Token[][] = [];
@@ -153,17 +144,11 @@ function splitTopLevelByComma(tokens: Token[]): Token[][] {
 
 interface AppendOptions {
     looseCommas?: boolean;
-    // Wymusza/wyklucza spację przed tokenem niezależnie od domyślnej reguły
-    // (używane tylko dla "(", żeby zachować oryginalny charakter: count(*) vs t (a,b)).
+    // wymusza/wyklucza spację przed tokenem niezależnie od domyślnej reguły (tylko dla '(', żeby zachować count(*) vs t (a,b))
     forceSpaceBefore?: boolean;
 }
 
-// Dokłada kolejny token do stringa, dbając o poprawne spacje:
-// - brak spacji przed "," i ")",
-// - brak spacji zaraz po "(",
-// - po przecinku spacja jest dodawana tylko gdy looseCommas === true
-//   (np. ORDER BY, wiersz VALUES, krotka przed IN), w przeciwnym razie nie
-//   (np. lista argumentów IN(...), lista kolumn w INSERT).
+// dokłada kolejny token do stringa: bez spacji przed ',' i ')', bez spacji po '(', spacja po przecinku tylko gdy looseCommas === true
 function appendTok(out: string, val: string, opts: AppendOptions = {}): string {
     if (out === '') { return val; }
     if (val === ',' || val === ')') { return out + val; }
@@ -183,22 +168,8 @@ function renderWord(value: string, extraKeywords?: Set<string>): string {
     return value;
 }
 
-// Renderuje listę tokenów do postaci tekstu.
-//
-// looseCommas - czy po przecinku na najwyższym poziomie TEGO wywołania ma być spacja
-// (np. ORDER BY, wiersz VALUES, krotka przed IN) czy nie (np. lista argumentów IN(...),
-// lista kolumn w INSERT). Przekazywane jawnie przez wywołującego, bo nie da się tego
-// wywnioskować z samej głębokości zagnieżdżenia nawiasów - te same nawiasy pełnią różne role.
-//
-// extraKeywords - dodatkowe słowa traktowane jak słowa kluczowe tylko w tym wywołaniu
-// (używane do ASC/DESC w ORDER BY / GROUP BY).
-//
-// Szczególne przypadki:
-// - "IN (...)" zawierające kilka krotek ('a','b'), ('c','d') jest rozbijane na wiele linii.
-// - "(col1, col2) IN (...)" - krotka poprzedzająca IN - renderowana jest zawsze z odstępem
-//   po przecinku (loose), niezależnie od trybu otoczenia.
-// - Odstęp przed "(" jest brany z oryginalnego tekstu (Token.spaceBefore), dzięki czemu
-//   "count(*)" (wywołanie funkcji) i "t (a,b)" / "AND (...)" (grupowanie) wyglądają naturalnie.
+// renderuje listę tokenów do tekstu – looseCommas steruje spacją po przecinku (przekazywane jawnie, bo nie da się tego wywnioskować z głębokości nawiasów)
+// extraKeywords to dodatkowe słowa kluczowe tylko w tym wywołaniu (ASC/DESC); IN (...) z kilkoma krotkami rozbijane na wiele linii
 function renderTokens(tokens: Token[], indent: string, looseCommas = false, extraKeywords?: Set<string>): string {
     let out = '';
     let i = 0;
@@ -251,9 +222,7 @@ function renderTokens(tokens: Token[], indent: string, looseCommas = false, extr
     return out;
 }
 
-// Nazwy klauzul jako enum zamiast gołych stringów - literówka w 'SELECT'/'FROM' itp.
-// przy dodawaniu nowej klauzuli skończy się błędem kompilacji, a nie cichym brakiem
-// dopasowania w formatSql.
+// nazwy klauzul jako enum zamiast gołych stringów – literówka przy dodawaniu nowej klauzuli da błąd kompilacji, a nie cichy brak dopasowania
 enum ClauseName {
     Unknown = 'UNKNOWN', // tekst przed pierwszą rozpoznaną klauzulą - patrz segmentClauses
     Select = 'SELECT',
@@ -270,14 +239,12 @@ enum ClauseName {
 
 interface Clause {
     name: ClauseName;
-    // Dokładny tekst nagłówka klauzuli do wypisania (np. "GROUP BY", "INSERT INTO") -
-    // enum ClauseName służy tylko do dopasowania odpowiedniego formattera.
+    // dokładny tekst nagłówka klauzuli do wypisania (np. 'GROUP BY') – enum ClauseName służy tylko do dopasowania formattera
     displayName: string;
     tokens: Token[];
 }
 
-// Pojedyncze słowo (wielkimi literami) rozpoczynające klauzulę -> jej nazwa (enum).
-// GROUP/ORDER/INSERT mogą zostać "podbite" do dwuwyrazowej klauzuli - patrz CLAUSE_COMBO.
+// pojedyncze słowo rozpoczynające klauzulę -> jej nazwa (enum); GROUP/ORDER/INSERT mogą zostać 'podbite' do dwuwyrazowej klauzuli, patrz CLAUSE_COMBO
 const WORD_TO_CLAUSE: Record<string, ClauseName> = {
     SELECT: ClauseName.Select,
     FROM: ClauseName.From,
@@ -292,22 +259,15 @@ const WORD_TO_CLAUSE: Record<string, ClauseName> = {
 
 const CLAUSE_WORDS = Object.keys(WORD_TO_CLAUSE);
 
-// Dwuwyrazowe nagłówki klauzul: GROUP BY, ORDER BY, INSERT INTO.
+// dwuwyrazowe nagłówki klauzul: GROUP BY, ORDER BY, INSERT INTO
 const CLAUSE_COMBO: Record<string, { nextWord: string; combined: ClauseName }> = {
     GROUP: { nextWord: 'BY', combined: ClauseName.GroupBy },
     ORDER: { nextWord: 'BY', combined: ClauseName.OrderBy },
     INSERT: { nextWord: 'INTO', combined: ClauseName.InsertInto },
 };
 
-// Dzieli cały zapytanie na główne klauzule (SELECT / FROM / WHERE / GROUP BY / ORDER BY / ...),
-// biorąc pod uwagę tylko słowa kluczowe na najwyższym poziomie zagnieżdżenia - dzięki temu
-// to samo słowo wewnątrz literału tekstowego albo zagnieżdżonego podzapytania nie jest
-// mylnie traktowane jako granica klauzuli.
-//
-// Jeśli przed pierwszą rozpoznaną klauzulą (albo w ogóle nie znajdziemy żadnej - np. UPDATE,
-// DELETE FROM, CREATE/ALTER/DROP TABLE, UNION - żadne z nich nie jest tu jeszcze rozpoznawane)
-// zostaje jakiś tekst, NIE jest on cicho gubiony - trafia jako osobny segment ClauseName.Unknown
-// i zostaje wypisany "as-is" (bez specjalnego formatowania, ale też bez utraty danych).
+// dzieli zapytanie na klauzule po słowach kluczowych na najwyższym poziomie, żeby słowo w literale/podzapytaniu nie było mylone z granicą klauzuli
+// tekst przed pierwszą rozpoznaną klauzulą (np. przy UPDATE, DELETE FROM) nie jest gubiony – trafia jako ClauseName.Unknown i jest wypisany as-is
 function segmentClauses(tokens: Token[]): Clause[] {
     const depths = computeDepths(tokens);
     const boundaries: { name: ClauseName; displayName: string; start: number; bodyStart: number }[] = [];
@@ -347,13 +307,10 @@ type SelectItem =
     | { type: 'col'; tokens: Token[] }
     | { type: 'comment'; value: string };
 
-// Maksymalna szerokość linii dla pakowanych kolumn w SELECT (w znakach).
+// maksymalna szerokość linii dla pakowanych kolumn w SELECT (w znakach)
 const SELECT_MAX_WIDTH = 160;
 
-// Formatuje listę kolumn po SELECT: kolumny są pakowane do linii o długości do
-// SELECT_MAX_WIDTH znaków (rozdzielane ", "), a przecinek na końcu linii pojawia się,
-// jeśli po niej są jeszcze kolejne rzeczywiste kolumny. Komentarz zawsze zaczyna nową
-// linię i nie jest łączony z kolumnami.
+// formatuje listę kolumn po SELECT: pakowane do linii o długości do SELECT_MAX_WIDTH znaków, komentarz zawsze zaczyna nową linię
 function formatSelect(tokens: Token[]): string {
     const depths = computeDepths(tokens);
     const items: SelectItem[] = [];
@@ -413,8 +370,7 @@ function formatSelect(tokens: Token[]): string {
 
 const JOIN_MODIFIERS = new Set(['INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER', 'CROSS']);
 
-// Formatuje FROM oraz kolejne JOIN-y - każdy JOIN (wraz z ON) na osobnej linii,
-// bez dodatkowego wcięcia (tak jak w docelowym stylu).
+// formatuje FROM oraz kolejne JOIN-y – każdy JOIN (wraz z ON) na osobnej linii, bez dodatkowego wcięcia
 function formatFrom(tokens: Token[]): string {
     const depths = computeDepths(tokens);
     const boundaries: number[] = [];
@@ -445,12 +401,8 @@ type CondItem =
     | { type: 'cond'; tokens: Token[]; keyword: string | null }
     | { type: 'comment'; value: string };
 
-// Formatuje WHERE (i podobne klauzule oparte o AND/OR): pierwszy warunek trafia w tę samą
-// linię co słowo kluczowe, kolejne są poprzedzone AND/OR na nowej, wciętej linii.
-// Komentarze zachowują swoją pozycję w sekwencji warunków.
-//
-// BETWEEN x AND y: "AND" będące częścią BETWEEN nie jest traktowane jako separator warunków -
-// liczymy je (betweenPending), żeby odróżnić je od kolejnego, prawdziwego AND łączącego warunki.
+// formatuje WHERE/AND/OR: pierwszy warunek w tej samej linii co słowo kluczowe, kolejne poprzedzone AND/OR na nowej wciętej linii
+// BETWEEN x AND y: 'AND' z BETWEEN nie jest separatorem – liczymy je (betweenPending), żeby odróżnić od prawdziwego AND
 function formatWhereLike(tokens: Token[], keyword: string): string {
     const depths = computeDepths(tokens);
     const items: CondItem[] = [];
@@ -508,12 +460,9 @@ function formatWhereLike(tokens: Token[], keyword: string): string {
 
 type ClauseFormatter = (tokens: Token[], displayName: string) => string;
 
-// Formatter dla każdej klauzuli. Dodanie nowej klauzuli (np. SET/UNION) sprowadza się do:
-// 1) wpisu w WORD_TO_CLAUSE (i ewentualnie CLAUSE_COMBO, jeśli nagłówek jest dwuwyrazowy),
-// 2) wpisu tutaj - bez dotykania samej funkcji formatSql.
+// formatter dla każdej klauzuli – nowa klauzula to wpis w WORD_TO_CLAUSE (ew. CLAUSE_COMBO) i wpis tutaj, bez dotykania formatSql
 const CLAUSE_FORMATTERS: Map<ClauseName, ClauseFormatter> = new Map([
-    // Nierozpoznana klauzula (np. UPDATE/DELETE FROM/CREATE TABLE) - nie formatujemy jej
-    // specjalnie, ale też jej nie tracimy (patrz komentarz przy segmentClauses).
+    // nierozpoznana klauzula (np. UPDATE/DELETE FROM) nie jest formatowana specjalnie, ale też nie jest tracona (patrz segmentClauses)
     [ClauseName.Unknown, (tokens) => renderTokens(tokens, '')],
     [ClauseName.Select, (tokens) => formatSelect(tokens)],
     [ClauseName.From, (tokens) => formatFrom(tokens)],
@@ -527,11 +476,7 @@ const CLAUSE_FORMATTERS: Map<ClauseName, ClauseFormatter> = new Map([
     [ClauseName.Values, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '', true)],
 ]);
 
-// Formatuje fragment SQL do przyjętego stylu: słowa kluczowe wielkimi literami (kontekstowo
-// dla ASC/DESC), kolumny SELECT pakowane do linii o długości do SELECT_MAX_WIDTH znaków,
-// JOIN-y bez wcięcia, warunki WHERE/HAVING łączone przez AND/OR na kolejnych wciętych liniach
-// (z poprawną obsługą BETWEEN x AND y), wielowierszowe listy krotek w IN (...), podstawowa
-// obsługa INSERT INTO ... VALUES (...) oraz zachowane komentarze i literały tekstowe/backtick.
+// formatuje SQL: słowa kluczowe wielkimi literami, kolumny SELECT pakowane do SELECT_MAX_WIDTH, JOIN-y bez wcięcia, WHERE/HAVING łączone AND/OR
 export function formatSql(sql: string): string {
     const tokens = tokenize(sql);
     const clauses = segmentClauses(tokens);

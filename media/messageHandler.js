@@ -6,7 +6,7 @@ let sqlFile;
 let queryTimer = null;
 let queryStartTime = null;
 
-// Stworzenie dekodera raz zapobiega ciągłemu tworzeniu nowych obiektów w pamięci
+// stworzenie dekodera raz zapobiega ciągłemu tworzeniu nowych obiektów w pamięci
 const decoder = new TextDecoder('utf-8');
 
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -17,11 +17,7 @@ const loadingText = document.querySelector('.loading-text');
 const cancelBtn = document.getElementById('cancelQuery');
 const infoMessage = document.getElementById('infoMessage');
 
-// Przyciski narzędziowe mają stałe ID w markupie (patrz editor.js). Pobieramy je przez
-// getElementById (szybkie, bez przeszukiwania całego DOM jak querySelectorAll('.tools-btn')),
-// ale na żądanie - a nie raz przy starcie modułu, bo taki "cache" zamrażałby elementy z
-// DOM-u sprzed ponownego zbudowania strony (i, jak w editor.js, wymagałby żeby `document`
-// istniało już w momencie importu tego pliku).
+// przyciski narzędziowe pobieramy przez getElementById na żądanie, nie raz przy starcie – taki cache zamrażałby elementy sprzed przebudowania strony
 function getToolsBtnElements() {
     return [
         'generateInsertBtn',
@@ -51,7 +47,7 @@ function updatePagination(currentPage = 0, totalPages = 0) {
     document.getElementById('totalPages').textContent = totalPages;
     document.getElementById('currentPage').textContent = currentPage;
     
-    // Aktualizuj przyciski paginacji
+    // aktualizuj przyciski paginacji
     document.getElementById('prevBtn').disabled = (currentPage === 1);
     document.getElementById('firstBtn').disabled = (currentPage === 1);
     document.getElementById('nextBtn').disabled = (currentPage === totalPages);
@@ -63,8 +59,7 @@ function updateDbAndTimes(connectionName = '-------', connectionTime = null, que
     connNameEl.textContent = connectionName;
     const toolbar = document.getElementById('connectionColor');
     toolbar.style.color = connectionColor ?? '';
-    // ⚠ Silniejsze, trudne do przeoczenia oznaczenie połączeń produkcyjnych/tylko-do-odczytu,
-    // niezależnie od koloru wybranego przez użytkownika dla danego połączenia
+    // silniejsze, trudne do przeoczenia oznaczenie połączeń produkcyjnych/tylko-do-odczytu, niezależnie od koloru wybranego przez użytkownika
     toolbar.classList.toggle('production-connection', !!isProduction);
     toolbar.classList.toggle('readonly-connection', !!isReadOnly);
     // ustawienie czasu połączenia
@@ -120,8 +115,7 @@ function stopGridContainer() {
 function stopToolsBtn() {
     const state = State.getInstance();
 
-    // Nic nie jest widoczne, jeśli nie ma zaznaczonych wierszy (4 przyciski) ani
-    // oczekujących edycji kolumn (saveColumnEditsBtn) - pomijamy zbędny zapis do stylu i reflow
+    // nic nie jest widoczne, jeśli nie ma zaznaczonych wierszy ani oczekujących edycji kolumn – pomijamy zbędny zapis do stylu i reflow
     const hasSelection = state.selectedRowIndexes.size > 0;
     const hasPendingEdits = Object.keys(state.pendingColumnEdits).length > 0;
     if (!hasSelection && !hasPendingEdits) {
@@ -137,8 +131,7 @@ window.addEventListener('message', event => {
     
     if (msg.command === 'queryStarted') {
         cancelBtn.style.display = 'inline-block';
-        // Nowe zapytanie startuje "na czysto" - usuń ewentualny stan "cancelling"
-        // (i tekst "Cancelling query…") pozostały po poprzednim anulowaniu
+        // nowe zapytanie startuje na czysto – usuń ewentualny stan 'cancelling' pozostały po poprzednim anulowaniu
         cancelBtn.classList.remove('cancelling');
         if (loadingText) {
             loadingText.textContent = 'Loading data...';
@@ -166,11 +159,7 @@ window.addEventListener('message', event => {
         cancelBtn.classList.remove('cancelling');
         stopQueryTimer();
         if (msg.connectionFailed) {
-            // Przy błędzie połączenia backend nigdy nie wyśle 'appendData' (to ono
-            // normalnie woła stopSpinner() po udanym zapytaniu) - więc trzeba to zrobić
-            // tutaj, inaczej spinner zostaje widoczny na zawsze. Przy sukcesie NIE
-            // wołamy tego tutaj, żeby nie ukrywać spinnera przed fazą 'loadingWebview'
-            // (niebieski) i 'appendData', które i tak zrobią to we właściwym momencie.
+            // przy błędzie chowamy spinner tutaj, bo 'appendData' (które normalnie go chowa) nie zostanie wysłane
             stopSpinner();
         }
     }
@@ -189,15 +178,11 @@ window.addEventListener('message', event => {
             throw new Error("Missing: msg.sqlFile");
         }
         State.init(msg.sqlFile);
-        // Ustaw aktualną stronę na podstawie odpowiedzi z backendu (a nie na podstawie
-        // "optymistycznej" wartości ustawionej wcześniej lokalnie przez pagination.js) -
-        // dzięki temu np. po ponownym uruchomieniu SQL-a numer strony jest zawsze zgodny
-        // z tym, co faktycznie przyszło z backendu (strona 1 dla nowego SQL-a, poprzednia
-        // strona, gdy backend zdecyduje się ją zachować dla tego samego SQL-a).
+        // ustaw stronę na podstawie odpowiedzi z backendu, nie 'optymistycznej' wartości z pagination.js – zawsze zgodny z tym, co faktycznie przyszło
         if (typeof msg.currentPage === 'number') {
             State.getInstance().currentPage = msg.currentPage;
         }
-        // Oblicz całkowitą liczbę stron
+        // oblicz całkowitą liczbę stron
         State.getInstance().totalPages = Math.ceil(
             msg.totalRows / State.getInstance().ROWS_PER_PAGE
         );
@@ -227,8 +212,7 @@ window.addEventListener('message', event => {
         let isSameQuery = Boolean(msg.isSameQuery);
 
         if (sqlFile && sqlFile === msg.sqlFile) { // kiedy jest powtórne uruchomienie SQL w tym samym pliku
-            // header DOM już jest poprawny (ten sam plik, poprzednie renderHeaders) -
-            // przebudowujemy go tylko, gdy realnie zmienił się kształt albo nazwy kolumn
+            // header DOM już jest poprawny (ten sam plik, poprzednie renderHeaders) – przebudowujemy go tylko gdy zmienił się kształt albo nazwy kolumn
             if (State.getInstance().gridShape !== shape) {
                 console.time("⏱️ renderHeaders time");
                 renderHeaders(currentRows);
@@ -243,9 +227,7 @@ window.addEventListener('message', event => {
                 isSameQuery = false;
             }
         } else { // kiedy jest nowe uruchomienie pliku lub zmiana pliku
-            // header DOM mógł do tej pory należeć do innego, poprzednio otwartego pliku,
-            // więc gdy korzystamy z cache tego pliku, przywracamy też JEGO nagłówek z cache
-            // (a nie zostawiamy nagłówek poprzednio widocznego pliku)
+            // header DOM mógł należeć do innego, poprzednio otwartego pliku – przy korzystaniu z cache tego pliku przywracamy też jego nagłówek z cache
             if (State.getInstance().gridShape === shape) {
                 console.time("⏱️ restoreHeaderFromCache time");
                 restoreHeaderFromCache();
@@ -277,18 +259,14 @@ window.addEventListener('message', event => {
         if (msg.clearSelection) {
             clearRowSelection();
 
-            // dane zostały odświeżone z backendu (np. po udanym zapisie kolumny) ->
-            // znika czerwone podświetlenie i przycisk zapisu.
-            // UWAGA: musi być wywołane PRZED stopToolsBtn(), bo cancelAllColumnEdits()
-            // korzysta z jeszcze niewyczyszczonego State.pendingColumnEdits, żeby wiedzieć,
-            // które kolumny mają podgląd do zdjęcia - stopToolsBtn() zeruje ten obiekt.
+            // dane odświeżone z backendu -> znika podświetlenie i przycisk zapisu
+            // musi być wywołane przed stopToolsBtn(), bo cancelAllColumnEdits() korzysta z jeszcze niewyczyszczonego State.pendingColumnEdits
             cancelAllColumnEdits();
 
             stopToolsBtn();
         } else {
             if (isSameQuery) {
-                // jeśli są jakieś niezapisane edycje kolumn, trzeba ponownie nałożyć ich podgląd,
-                // bo renderPage() właśnie nadpisał komórki prawdziwymi wartościami z backendu
+                // jeśli są niezapisane edycje kolumn, trzeba ponownie nałożyć ich podgląd, bo renderPage() nadpisał komórki wartościami z backendu
                 reapplyAllColumnEdits();
             } else {
                 stopToolsBtn();
@@ -362,9 +340,7 @@ window.addEventListener('message', event => {
     }
     
     if (msg.command === 'updateConfirmed') {
-        // korzystamy z już istniejącego cachedGrid (każda komórka ma _index = {row, col})
-        // zamiast przeszukiwać cały DOM przez querySelectorAll po atrybutach,
-        // których komórki i tak nigdy nie dostają
+        // korzystamy z cachedGrid (komórka ma _index = {row, col}) zamiast przeszukiwać DOM po atrybutach, których komórki nigdy nie dostają
         const rowCells = State.getInstance().cachedGrid?.[msg.rowIndex];
         const cell = rowCells?.[msg.columnIndex + 1]; // +1 bo indeks 0 to kolumna LP
         if (cell) {
@@ -374,15 +350,12 @@ window.addEventListener('message', event => {
     }
 
     if (msg.command === 'columnEditsCancelled') {
-        // użytkownik odrzucił prompt potwierdzenia w backendzie (albo wystąpił błąd
-        // zapisu) -> nic nie zostało zmienione w bazie, cofamy wizualny podgląd
+        // użytkownik odrzucił prompt potwierdzenia (albo wystąpił błąd zapisu) -> nic nie zmienione w bazie, cofamy wizualny podgląd
         cancelAllColumnEdits();
     }
 
     if (msg.command === 'clearCache') {
-        // backend zgłasza, że zakładka danego pliku SQL została zamknięta -
-        // usuwamy jego cache (cachedGrid/cachedGridHtml/currentRows itd.),
-        // żeby nie trzymać go w pamięci webview w nieskończoność
+        // backend zgłasza zamknięcie zakładki pliku SQL – usuwamy jego cache, żeby nie trzymać go w pamięci webview w nieskończoność
         State.clear(msg.sqlFile);
     }
 });

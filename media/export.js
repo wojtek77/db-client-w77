@@ -7,7 +7,7 @@ export function openRecentFiles() {
     });
 }
 
-// Export do CSV
+// export do CSV
 export function exportToCSV() {
     const rows = State.getInstance().currentRows;
     const headers = State.getInstance().headers;
@@ -23,7 +23,7 @@ export function exportToCSV() {
     });
 }
 
-// Export do TXT (format tabelaryczny)
+// export do TXT (format tabelaryczny)
 export function exportToTXT() {
     const rows = State.getInstance().currentRows;
     const headers = State.getInstance().headers;

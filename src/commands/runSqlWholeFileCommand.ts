@@ -3,8 +3,7 @@ import { SqlResultsProvider } from '../panel/SqlResultsProvider.js';
 import { isExtensionRunning, safeStartExtension } from '../lifecycle/extensionLifecycle.js';
 
 export async function runSqlWholeFileCommand(context: vscode.ExtensionContext) {
-    // Patrz komentarz w runSqlCommand.ts - to samo zabezpieczenie przed
-    // wyścigiem z ustawieniem kontekstu "dbClientActive".
+    // patrz komentarz w runSqlCommand.ts – to samo zabezpieczenie przed wyścigiem z ustawieniem kontekstu 'dbClientActive'
     if (!isExtensionRunning()) {
         await safeStartExtension(context);
     }

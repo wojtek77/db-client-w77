@@ -4,15 +4,7 @@ import * as path from 'path';
 import { ConnectionManager } from '../db/ConnectionManager.js';
 import { Connection } from '../db/Connection.js';
 
-// Domyślny szablon połączenia - celowo dopasowany do najbardziej typowego
-// przypadku (Windows + WAMP: root bez hasła na 127.0.0.1:3306), bo to jest
-// to, co realnie "po prostu działa" u większości użytkowników tego rozszerzenia
-// bez żadnej edycji poza `database`. `production`/`readonly` żyją w osobnej
-// sekcji [db-client] (nie [client]!), żeby ten sam plik dało się nadal użyć
-// wprost jako --defaults-file dla prawdziwego klienta `mysql`/`mariadb`
-// (patrz CnfLoader.ts - DB_CLIENT_BOOLEAN_KEYS).
-// UWAGA: komentarze WEWNĄTRZ pliku .cnf są po angielsku (plik czyta użytkownik
-// końcowy), w odróżnieniu od komentarzy w tym pliku .ts.
+// domyślny szablon połączenia dopasowany do Windows + WAMP (root bez hasła na 127.0.0.1:3306), bo to 'po prostu działa' u większości użytkowników
 const DEFAULT_CNF_CONTENT = `[client]
 host = 127.0.0.1
 port = 3306
@@ -61,16 +53,14 @@ export async function createConfigDirCommand() {
     const defaultCnfPath = path.join(configDir, DEFAULT_CNF_FILENAME);
 
     if (alreadyHasConnections) {
-        // katalog już ma jakiś plik .cnf (być może kilka) - nic nie tworzymy,
-        // tylko informujemy, gdzie szukać
+        // katalog już ma jakiś plik .cnf (być może kilka) – nic nie tworzymy, tylko informujemy, gdzie szukać
         vscode.window.showInformationMessage(
             `Connection config directory "${configDir}" already has connection(s) configured.`
         );
         return;
     }
 
-    // Nie nadpisuj, jeśli plik o tej samej nazwie już istnieje z jakiegoś powodu
-    // (np. przywrócony z kopii zapasowej) - to by bezpowrotnie skasowało dane.
+    // nie nadpisuj, jeśli plik o tej nazwie już istnieje (np. przywrócony z kopii zapasowej) – to by bezpowrotnie skasowało dane
     if (!fs.existsSync(defaultCnfPath)) {
         try {
             fs.writeFileSync(defaultCnfPath, DEFAULT_CNF_CONTENT, { mode: 0o600 });
@@ -89,8 +79,7 @@ export async function createConfigDirCommand() {
 
     ConnectionManager.getInstance().reloadConfigs();
 
-    // Otwarcie pliku w edytorze JEST feedbackiem, że coś się stało - nie trzeba
-    // do tego dodatkowo blokującego modala z przyciskiem "Edit", jak poprzednio.
+    // otwarcie pliku w edytorze jest feedbackiem, że coś się stało – nie trzeba do tego dodatkowo blokującego modala jak poprzednio
     try {
         const doc = await vscode.workspace.openTextDocument(defaultCnfPath);
         await vscode.window.showTextDocument(doc);

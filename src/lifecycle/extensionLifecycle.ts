@@ -26,7 +26,7 @@ export function closeSqlFile(filePath: string) {
     try {
         SqlResultsProvider.getInstance().clearCache(filePath);
     } catch {
-        // SqlResultsProvider jeszcze nie istnieje - nic do wyczyszczenia
+        // sqlResultsProvider jeszcze nie istnieje - nic do wyczyszczenia
     }
 }
 
@@ -81,18 +81,10 @@ export async function safeStartExtension(context: vscode.ExtensionContext) {
         if (!ConnectionManager.getInstance().hasNoConnections()) {
             vscode.window.showErrorMessage(`DB client failed to start: ${err.message}`);
         }
-        // gdy nie ma żadnego połączenia (brak katalogu ALBO pusty katalog) -
-        // startExtension() sam w sobie NIE rzuca (loadConfigs celowo tego nie
-        // robi), więc ten przypadek nie generuje tu żadnego komunikatu -
-        // obsługuje go checkFirstRunConfig (raz, przy starcie VS Code)
+        // gdy nie ma żadnego połączenia, startExtension() nie rzuca – ten przypadek obsługuje checkFirstRunConfig, raz przy starcie VS Code
     }
 
-    // CELOWO nie próbujemy tu proaktywnie łączyć się z bazą, nawet gdy jest
-    // dokładnie jeden plik .cnf - połączenie ma powstawać leniwie, dopiero
-    // w momencie faktycznego Run SQL (jak wcześniej), a nie przy każdym
-    // starcie rozszerzenia. Jeśli ten jedyny plik .cnf jest błędny, obsłuży
-    // to reaktywny fallback w SqlResultsProvider.executeQuery (przycisk
-    // "Edit <plik>.cnf" przy błędzie zapytania).
+    // celowo nie łączymy się tu proaktywnie z bazą – połączenie ma powstawać leniwie przy Run SQL, błędny .cnf obsłuży fallback przy zapytaniu
 }
 
 /**
@@ -119,15 +111,8 @@ export async function checkFirstRunConfig() {
 
     const createLabel = 'Create Default Connection (localhost)';
 
-    // modal: true - zwykła (nie-modalna) notyfikacja w prawym dolnym rogu VS Code
-    // sama się chowa po kilku sekundach do Notification Center, więc łatwo ją
-    // przegapić. To jest pierwsza rzecz, jaką widzi użytkownik przy pierwszym
-    // uruchomieniu, więc ma zostać na ekranie, aż świadomie ją zamknie/wybierze opcję.
-    //
-    // WAŻNE: przy modal:true VS Code SAM dokłada domyślny przycisk "Cancel"
-    // (jako close affordance) - jeśli tutaj dodamy własny "Cancel" jako kolejny
-    // element listy, użytkownik zobaczy DWA przyciski "Cancel". Dlatego podajemy
-    // TYLKO przycisk potwierdzający; zamknięcie okna / X / Esc = anulowanie.
+    // modal: true, bo zwykła notyfikacja sama się chowa po kilku sekundach, a to pierwsza rzecz widoczna przy pierwszym uruchomieniu
+    // VS Code sam dokłada przycisk 'Cancel' przy modal:true, więc podajemy tylko przycisk potwierdzający – inaczej byłyby dwa 'Cancel'
     const choice = await vscode.window.showWarningMessage(
         `DB client: no database connection configured yet. Create a default localhost connection to get started ` +
         `(you can edit it afterwards), or set it up manually in "${cm.getConfigDir()}".`,
@@ -140,8 +125,7 @@ export async function checkFirstRunConfig() {
             await vscode.commands.executeCommand('db-client.createConfigDir');
         }
     } catch (err: any) {
-        // gdyby samo wykonanie komendy się nie powiodło, użytkownik MA to zobaczyć,
-        // zamiast ciche niepowodzenie wyglądające jak "przycisk nic nie robi"
+        // gdyby wykonanie komendy się nie powiodło, użytkownik ma to zobaczyć zamiast cichego niepowodzenia wyglądającego jak 'przycisk nic nie robi'
         vscode.window.showErrorMessage(`DB client: action failed: ${err.message}`);
     }
 }

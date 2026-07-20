@@ -40,8 +40,7 @@ export async function executeQuery(db: Connection, sql: string) {
             meta = queryMeta;
             headers = meta.map((field: any) => field.name());
         } else {
-            // Nie-SELECT (np. SET, INSERT, UPDATE, DELETE): queryData to OkPacket,
-            // więc budujemy własną tabelę wyniku
+            // nie-SELECT (np. SET, INSERT, UPDATE, DELETE): queryData to OkPacket, więc budujemy własną tabelę wyniku
             headers = ['Name', 'Value'];
             rows = [
                 ['Updated Rows', queryData?.affectedRows ?? 0],
@@ -87,13 +86,13 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
 
     await db.startTransaction();
     while (lineIndex < lines.length) {
-        // Pomijamy puste linie
+        // pomijamy puste linie
         if (lines[lineIndex].trim() === '') {
             lineIndex++;
             continue;
         }
 
-        // Używamy findCurrentQuery, żeby znaleźć zapytanie zaczynające się od tej linii
+        // używamy findCurrentQuery, żeby znaleźć zapytanie zaczynające się od tej linii
         const query = findCurrentQuery(fullText, lineIndex);
         if (!query) {
             lineIndex++;
@@ -107,9 +106,7 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
         }
 
         if (SqlUtil.isSelect(sql)) {
-            // Wykonaj KAŻDY SELECT z pliku (nie tylko pierwszy). "Run SQL Whole File"
-            // ma wykonać wszystkie polecenia z pliku - w webview wyświetlane są wyniki
-            // ostatniego wykonanego SELECT-a (nadpisujemy rows/headers/meta za każdym razem).
+            // wykonaj każdy SELECT z pliku – 'Run SQL Whole File' wykonuje wszystkie polecenia, pokazujemy wyniki ostatniego SELECT-a
             ({ rows, headers, meta, success, errorMessage } = await executeQuery(db, sql));
             if (!success) {
                 break;
@@ -117,7 +114,7 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
             ++executedSqlCount;
             ++executedSelectCount;
         } else {
-            // Nie-SELECT: wykonaj przez połączenie z bazą danych
+            // nie-SELECT: wykonaj przez połączenie z bazą danych
             let noSelectRows: any[][] = [];
             ({success, errorMessage, rows: noSelectRows} = await executeQuery(db, sql));
             if (!success) {
@@ -127,7 +124,7 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
             updatedRows += noSelectRows[0][1];
         }
 
-        // Przeskocz do linii po końcu znalezionego zapytania
+        // przeskocz do linii po końcu znalezionego zapytania
         lineIndex = query.endLine + 1;
     }
     
@@ -142,14 +139,12 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
     const endQuery = performance.now();
     queryTime = endQuery - startQuery;
 
-    // Wyświetl ogólną informację
+    // wyświetl ogólną informację
     const infoMessage = `Updated Rows: ${updatedRows}, Executed ${executedSqlCount} ${executedSqlCount === 1 ? 'query' : 'queries'}` +
         (executedSelectCount > 1 ? ` (showing results of the last of ${executedSelectCount} SELECT queries)` : '');
     let flashMessage;
     if (containsDDL) {
-        // W MySQL/MariaDB polecenia DDL (CREATE/ALTER/DROP/TRUNCATE/RENAME) wykonują
-        // niejawny COMMIT, więc transakcja obejmująca cały skrypt NIE gwarantuje
-        // pełnego wycofania zmian w razie błędu w dalszej części skryptu.
+        // DDL (CREATE/ALTER/DROP/TRUNCATE/RENAME) wykonuje niejawny COMMIT, więc transakcja na cały skrypt nie gwarantuje pełnego rollbacku przy błędzie
         flashMessage = 'This script contains DDL statements, which auto-commit and cannot be rolled back';
     }
     

@@ -1,14 +1,11 @@
 const REGEX_TRAILING_SEMICOLON =
     /;$/;
 
-// Usuwamy razem z kończącym znakiem nowej linii (\n?) - z tego samego
-// powodu co REGEX_HASH_COMMENTS poniżej
+// usuwamy razem z kończącym \\n z tego samego powodu co REGEX_HASH_COMMENTS poniżej
 const REGEX_SINGLE_LINE_COMMENTS =
     /--.*\n?/gm;
 
-// Komentarze jednowierszowe w stylu MySQL/MariaDB (np. "# komentarz").
-// Usuwamy razem z kończącym znakiem nowej linii (\n?), żeby po wycięciu
-// komentarza "select" był pierwszym tokenem (bez pozostałości \n przed nim)
+// komentarze jednowierszowe MySQL/MariaDB (# komentarz) usuwamy razem z \\n, żeby po wycięciu 'select' był pierwszym tokenem
 const REGEX_HASH_COMMENTS =
     /#.*\n?/gm;
 

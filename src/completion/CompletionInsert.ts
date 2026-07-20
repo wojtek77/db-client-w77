@@ -3,17 +3,17 @@ import { Connection } from "../db/Connection.js";
 import { CompletionAbstract } from "./CompletionAbstract.js";
 import { CompletionInterface } from './CompletionInterface.js';
 
-// Wyrażenia regularne operujące na linePrefix (bieżąca linia przed kursorem)
+// wyrażenia regularne operujące na linePrefix (bieżąca linia przed kursorem)
 const REGEX_INSERT_SCHEMA_TABLE = /\b(?:insert(?:\s+into)?|into)\s+(\w+)\.(\w*)$/i;
 const REGEX_INSERT_OBJECT = /\b(?:insert(?:\s+into)?|into)\s+(\w*)$/i;
 
-// Dopasowuje sytuację, gdzie po nazwie tabeli są wyłącznie białe znaki przed końcem linii/kursorem
+// dopasowuje sytuację, gdzie po nazwie tabeli są wyłącznie białe znaki przed końcem linii/kursorem
 const REGEX_ALL_COLUMNS_TRIGGER = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s+$/i;
 
-// Wykrywa, czy kursor znajduje się wewnątrz bloku nawiasów definicji kolumn, np. "insert into agency (id, na|"
+// wykrywa, czy kursor znajduje się wewnątrz bloku nawiasów definicji kolumn, np. "insert into agency (id, na|"
 const REGEX_INSIDE_PARENTHESIS = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s*\(([^)]*)$/i;
 
-// Bezpieczny wzorzec do przeszukania całego zapytania przed kursem w celu znalezienia tabeli i nawiasu kolumn
+// bezpieczny wzorzec do przeszukania całego zapytania przed kursem w celu znalezienia tabeli i nawiasu kolumn
 const REGEX_EXTRACT_TABLE_AND_COLUMNS = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s*\(([^)]+)\)\s*$/i;
 
 // NOWE: Wykrywanie kontekstu ON DUPLICATE KEY UPDATE i wyciąganie z niego końcówki
@@ -30,7 +30,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
         sqlBeforeCursor: string
     ): Promise<vscode.CompletionItem[]> {
 
-        // Blokowanie podpowiedzi wewnątrz stringów tekstowych
+        // blokowanie podpowiedzi wewnątrz stringów tekstowych
         const quotesCount = (linePrefix.match(/'/g) || []).length;
         if (quotesCount % 2 !== 0) {
             return [];
@@ -38,12 +38,10 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
 
         const defaultSchema = db.getDatabase();
 
-        // =========================================================================
-        // NOWE: Obsługa sekcji ON DUPLICATE KEY UPDATE
-        // =========================================================================
+        // NOWE: obsługa sekcji ON DUPLICATE KEY UPDATE
         const duplicateMatch = sqlBeforeCursor.match(REGEX_ON_DUPLICATE_CONTEXT);
         if (duplicateMatch) {
-            // Przeszukujemy cały tekst przed kursem, aby znaleźć tabelę docelową INSERT
+            // przeszukujemy cały tekst przed kursem, aby znaleźć tabelę docelową INSERT
             const tableMatch = sqlBeforeCursor.match(REGEX_GLOBAL_TABLE_EXTRACT);
             if (tableMatch) {
                 const matchedSchema = tableMatch[1];
@@ -57,18 +55,18 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                     const columns = columnsMap[cacheKey] || [];
 
                     if (columns.length > 0) {
-                        // Sprawdzamy czy kursor znajduje się wewnątrz funkcji VALUES(...) np. "VALUES(|"
+                        // sprawdzamy czy kursor znajduje się wewnątrz funkcji VALUES(...) np. "VALUES(|"
                         const valuesFuncMatch = linePrefix.match(REGEX_INSIDE_VALUES_FUNCTION);
                         
                         if (valuesFuncMatch) {
-                            // Sytuacja: ON DUPLICATE KEY UPDATE id = VALUES(|)
+                            // sytuacja: ON DUPLICATE KEY UPDATE id = VALUES(|)
                             const filter = valuesFuncMatch[1].toLowerCase();
                             return columns
                                 .filter(col => !String(col.extra || '').toLowerCase().includes('generated'))
                                 .filter(col => !filter || col.name.toLowerCase().includes(filter))
                                 .map(column => this.createColumnItem(tableName, column));
                         } else {
-                            // Sytuacja: ON DUPLICATE KEY UPDATE |
+                            // sytuacja: ON DUPLICATE KEY UPDATE |
                             const lastWordMatch = linePrefix.match(/(\w+)$/);
                             const filter = lastWordMatch ? lastWordMatch[1].toLowerCase() : '';
 
@@ -77,8 +75,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                                 .filter(col => !filter || col.name.toLowerCase().includes(filter))
                                 .map(column => {
                                     const item = this.createColumnItem(tableName, column);
-                                    // Sugerujemy od razu pełną konstrukcję jako snippet: column = VALUES(column)
-                                    // ale pozostawiamy prosty insertText, jeśli użytkownik wpisał już znak równości (obsłużone filtrem)
+                                    // sugerujemy od razu pełną konstrukcję jako snippet 'column = VALUES(column)', chyba że użytkownik wpisał już znak równości
                                     if (!linePrefix.trim().endsWith('=')) {
                                         item.insertText = new vscode.SnippetString(`${column.name} = VALUES(\${1:${column.name}})`);
                                         item.detail = `Update column with VALUES()`;
@@ -91,9 +88,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
             }
         }
 
-        // =========================================================================
-        // 1. Podpowiadanie słowa kluczowego VALUES (również w nowej linii, np. "v|")
-        // =========================================================================
+        // 1. podpowiadanie słowa kluczowego VALUES (również w nowej linii, np. 'v|')
         const lastWordMatch = linePrefix.match(/(\w+)$/);
         const lastWord = lastWordMatch ? lastWordMatch[1].toLowerCase() : '';
         
@@ -112,9 +107,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
             }
         }
 
-        // =========================================================================
-        // 2. Kursor stoi bezpośrednio PO słowie VALUES i spacji -> Podpowiadanie wartości row
-        // =========================================================================
+        // 2. kursor stoi bezpośrednio po słowie VALUES i spacji -> podpowiadanie wartości row
         if (/\bvalues\s+$/i.test(linePrefix)) {
             const sqlToAnalyze = sqlBeforeCursor.substring(0, sqlBeforeCursor.length - (linePrefix.length - linePrefix.toLowerCase().lastIndexOf('values')));
             const normalizedSql = sqlToAnalyze.replace(/[\r\n]+/g, ' ').trimEnd();
@@ -243,9 +236,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
             }
         }
 
-        // =========================================================================
-        // Sytuacja 3: Kursor wewnątrz nawiasów -> podpowiadanie POJEDYNCZYCH kolumn
-        // =========================================================================
+        // sytuacja 3: kursor wewnątrz nawiasów -> podpowiadanie pojedynczych kolumn
         const insideMatch = linePrefix.match(REGEX_INSIDE_PARENTHESIS);
         if (insideMatch) {
             const matchedSchema = insideMatch[1];
@@ -273,9 +264,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
             return [];
         }
 
-        // =========================================================================
-        // Sytuacja 4: Same białe znaki po tabeli -> podpowiedź ZBIORCZA wszystkich pól
-        // =========================================================================
+        // sytuacja 4: same białe znaki po tabeli -> podpowiedź zbiorcza wszystkich pól
         const allColumnsMatch = linePrefix.match(REGEX_ALL_COLUMNS_TRIGGER);
         if (allColumnsMatch) {
             const matchedSchema = allColumnsMatch[1];
@@ -306,9 +295,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
             }
         }
 
-        // =========================================================================
-        // Sytuacja 5: Podpowiadanie nazw tabel i schematów (zaraz po INSERT INTO)
-        // =========================================================================
+        // sytuacja 5: podpowiadanie nazw tabel i schematów (zaraz po INSERT INTO)
         const schemaTableMatch = linePrefix.match(REGEX_INSERT_SCHEMA_TABLE);
         if (schemaTableMatch) {
             const schema = schemaTableMatch[1];

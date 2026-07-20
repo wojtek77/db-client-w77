@@ -74,7 +74,7 @@ export async function getCompletions(
     const columnsServiceInstance = TableColumnsCache.getInstance();
     const origGetCachedColumnsBatch = columnsServiceInstance.getCachedColumnsBatch.bind(columnsServiceInstance);
 
-    // Nadpisujemy metodę na instancji, aby zwracała dane testowe (stub)
+    // nadpisujemy metodę na instancji, aby zwracała dane testowe (stub)
     columnsServiceInstance.getCachedColumnsBatch = async (refs: { table: string }[]) => {
         onBatchCall?.(refs.map(r => r.table));
         return columnsStub;

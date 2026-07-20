@@ -60,8 +60,7 @@ function isAncestorScope(matchStack: number[], cursorStack: number[]): boolean {
 function computeParenStacksAt(sql: string, checkpoints: number[]): number[][] {
     const masked = maskStringLiterals(sql);
 
-    // Przetwarzamy punkty rosnąco po pozycji, żeby móc iść przez tekst jednym
-    // przebiegiem "cursor" do przodu, ale wynik zwracamy w oryginalnej kolejności.
+    // sortujemy punkty rosnąco żeby przejść tekst jednym przebiegiem, ale wynik zwracamy w oryginalnej kolejności
     const order = checkpoints
         .map((pos, originalIndex) => ({ pos, originalIndex }))
         .sort((a, b) => a.pos - b.pos);
@@ -102,11 +101,7 @@ export function findQueryTables(
         matches.push(match);
     }
 
-    // Jeśli podano pozycję kursora, ograniczamy dopasowania do tych, które są
-    // w zasięgu widoczności kursora (pomijamy tabele z "obcych" podzapytań,
-    // np. z innej gałęzi WHERE ... IN (...) niż ta, w której stoi kursor).
-    // Stosy nawiasów dla WSZYSTKICH potrzebnych pozycji (kursor + każde
-    // dopasowanie FROM/JOIN) liczymy jednym przebiegiem po tekście.
+    // przy podanym kursorze ograniczamy dopasowania do jego zasięgu (pomijamy tabele z obcych podzapytań) i liczymy stosy nawiasów jednym przebiegiem
     let cursorStack: number[] | null = null;
     let matchStacks: number[][] | null = null;
 

@@ -16,20 +16,8 @@ import {
 } from './commands/connectionSetupCommands.js';
 
 
-// Zwraca `fileName` (ten sam format kluczy, którego używa
-// SqlResultsProvider._fileStates) każdej otwartej zakładki z plikiem SQL.
-// (Tabs API widzi WSZYSTKIE otwarte zakładki, nie tylko tę aktualnie
-// wyświetlaną w danej grupie edytorów - dzięki temu przełączenie się
-// na inną zakładkę bez zamykania SQL-a nie jest mylone z zamknięciem).
-//
-// CELOWO nie korzystamy tu z `vscode.workspace.onDidCloseTextDocument` do
-// wykrywania zamknięcia pliku (ani tutaj, ani nigdzie indziej) - ten event
-// odpala się dopiero, gdy dokument nie jest już wyświetlany w ŻADNEJ
-// zakładce/grupie edytorów, więc przy otwarciu tego samego pliku w kilku
-// miejscach zamknięcie jednej zakładki go nie wywoła. Tabs API nie ma tego
-// problemu - widzi zakładki wprost, więc to jedyne wiarygodne źródło prawdy
-// o tym, co jest aktualnie otwarte (tak samo jak przy starcie/stopie
-// rozszerzenia poniżej).
+// zwraca fileName każdej otwartej zakładki SQL (Tabs API widzi wszystkie zakładki, nie tylko aktualnie wyświetlaną)
+// celowo bez onDidCloseTextDocument – odpala się dopiero gdy dokument zniknie ze wszystkich zakładek naraz
 function getOpenSqlTabFiles(): Set<string> {
     const files = new Set<string>();
 
@@ -48,28 +36,16 @@ function getOpenSqlTabFiles(): Set<string> {
     return files;
 }
 
-// Pamięta, jakie pliki SQL były otwarte przy poprzednim przeliczeniu -
-// potrzebne, żeby wykryć, które zakładki zniknęły (patrz handleTabsChanged).
+// pamięta, jakie pliki SQL były otwarte przy poprzednim przeliczeniu – potrzebne do wykrycia zniknięcia zakładek (patrz handleTabsChanged)
 let previousOpenSqlFiles = new Set<string>();
 
-// Reaguje na zmiany zakładek - jedyne miejsce, które może wywołać stop.
-// W typowym przepływie otwierania pliku dokument rejestruje się
-// (onDidOpenTextDocument) ZANIM powstanie jego zakładka (ten event) -
-// więc w chwili, gdy ten handler się odpala, dokument jest już
-// zarejestrowany i getOpenSqlTabFiles() poprawnie go widzi. Nie potrzeba tu
-// żadnego opóźnienia.
-// Uruchamia rozszerzenie, a w razie błędu (np. brak katalogu konfiguracji
-// przy pierwszym uruchomieniu) pokazuje przyjazny ekran zamiast surowego
-// błędu aktywacji rozszerzenia.
+// reaguje na zmiany zakładek – jedyne miejsce, które może wywołać stop; dokument rejestruje się przed powstaniem zakładki, więc bez opóźnienia
+// uruchamia rozszerzenie, a w razie błędu (np. brak katalogu konfiguracji) pokazuje przyjazny ekran zamiast surowego błędu aktywacji
 async function handleTabsChanged(context: vscode.ExtensionContext) {
     const currentOpenSqlFiles = getOpenSqlTabFiles();
     const sqlTabOpen = currentOpenSqlFiles.size > 0;
 
-    // pliki, które były otwarte przy poprzednim przeliczeniu, a teraz już nie
-    // są w żadnej zakładce - ich zapisany stan wyników zapytań można wyczyścić.
-    // Dotyczy to też przypadku, gdy zamykana jest ostatnia zakładka SQL (i za
-    // chwilę wywołamy stopExtension) - to tylko szczególny przypadek zamknięcia
-    // zakładki, więc powinien być obsłużony dokładnie tak samo jak każdy inny.
+    // pliki, które zniknęły ze wszystkich zakładek – ich zapisany stan wyników można wyczyścić (dotyczy też zamknięcia ostatniej zakładki SQL)
     for (const filePath of previousOpenSqlFiles) {
         if (!currentOpenSqlFiles.has(filePath)) {
             closeSqlFile(filePath);
@@ -88,14 +64,7 @@ async function handleTabsChanged(context: vscode.ExtensionContext) {
     }
 }
 
-// Reaguje na otwarcie dokumentu. W przeciwieństwie do handleTabsChanged,
-// ten handler NIGDY nie wywołuje stopu - "dokument się otworzył" to zawsze
-// jednoznacznie pozytywna informacja (coś przybyło, nic nie ubyło). Ufa
-// bezpośrednio argumentowi `doc` z eventu zamiast przeliczać stan od nowa
-// przez getOpenSqlTabFiles() - to celowe, bo przy typowym otwieraniu pliku ten
-// event odpala się ZANIM jego zakładka zdąży się zarejestrować w tabGroups,
-// więc getOpenSqlTabFiles() mógłby w tym momencie błędnie zwrócić puste i przez
-// to wywołać niepotrzebny (a w praktyce realnie wykonywany) stop.
+// reaguje na otwarcie dokumentu, nigdy nie wywołuje stopu – ufa argumentowi `doc`, bo zakładka mogłaby jeszcze nie być zarejestrowana w tabGroups
 async function handleDocumentOpened(context: vscode.ExtensionContext, doc: vscode.TextDocument) {
     if (doc.languageId !== 'sql') {
         return;
@@ -134,37 +103,22 @@ export async function activate(context: vscode.ExtensionContext) {
     // inicjalizacja kolorów połączeń
     ConnectionColors.initialize(context);
 
-    // Zapamiętanie stanu otwartych plików SQL PRZED ewentualnym startem -
-    // handleTabsChanged (poniżej) porównuje się właśnie do tego stanu, więc
-    // musi być zainicjalizowany zanim jakikolwiek event zdąży się odpalić.
+    // zapamiętanie stanu plików SQL przed ewentualnym startem – handleTabsChanged porównuje się do tego stanu, musi być gotowe zanim odpali się event
     previousOpenSqlFiles = getOpenSqlTabFiles();
 
-    // Start tylko, jeśli przy aktywacji jakiś plik SQL jest już otwarty
-    // (np. VS Code przywrócił poprzednią sesję). W przeciwnym razie
-    // rozszerzenie ma pozostać wyłączone i wystartować dopiero przez
-    // handleTabsChanged/handleDocumentOpened.
+    // start tylko gdy przy aktywacji jakiś plik SQL jest już otwarty, inaczej rozszerzenie startuje dopiero przez handleTabsChanged/handleDocumentOpened
     if (previousOpenSqlFiles.size > 0) {
         await safeStartExtension(context);
     }
 
-    // Sprawdzenie braku konfiguracji (prompt o utworzeniu domyślnego
-    // połączenia) - CELOWO tylko tutaj, raz na sesję VS Code, niezależnie
-    // od tego czy jakiś plik .sql jest akurat otwarty. Dzięki temu
-    // zamykanie/otwieranie plików .sql w trakcie sesji (co wielokrotnie
-    // uruchamia/zatrzymuje samo rozszerzenie przez safeStartExtension) nie
-    // odpala tego promptu ponownie.
+    // sprawdzenie braku konfiguracji (prompt o połączeniu) celowo tylko tutaj, raz na sesję VS Code, żeby otwieranie/zamykanie plików .sql go nie powtarzało
     await checkFirstRunConfig();
 
     context.subscriptions.push(
         vscode.window.tabGroups.onDidChangeTabs(() => handleTabsChanged(context))
     );
 
-    // Zakładka może pojawić się w tabGroups zanim jej TextDocument
-    // (a więc languageId) zdąży się w pełni załadować - np. przy otwieraniu
-    // pliku przez "Go to File" / Quick Open. Dlatego dokładamy drugi,
-    // niezależny trigger na start: onDidOpenTextDocument odpala się dopiero,
-    // gdy dokument (i jego languageId) są już gotowe, więc "dogania" stan,
-    // gdyby handleTabsChanged odpalił się za wcześnie.
+    // zakładka może pojawić się w tabGroups zanim languageId się załaduje, więc onDidOpenTextDocument to drugi trigger na wypadek zbyt wczesnego eventu
     context.subscriptions.push(
         vscode.workspace.onDidOpenTextDocument(doc => handleDocumentOpened(context, doc))
     );
@@ -172,7 +126,7 @@ export async function activate(context: vscode.ExtensionContext) {
     SqlResultsProvider.initialize(context);
     const sqlResultsProvider = SqlResultsProvider.getInstance();
     
-    // Zarejestruj WebviewViewProvider
+    // zarejestruj WebviewViewProvider
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             'sqlResultsView',
@@ -185,7 +139,7 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
-    // Zarejestruj provider autouzupełniania dla plików .sql
+    // zarejestruj provider autouzupełniania dla plików .sql
     context.subscriptions.push(
         vscode.languages.registerCompletionItemProvider(
             { scheme: 'file', language: 'sql', pattern: '**/*.sql' },

@@ -4,14 +4,7 @@ import { findCurrentQuery } from "../sql/findCurrentQuery.js";
 import { isExtensionRunning, safeStartExtension } from '../lifecycle/extensionLifecycle.js';
 
 export async function runSQLCommand(context: vscode.ExtensionContext) {
-    // Zabezpieczenie przed wyścigiem: jeśli plik .sql został otwarty i od razu
-    // (Ctrl+Enter) uruchomiono zapytanie, handler startowy (onDidOpenTextDocument /
-    // onDidChangeTabs) mógł jeszcze nie zdążyć ustawić kontekstu "dbClientActive"
-    // na true. Bez tego kontekstu VS Code w ogóle nie utworzy webview (patrz
-    // "when": "dbClientActive" w package.json), więc executeQuery() poniżej
-    // kończyłoby się błędem "Failed to open the SQL results window.".
-    // Dlatego tutaj jawnie czekamy na start, zamiast liczyć na to, że
-    // zdążył się już wykonać w tle.
+    // zabezpieczenie przed wyścigiem: handler startowy mógł nie zdążyć ustawić 'dbClientActive' przed Ctrl+Enter, więc jawnie czekamy na start
     if (!isExtensionRunning()) {
         await safeStartExtension(context);
     }

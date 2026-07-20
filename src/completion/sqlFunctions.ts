@@ -8,7 +8,7 @@ export interface SqlFunction {
 
 export const SQL_FUNCTIONS: SqlFunction[] = [
 
-    // Aggregate
+    // aggregate
 
 {
     category: 'Aggregate',
@@ -282,7 +282,7 @@ GROUP_CONCAT(
 \`\`\`
 `
 },
-// String
+// string
 
 {
     category: 'String',
@@ -577,7 +577,7 @@ UPPER(user_name)
 \`\`\`
 `
 },
-// Date & Time
+// date & Time
 
 {
     category: 'Date & Time',
@@ -836,7 +836,7 @@ DATE_FORMAT(created_date, '%Y-%m-%d %H:%i:%s')
 \`\`\`
 `
 },
-// Numeric & Math
+// numeric & Math
 
 {
     category: 'Numeric & Math',
@@ -1089,7 +1089,7 @@ POW(score, 3)
 \`\`\`
 `
 },
-// Control Flow
+// control Flow
 
 {
     category: 'Control Flow',
@@ -1276,7 +1276,7 @@ END
 `
 },
 
-// Information & System
+// information & System
 
 {
     category: 'Information & System',

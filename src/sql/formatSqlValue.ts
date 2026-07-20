@@ -52,7 +52,6 @@ export function formatSqlValue(value: unknown, field?: any): string {
         return buf.length > 0 ? `X'${buf.toString('hex')}'` : "X''";
     }
 
-    // string (w tym daty - w this._allRows są już stringami 'YYYY-MM-DD HH:MM:SS')
-    // i wszystko inne, czego nie obsłużyliśmy wyżej -> escapowany literał tekstowy
+    // string (w tym daty) i reszta nieobsłużonych wyżej typów -> escapowany literał tekstowy
     return `'${String(value).replace(/'/g, "''")}'`;
 }

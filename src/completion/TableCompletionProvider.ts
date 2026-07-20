@@ -75,8 +75,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         const currentQuery = findCurrentQuery(document.getText(), position.line);
 
         if (!currentQuery) {
-            // Pusta linia = start nowego zapytania -> pokaż snippety SELECT/INSERT/...
-            // (nie wymaga połączenia z bazą, więc sprawdzamy to przed getDb())
+            // pusta linia = start nowego zapytania -> pokaż snippety SELECT/INSERT/... (nie wymaga połączenia z bazą, sprawdzamy to przed getDb())
             return getTopLevelSqlSnippets();
         }
 
@@ -88,10 +87,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
             return [];
         }
 
-        // Leniwe ładowanie: schemat/lista tabel jest pobierana z bazy dopiero tutaj,
-        // przy pierwszej faktycznej próbie podpowiedzi (patrz Connection.waitForSchemaTables()).
-        // Błędy odczytu są logowane i połykane wewnątrz waitForSchemaTables() - tutaj
-        // nie trzeba ich obsługiwać, brakujący schemat po prostu da puste podpowiedzi.
+        // leniwe ładowanie: schemat pobierany dopiero tu, przy pierwszej próbie podpowiedzi – błędy loguje waitForSchemaTables()
         await db.waitForSchemaTables();
 
         let fullText = currentQuery.sql;

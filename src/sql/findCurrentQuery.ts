@@ -67,11 +67,7 @@ export function findCurrentQuery(
                 endLine + 1
             )
             .join('\n')
-            // Uwaga: przycinamy TYLKO wiodące białe znaki (potrzebne np. do dopasowania
-            // pierwszego słowa zapytania w TableCompletionProvider). Końcowych białych
-            // znaków celowo NIE przycinamy — to dokładnie to, co użytkownik wpisał
-            // przed kursorem, i część providerów (np. CompletionInsert przy
-            // "ON DUPLICATE KEY UPDATE ") wymaga ich obecności do wykrycia kontekstu.
+            // przycinamy tylko wiodące białe znaki – końcowe zostają, bo np. CompletionInsert potrzebuje ich do wykrycia 'ON DUPLICATE KEY UPDATE '
             .trimStart(),
         startLine,
         endLine

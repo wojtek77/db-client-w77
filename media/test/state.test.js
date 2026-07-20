@@ -5,10 +5,7 @@ import { State } from '../state.js';
 describe('State - selection Sets and hasInstance', () => {
 
     test('hasInstance() returns false before the first State.init(), then true', () => {
-        // Uwaga: to jest jedyny sensowny test dla stanu "przed init", bo State.#instance
-        // jest per-proces (module-level static) - w kolejnych testach w tym pliku
-        // instancja będzie już istniała.
-        // Tu tylko sprawdzamy samo zachowanie po init, bez zakładania stanu początkowego procesu.
+        // jedyny sensowny test stanu 'przed init' (State.#instance jest per-proces) – dalej sprawdzamy tylko zachowanie po init
         State.init('state-test-hasinstance.sql');
         assert.equal(State.hasInstance(), true);
     });
@@ -46,10 +43,7 @@ describe('State - selection Sets and hasInstance', () => {
     });
 
     test('getInstance() contract is consistent with hasInstance() (checked indirectly)', () => {
-        // Nie testujemy tu bezpośrednio "stanu przed jakimkolwiek init" (bo w tym procesie
-        // testowym State był już inicjalizowany wcześniej), tylko upewniamy się,
-        // że kontrakt hasInstance/getInstance jest spójny: gdy hasInstance() === true,
-        // getInstance() nie rzuca.
+        // nie testujemy stanu przed init (State już był inicjalizowany wcześniej), tylko że hasInstance()===true gwarantuje brak rzucania w getInstance()
         assert.equal(State.hasInstance(), true);
         assert.doesNotThrow(() => State.getInstance());
     });

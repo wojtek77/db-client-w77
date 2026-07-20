@@ -2,9 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { getCompletions, insertTextOf, labelOf, makeColumn } from './testHelpers.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
 // CompletionInsert — podpowiedzi dla zapytań INSERT
-// ─────────────────────────────────────────────────────────────────────────────
 
 suite('CompletionInsert — table / schema suggestions', () => {
 
@@ -184,10 +182,7 @@ suite('CompletionInsert — VALUES keyword and default value snippets', () => {
 suite('CompletionInsert — ON DUPLICATE KEY UPDATE', () => {
 
     test('suggests columns to update, with a "col = VALUES(col)" snippet', async () => {
-        // Regresja: gdy to zapytanie jest ostatnią linią dokumentu (jak tutaj),
-        // findCurrentQuery kiedyś ucinało spację po "UPDATE " swoim końcowym
-        // `.trim()`, przez co REGEX_ON_DUPLICATE_CONTEXT (wymagający \s+ po
-        // "update") nie łapał kontekstu i provider zwracał []. Zob. findCurrentQuery.ts.
+        // regresja: `.trim()` ucinało spację po 'UPDATE ' gdy zapytanie kończyło dokument, więc REGEX_ON_DUPLICATE_CONTEXT nie łapał kontekstu
         const sql = "INSERT INTO users (id, email) VALUES (1, 'a@a.com') ON DUPLICATE KEY UPDATE ";
         const items = await getCompletions(sql, sql.length, {
             getDatabase: () => 'public',

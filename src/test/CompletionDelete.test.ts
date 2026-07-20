@@ -2,9 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { getCompletions, labelOf, makeColumn } from './testHelpers.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
 // CompletionDelete — podpowiedzi dla zapytań DELETE
-// ─────────────────────────────────────────────────────────────────────────────
 
 suite('CompletionDelete — table / schema suggestions (before WHERE)', () => {
 

@@ -11,10 +11,7 @@ const REGEX_LINE_ENDINGS =
 const REGEX_SURROUNDING_QUOTES =
     /^["']|["']$/g;
 
-// Tylko te opcje [client] są bezpiecznie konwertowane na typ number.
-// Wartości takie jak hasło, użytkownik, host czy nazwa bazy MUSZĄ pozostać
-// stringiem (np. hasło "001234" nie może stracić wiodących zer, a hasło
-// "true"/"false" nie może zostać zamienione na wartość logiczną).
+// tylko te opcje [client] są bezpiecznie konwertowane na number – hasło/użytkownik/host/baza muszą zostać stringiem (np. hasło '001234' bez wiodących zer)
 const NUMERIC_OPTION_KEYS = new Set([
     'port',
     'connect-timeout',
@@ -27,7 +24,7 @@ const NUMERIC_OPTION_KEYS = new Set([
     'connect-retry-interval',
 ]);
 
-// Tylko te opcje [client] są bezpiecznie konwertowane na typ boolean.
+// tylko te opcje [client] są bezpiecznie konwertowane na typ boolean
 const BOOLEAN_OPTION_KEYS = new Set([
     'compress',
     'reconnect',
@@ -36,12 +33,7 @@ const BOOLEAN_OPTION_KEYS = new Set([
     'local-infile',
 ]);
 
-// Niestandardowe opcje rozpoznawane TYLKO przez to rozszerzenie, w dedykowanej
-// sekcji [db-client] (a NIE w [client]!). Prawdziwy klient mysql/mariadb parsuje
-// zawartość [client] i wywala się na nieznanej zmiennej ("unknown variable"),
-// ale całe nieznane sekcje (jak [db-client]) po prostu ignoruje - dlatego te
-// dwie opcje muszą żyć w osobnej sekcji, żeby ten sam plik .cnf dało się nadal
-// używać wprost jako --defaults-file dla `mysql`/`mariadb`.
+// niestandardowe opcje żyją w [db-client], nie w [client] – klient mysql/mariadb wywala się na nieznanej zmiennej w [client], ale nieznane sekcje ignoruje
 const DB_CLIENT_BOOLEAN_KEYS = new Set([
     'production',
     'readonly',
@@ -62,8 +54,7 @@ export class CnfLoader {
             const quote = trimmed[0];
             const closeIdx = trimmed.indexOf(quote, 1);
             if (closeIdx !== -1) {
-                // to, co jest po zamykającym cudzysłowie (spacja + ewentualny "# ...")
-                // to komentarz - odrzucamy, zostaje sama zacytowana wartość
+                // to, co jest po zamykającym cudzysłowie (spacja + ewentualny '# ...') to komentarz – odrzucamy, zostaje sama zacytowana wartość
                 return trimmed.slice(0, closeIdx + 1);
             }
             return trimmed;
@@ -102,7 +93,7 @@ export class CnfLoader {
         for (const line of lines) {
             const trimmed = line.trim();
 
-            // Pomijanie pustych linii i komentarzy
+            // pomijanie pustych linii i komentarzy
             if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';')) {
                 continue;
             }
@@ -111,12 +102,12 @@ export class CnfLoader {
             if (trimmed.startsWith('!include ')) {
                 let includePath = trimmed.replace('!include ', '').trim();
                 
-                // Jeśli ścieżka w !include jest względna, liczona jest od katalogu bieżącego pliku cnf
+                // jeśli ścieżka w !include jest względna, liczona jest od katalogu bieżącego pliku cnf
                 if (!includePath.startsWith('~') && !path.isAbsolute(includePath)) {
                     includePath = path.join(path.dirname(absolutePath), includePath);
                 }
 
-                // Rekurencyjne wywołanie tej samej funkcji i scalenie wyników do listy
+                // rekurencyjne wywołanie tej samej funkcji i scalenie wyników do listy
                 const includedOptions = await this._optionsFromCnfRec(includePath);
                 options.push(...includedOptions);
                 continue;
@@ -131,8 +122,7 @@ export class CnfLoader {
                 continue;
             }
 
-            // 3b. Przetwarzanie parametrów wewnątrz customowej sekcji [db-client]
-            // (production/readonly - patrz komentarz przy DB_CLIENT_BOOLEAN_KEYS)
+            // 3b. przetwarzanie parametrów wewnątrz customowej sekcji [db-client] (production/readonly, patrz komentarz przy DB_CLIENT_BOOLEAN_KEYS)
             if (inDbClientSection) {
                 const eqIndex = trimmed.indexOf('=');
                 if (eqIndex !== -1) {
@@ -153,7 +143,7 @@ export class CnfLoader {
                     const value = this.stripInlineComment(trimmed.substring(eqIndex + 1));
                     
                     if (key === 'tcp_keepalive_time') {
-                        // Konwersja na liczbę (sekundy)
+                        // konwersja na liczbę (sekundy)
                         const numValue = Number(value);
                         if (!isNaN(numValue) && numValue > 0) {
                             tcpKeepaliveTime = numValue;
@@ -165,19 +155,17 @@ export class CnfLoader {
 
             // 4. Przetwarzanie parametrów wewnątrz sekcji [client]
             if (inClientSection) {
-                // Podział na klucz i wartość przy pierwszym znaku "="
+                // podział na klucz i wartość przy pierwszym znaku "="
                 const eqIndex = trimmed.indexOf('=');
                 let key, value;
                 if (eqIndex !== -1) { // to co ma znak równości w linii
                     key = trimmed.substring(0, eqIndex).trim();
-                    // "#" może zaczynać komentarz w środku linii (prawdziwa składnia
-                    // MySQL) - np. "database=  # your database" -> pusta wartość.
+                    // '#' może zaczynać komentarz w środku linii (prawdziwa składnia MySQL), np. 'database=  # your database' -> pusta wartość
                     value = this.stripInlineComment(trimmed.substring(eqIndex + 1));
-                    // Usuwanie cudzysłowów otaczających wartość, jeśli istnieją
+                    // usuwanie cudzysłowów otaczających wartość, jeśli istnieją
                     value = value.replace(REGEX_SURROUNDING_QUOTES, '');
                     
-                    // zmiana wartości - TYLKO dla znanych opcji liczbowych/logicznych.
-                    // Hasła, nazwy użytkowników, nazwy baz i hosty zawsze zostają stringiem.
+                    // zmiana wartości tylko dla znanych opcji liczbowych/logicznych – hasła, nazwy użytkowników, baz i hosty zawsze zostają stringiem
                     const valueLower = value.toLowerCase();
                     if (NUMERIC_OPTION_KEYS.has(key) && value !== '' && !isNaN(Number(value))) {
                         value = Number(value);
@@ -194,12 +182,7 @@ export class CnfLoader {
                     value = '';
                 }
                 
-                // production/readonly NIE należą do [client] (mają własną sekcję
-                // [db-client] - patrz DB_CLIENT_BOOLEAN_KEYS) - jeśli ktoś pomyłkowo
-                // wpisze je tutaj, świadomie je pomijamy. Inaczej trafiłyby do wyniku
-                // jako nieprzekonwertowany string "true"/"false", a że
-                // "true" === true daje false w JS, dałoby to cichy, mylący wynik
-                // (wygląda jakby "nie działało", zamiast być po prostu zignorowane).
+                // production/readonly nie należą do [client] – pomyłkowy wpis pomijamy, inaczej dałoby mylący wynik ('true' === true to false w JS)
                 if (DB_CLIENT_BOOLEAN_KEYS.has(key)) {
                     continue;
                 }
@@ -207,8 +190,7 @@ export class CnfLoader {
                 // zamiana kluczy
                 switch (key) {
                     case 'skip-ssl': {
-                        // wartość jeszcze nie była konwertowana wyżej (skip-ssl nie jest
-                        // na białej liście), więc porównujemy oryginalny string
+                        // wartość jeszcze nie była konwertowana wyżej (skip-ssl nie jest na białej liście), więc porównujemy oryginalny string
                         const rawValue = String(value).toLowerCase();
                         const skipSsl = (rawValue === 'true' || rawValue === '');
                         key = 'ssl';
@@ -232,7 +214,7 @@ export class CnfLoader {
             }
         }
 
-        // Po przetworzeniu całego pliku, jeśli znaleziono tcp_keepalive_time, dodajemy keepAliveDelay
+        // po przetworzeniu całego pliku, jeśli znaleziono tcp_keepalive_time, dodajemy keepAliveDelay
         if (tcpKeepaliveTime !== null && tcpKeepaliveTime > 0) {
             options.push(['keepAliveDelay', tcpKeepaliveTime * 1000]);
         }

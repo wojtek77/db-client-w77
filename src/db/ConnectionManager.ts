@@ -75,7 +75,7 @@ export class ConnectionManager {
     }
 
     public async reconnect(connectionName: string): Promise<Connection> {
-        // Zamknij stare połączenie jeśli istnieje
+        // zamknij stare połączenie jeśli istnieje
         if (this.connections[connectionName]) {
             try {
                 this.connections[connectionName].disconnect();
@@ -131,8 +131,7 @@ export class ConnectionManager {
         this.configDir = configDir;
 
         if (!fs.existsSync(configDir)) {
-            // Nie rzucamy błędu: brak katalogu przy pierwszym uruchomieniu to
-            // normalny stan, a nie awaria - obsługiwane przez friendly setup screen.
+            // nie rzucamy błędu: brak katalogu przy pierwszym uruchomieniu to normalny stan, obsługiwane przez friendly setup screen
             this.configDirMissing = true;
             return configs;
         }

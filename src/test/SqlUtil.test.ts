@@ -31,8 +31,7 @@ suite('SqlUtil.hasWhereClause / isUpdateOrDelete', () => {
     });
 
     test('ignores the word "where" inside a string literal or comment', () => {
-        // bez prawdziwej klauzuli WHERE (tylko słowo w stringu) - powinno zostać uznane
-        // za BRAK klauzuli WHERE, żeby nie dało się obejść zabezpieczenia literałem
+        // bez prawdziwej klauzuli WHERE (samo słowo w stringu) ma być uznane za jej brak, żeby nie dało się obejść zabezpieczenia literałem
         assert.strictEqual(SqlUtil.hasWhereClause("UPDATE t SET note = 'where is it'"), false);
         assert.strictEqual(SqlUtil.hasWhereClause('DELETE FROM t -- where clause missing'), false);
     });

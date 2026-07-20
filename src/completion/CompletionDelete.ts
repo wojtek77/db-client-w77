@@ -5,17 +5,17 @@ import { CompletionInterface } from './CompletionInterface.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 
-// Wyrażenia regularne dla sekcji tabel (operujące na linePrefix)
+// wyrażenia regularne dla sekcji tabel (operujące na linePrefix)
 const REGEX_DELETE_SCHEMA_TABLE = /\b([\w]+)\.([\w]*)$/i;
 const REGEX_DELETE_OBJECT = /\b([\w]*)$/i;
 
-// Wyrażenie do wykrywania, czy kursor stoi bezpośrednio po aliasie i kropce, np. `s.|` lub `c.|`
+// wyrażenie do wykrywania, czy kursor stoi bezpośrednio po aliasie i kropce, np. `s.|` lub `c.|`
 const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+)\.$/;
 
-// Wyrażenie wyciągające sekcję FROM aż do WHERE, ORDER BY, LIMIT lub końca zapytania
+// wyrażenie wyciągające sekcję FROM aż do WHERE, ORDER BY, LIMIT lub końca zapytania
 const REGEX_DELETE_FROM_CLAUSE = /\bfrom\s+([\s\S]*?)(?:\s+(?:where|order\s+by|limit)\b|$)/i;
 
-// Słowa zastrzeżone wyciągnięte na górę pliku, aby nie alokować Set-a przy każdym naciśnięciu klawisza
+// słowa zastrzeżone wyciągnięte na górę pliku, aby nie alokować Set-a przy każdym naciśnięciu klawisza
 const FORBIDDEN_KEYWORDS = new Set([
     'delete',
     'from',
@@ -41,7 +41,7 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
         sqlBeforeCursor: string
     ): Promise<vscode.CompletionItem[]> {
 
-        // Blokowanie podpowiedzi wewnątrz stringów tekstowych
+        // blokowanie podpowiedzi wewnątrz stringów tekstowych
         const quotesCount = (linePrefix.match(/'/g) || []).length;
         if (quotesCount % 2 !== 0) {
             return [];
@@ -51,10 +51,10 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
         const fromIndex = beforeCursorLower.lastIndexOf('from');
         const whereIndex = beforeCursorLower.lastIndexOf('where');
 
-        // Określamy domyślny kontekst bazy danych
+        // określamy domyślny kontekst bazy danych
         const defaultSchema = db.getDatabase();
 
-        // Sprawdzamy, w której sekcji zapytania znajduje się kursor
+        // sprawdzamy, w której sekcji zapytania znajduje się kursor
         const isInWhereClause = whereIndex > -1 && (fromIndex === -1 || whereIndex > fromIndex);
         const isAfterDelete = beforeCursorLower.includes('delete');
         const isInJoinOnClause = isAfterDelete && !isInWhereClause && beforeCursorLower.lastIndexOf(' on ') > beforeCursorLower.lastIndexOf('join');
@@ -62,18 +62,13 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
         // 1. Jeśli jesteśmy w kontekście kolumnowym (WHERE lub JOIN ON)
         if (isInWhereClause || isInJoinOnClause) {
             
-            // --- BUDOWANIE PEŁNEJ LISTY TABEL W ZAPYTANIU ---
-            // A. Pobieramy tabele za pomocą standardowego parsera
-            //    (allTableRefs jest ZAWĘŻONE do zasięgu widoczności kursora — to ono
-            //    decyduje, co pokazujemy jako podpowiedzi)
+            // budowanie pełnej listy tabel – A. pobieramy tabele standardowym parserem (allTableRefs zawężone do zasięgu kursora)
             const allTableRefs = findQueryTables(fullText, defaultSchema ?? '', db, sqlBeforeCursor.length);
 
-            // Prefetch/cache-warming — batch obejmujący WSZYSTKIE tabele w tekście,
-            // niezależnie od zasięgu kursora, żeby przesunięcie kursora do innego zakresu
-            // (np. do wnętrza podzapytania) nie wymagało kolejnego zapytania do bazy.
+            // prefetch/cache-warming – batch obejmujący wszystkie tabele w tekście, żeby zmiana zakresu kursora nie wymagała kolejnego zapytania do bazy
             const allTableRefsForPrefetch = findQueryTables(fullText, defaultSchema ?? '', db);
 
-            // B. Obsługa tabel wymienionych po przecinku po klauzuli FROM (Multi-table DELETE)
+            // b. Obsługa tabel wymienionych po przecinku po klauzuli FROM (Multi-table DELETE)
             const deleteWhereMatch = fullText.match(REGEX_DELETE_FROM_CLAUSE);
 
             if (deleteWhereMatch && deleteWhereMatch[1]) {
@@ -102,8 +97,7 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
                             continue;
                         }
 
-                        // Dodajemy tabelę do listy referencji, jeśli jeszcze nie została tam uwzględniona
-                        // (do OBU list, na wypadek gdyby standardowy parser jej nie złapał)
+                        // dodajemy tabelę do obu list referencji, jeśli jeszcze jej tam nie ma (na wypadek gdyby standardowy parser jej nie złapał)
                         const exists = allTableRefs.some(
                             ref => ref.schema.toLowerCase() === schema.toLowerCase() && 
                                    ref.table.toLowerCase() === table.toLowerCase()
@@ -123,7 +117,7 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
                 const alias = aliasMatch[1].toLowerCase();
                 let matchedTableRef: TableRef | undefined;
 
-                // Szukamy w pełnym tekście zapytania, która tabela ma przypisany ten alias
+                // szukamy w pełnym tekście zapytania, która tabela ma przypisany ten alias
                 for (const ref of allTableRefs) {
                     const pattern = new RegExp(`\\b${ref.table}\\s+(?:as\\s+)?${alias}\\b`, 'i');
                     if (pattern.test(fullText)) {
@@ -132,7 +126,7 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
                     }
                 }
 
-                // Fallback: jeśli nie wykryto aliasu w tekście, traktujemy tekst przed kropką jako nazwę tabeli
+                // fallback: jeśli nie wykryto aliasu w tekście, traktujemy tekst przed kropką jako nazwę tabeli
                 if (!matchedTableRef) {
                     matchedTableRef = {
                         schema: defaultSchema || db.findSchemaByTable(alias) || '',
@@ -140,27 +134,26 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
                     };
                 }
 
-                // Pobieramy kolumny batchem (rozgrzewając cache dla CAŁEGO zapytania)
+                // pobieramy kolumny batchem (rozgrzewając cache dla CAŁEGO zapytania)
                 const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(
                     allTableRefsForPrefetch.length > 0 ? allTableRefsForPrefetch : [matchedTableRef]
                 );
                 const cacheKey = this.tableColumnsService.getTableRefKey(matchedTableRef);
                 const columns = columnsMap[cacheKey] ?? [];
 
-                // Zwracamy podpowiedzi kolumn dla tego aliasu
+                // zwracamy podpowiedzi kolumn dla tego aliasu
                 return columns.map((column: TableColumn) => this.createColumnItem(matchedTableRef!.table, column));
             }
 
             // PRZYPADEK 1B: Kursor stoi w wolnym miejscu (np. `WHERE |`)
             const result: vscode.CompletionItem[] = [];
 
-            // Wyciągamy filtr
+            // wyciągamy filtr
             const words = linePrefix.trim().split(/[\s,=+]+/);
             const lastWord = words[words.length - 1].toLowerCase();
             const filter = ['where', 'on', 'and', 'or'].includes(lastWord) ? '' : lastWord;
 
-            // Pobieramy kolumny (rozgrzewając cache dla CAŁEGO zapytania), ale wyświetlamy
-            // tylko tabele w zasięgu widoczności kursora (allTableRefs jest zawężone)
+            // pobieramy kolumny (rozgrzewając cache dla całego zapytania), ale wyświetlamy tylko tabele w zasięgu widoczności kursora
             if (allTableRefs.length > 0) {
                 const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(allTableRefsForPrefetch);
                 for (const ref of allTableRefs) {
@@ -181,10 +174,7 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
 
         // 2. Obsługa klauzuli DELETE / FROM (Podpowiedzi TABEL i SCHEMATÓW przed klauzulą WHERE)
         
-        // Przypadek A: Kursor po kropce struktury bazy, np. `DELETE FROM zak_system.|`
-        // Uwaga: REGEX_ALIAS_DOT celowo NIE jest tu używane — w tej sekcji (przed WHERE)
-        // kropka zawsze oznacza `schema.tabela`, nigdy alias kolumny, więc nie trzeba
-        // (i nie da się poprawnie) odróżniać jej od aliasu jak w sekcji WHERE/JOIN ON.
+        // przypadek A: kursor po kropce struktury bazy (`DELETE FROM zak_system.|`) – tu kropka zawsze oznacza `schema.tabela`, nigdy alias kolumny
         if (linePrefix.includes('.')) {
             const schemaTableMatch = linePrefix.match(REGEX_DELETE_SCHEMA_TABLE);
             if (schemaTableMatch) {
@@ -198,7 +188,7 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
             }
         }
 
-        // Przypadek B: Kursor bezpośrednio po modyfikatorze lub słowie DELETE / FROM, np. `DELETE FROM |`
+        // przypadek B: Kursor bezpośrednio po modyfikatorze lub słowie DELETE / FROM, np. `DELETE FROM |`
         const objectMatch = linePrefix.trimEnd().match(REGEX_DELETE_OBJECT);
         if (objectMatch) {
             const words = linePrefix.trim().split(/\s+/);

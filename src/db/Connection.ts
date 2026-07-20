@@ -17,12 +17,11 @@ export class Connection {
     private isProduction = false;
     private isReadOnly = false;
     private schemaTables = new Map<string, string[]>();
-    // null = schemat nie jest (jeszcze) załadowany / został unieważniony po DDL.
-    // Ładowanie jest odpalane leniwie, dopiero przy pierwszym waitForSchemaTables().
+    // null = schemat nie jest (jeszcze) załadowany / został unieważniony po DDL, ładowanie jest leniwe – dopiero przy pierwszym waitForSchemaTables()
     private schemaTablesLoadPromise: Promise<void> | null = null;
     private threadId: number | null = null;
     private cnfFile = '';
-    // Przechowujemy konfigurację, aby móc wykonać reconnect bez podawania parametrów na nowo
+    // przechowujemy konfigurację, aby móc wykonać reconnect bez podawania parametrów na nowo
     private cachedConfig: PoolConfig | null = null;
     private cancelled = false; // kill query
     private isTransactionActive = false;
@@ -45,17 +44,15 @@ export class Connection {
         this.connectionName = connectionName;
         this.cachedConfig = config; // Zapisujemy konfigurację do cache
         
-        // Jeśli już jesteśmy połączeni, a połączenie jest aktywne, zwracamy dotychczasowy czas
+        // jeśli już jesteśmy połączeni, a połączenie jest aktywne, zwracamy dotychczasowy czas
         if (this.connected && this.conn) {
             return this.connectionTime;
         }
 
-        // Zabezpieczenie: jeśli istniały stare, wiszące zasoby, sprzątamy je przed re-connectem
+        // zabezpieczenie: jeśli istniały stare, wiszące zasoby, sprzątamy je przed re-connectem
         this.cleanupResources();
 
-        // "production" i "readonly" to niestandardowe opcje rozpoznawane tylko przez to
-        // rozszerzenie (ustawiane w pliku .cnf) - trzeba je wyciąć z configu, żeby nie
-        // trafiły do mariadb.createPool() jako nierozpoznana opcja.
+        // 'production' i 'readonly' to niestandardowe opcje z .cnf – trzeba je wyciąć, żeby nie trafiły do mariadb.createPool() jako nierozpoznana opcja
         const { production, readonly, ...poolConfig } = config as any;
         this.isProduction = production === true;
         this.isReadOnly = readonly === true;
@@ -82,8 +79,7 @@ export class Connection {
             
             this.conn.on('error', err => {
                 console.error('MariaDB connection error:', err);
-                // W przypadku krytycznego błędu połączenia (np. zerwanie linku), 
-                // oznaczamy obiekt jako rozłączony, co pozwoli na ponowny connect
+                // przy krytycznym błędzie połączenia (np. zerwanie linku) oznaczamy obiekt jako rozłączony, co pozwoli na ponowny connect
                 this.connected = false;
                 this.threadId = null;
                 this.cancelled = false;
@@ -95,12 +91,7 @@ export class Connection {
             this.connected = true;
             this.database = config.database ?? '';
 
-            // Nazwy tabel/schematów NIE są tu ładowane. Odczyt z INFORMATION_SCHEMA.TABLES
-            // bywa kosztowny na serwerach z wieloma schematami, a większość połączeń
-            // (np. jednorazowe "run and close" na pliku .sql, albo tymczasowe połączenie
-            // tworzone tylko po to, żeby wykonać KILL QUERY) w ogóle nie potrzebuje tych
-            // danych. Zamiast tego ładowanie jest odpalane leniwie, dopiero gdy ktoś
-            // faktycznie o nie zapyta - patrz waitForSchemaTables().
+            // nazwy tabel/schematów nie są tu ładowane – odczyt z INFORMATION_SCHEMA.TABLES bywa kosztowny, a większość połączeń go nie potrzebuje
             this.schemaTablesLoadPromise = null;
             
             return this.connectionTime;
@@ -118,7 +109,7 @@ export class Connection {
         if (!this.cachedConfig || !this.connectionName) {
             throw new Error('No previous configuration available to perform reconnect.');
         }
-        // Resetujemy flagę, aby connect nie zakończył się przedwcześnie
+        // resetujemy flagę, aby connect nie zakończył się przedwcześnie
         this.connected = false; 
         return await this.connect(this.connectionName, this.cachedConfig);
     }
@@ -161,7 +152,7 @@ export class Connection {
             this.invalidateSchemaTablesIfDDL(sqlText);
             return result;
         } catch (err: any) {
-            // Dodano bezpieczne sprawdzanie err.message?.includes
+            // dodano bezpieczne sprawdzanie err.message?.includes
             const isClosed = 
                 err.code === 'ER_CMD_CONNECTION_CLOSED' || 
                 err.code === 'ECONNRESET' ||
@@ -169,13 +160,13 @@ export class Connection {
                 err.message === 'Database is not connected';
 
             if (isClosed && !this.cancelled) {
-                // Reconnect z Rozwiązania 3 automatycznie wyczyści stare zasoby
+                // reconnect z Rozwiązania 3 automatycznie wyczyści stare zasoby
                 await this.reconnect();
                 
                 const conn = this.getConnection();
                 const connectionName = this.getConnectionName();
                 
-                // Informacja dla użytkownika w VS Code
+                // informacja dla użytkownika w VS Code
                 vscode.window.showInformationMessage(
                     `🔄 Reconnect DB "${connectionName}".`
                 );
@@ -240,8 +231,7 @@ export class Connection {
                 .then((schemaTables) => { this.schemaTables = schemaTables; })
                 .catch((err) => {
                     console.error('Failed to fetch tables:', err);
-                    // Nie zostawiamy "zawieszonego" stanu błędu - kolejne wywołanie
-                    // waitForSchemaTables() spróbuje załadować schemat ponownie.
+                    // nie zostawiamy 'zawieszonego' stanu błędu – kolejne wywołanie waitForSchemaTables() spróbuje załadować schemat ponownie
                     this.schemaTablesLoadPromise = null;
                 });
         }

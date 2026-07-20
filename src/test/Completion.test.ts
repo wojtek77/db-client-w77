@@ -4,14 +4,9 @@ import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { getCompletions, labelOf, makeColumn } from './testHelpers.js';
 
-// Uwaga: funkcje pomocnicze (makeColumn, makeFakeDb, getCompletions, labelOf)
-// zostały wydzielone do src/test/testHelpers.ts i są współdzielone przez
-// wszystkie pliki testowe dot. completion (Completion.test.ts, CompletionInsert.test.ts,
-// CompletionUpdate.test.ts, CompletionDelete.test.ts, CompletionReplace.test.ts).
+// funkcje pomocnicze (makeColumn, makeFakeDb, getCompletions, labelOf) są w testHelpers.ts i współdzielone przez wszystkie pliki testowe completion
 
-// ─────────────────────────────────────────────────────────────────────────────
 // findCurrentQuery — czyste testy jednostkowe
-// ─────────────────────────────────────────────────────────────────────────────
 
 suite('findCurrentQuery', () => {
 
@@ -47,12 +42,7 @@ suite('findCurrentQuery', () => {
         assert.strictEqual(findCurrentQuery(sql, 2)!.sql, 'SELECT 2');
     });
 
-    // Regresja: wcześniej końcowe `.trim()` ucinało spację wpisaną tuż przed
-    // kursorem, gdy zapytanie znajdowało się na samym końcu dokumentu. To psuło
-    // np. detekcję kontekstu "ON DUPLICATE KEY UPDATE " w CompletionInsert (patrz
-    // CompletionInsert.test.ts). Końcowe białe znaki muszą być zachowane —
-    // przycinane mogą być tylko wiodące (potrzebne do dopasowania pierwszego
-    // słowa zapytania).
+    // regresja: końcowe `.trim()` ucinało spację przed kursorem na końcu dokumentu, psując wykrycie 'ON DUPLICATE KEY UPDATE ' – przycinamy tylko wiodące
     test('preserves trailing whitespace typed right before the cursor', () => {
         const r = findCurrentQuery('INSERT INTO users SET ', 0);
         assert.ok(r);
@@ -66,9 +56,7 @@ suite('findCurrentQuery', () => {
     });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
 // findQueryTables — czyste testy jednostkowe
-// ─────────────────────────────────────────────────────────────────────────────
 
 suite('findQueryTables', () => {
 
@@ -111,13 +99,8 @@ suite('findQueryTables', () => {
         );
     });
 
-    // ── cursorOffset → zasięg widoczności (podzapytania) ─────────────────────
-    // Regresja: findQueryTables kiedyś zwracał tabele z CAŁEGO tekstu zapytania,
-    // bez względu na zagnieżdżenie w nawiasach — tabela użyta tylko wewnątrz
-    // podzapytania w WHERE ... IN (...) "wyciekała" do sugestii kolumn głównego
-    // zapytania. Parametr cursorOffset ogranicza wynik do tabel widocznych
-    // z danej pozycji (własny poziom + poziomy nadrzędne, jak przy skorelowanych
-    // podzapytaniach — nigdy poziomy "siostrzane"). Zob. findQueryTables.ts.
+    // cursorOffset → zasięg widoczności (podzapytania)
+    // regresja: findQueryTables zwracał tabele z całego tekstu bez zagnieżdżenia – cursorOffset ogranicza wynik do tabel widocznych z danej pozycji
 
     test('without cursorOffset, still returns tables from nested subqueries (stare zachowanie / brak filtrowania)', () => {
         const sql = "SELECT * FROM leads l WHERE l.id IN (SELECT a.id FROM accounts a)";
@@ -158,12 +141,8 @@ suite('findQueryTables', () => {
         assert.ok(!tables.includes('bar'),  'bar is a sibling subquery table and should not leak');
     });
 
-    // ── Zapytanie z wieloma (4) JOIN-ami ──────────────────────────────────────
-    // Regresja wydajnościowa: computeParenStack był wcześniej liczony od zera
-    // dla KAŻDEGO dopasowania FROM/JOIN (O(n*m)). Poniższe testy pokrywają
-    // dokładnie ten scenariusz (kilka JOIN-ów + subquery w WHERE) i pilnują,
-    // żeby wynik scoping'u po cursorOffset pozostał identyczny niezależnie od
-    // tego, jak jest liczony stos nawiasów wewnątrz findQueryTables.
+    // zapytanie z wieloma (4) JOIN-ami
+    // regresja wydajnościowa: computeParenStack był liczony od zera dla każdego FROM/JOIN (O(n*m)) – testy pilnują niezmienności scopingu po cursorOffset
     suite('with 4 JOINs', () => {
         const sql =
             'SELECT *\n' +
@@ -221,17 +200,12 @@ suite('findQueryTables', () => {
     });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
 // TableCompletionProvider — zasięg widoczności tabel przy podzapytaniach
-// ─────────────────────────────────────────────────────────────────────────────
 
 suite('TableCompletionProvider — subquery scoping', () => {
 
     test('does not suggest columns from a table used only inside a WHERE...IN subquery', async () => {
-        // Dokładne odtworzenie zgłoszonego przypadku: `date_entered` istnieje
-        // zarówno w `leads`, jak i w `accounts`, ale `accounts` występuje
-        // WYŁĄCZNIE wewnątrz podzapytania w WHERE. Ctrl+Space w głównym SELECT
-        // powinien pokazać tylko kolumny z `leads`.
+        // `date_entered` jest w `leads` i `accounts`, ale `accounts` tylko w podzapytaniu WHERE – Ctrl+Space ma pokazać kolumny tylko z `leads`
         const sql = "SELECT  FROM leads l WHERE l.account_id IN (SELECT a.id, a.date_entered FROM accounts a WHERE a.name LIKE '%test%')";
         const cursorOffset = 'SELECT '.length;
         const items = await getCompletions(sql, cursorOffset, {
@@ -275,11 +249,7 @@ suite('TableCompletionProvider — subquery scoping', () => {
         assert.ok(!labels.includes('name'), 'accounts.name should not leak through the derived table');
     });
 
-    // Regresja: samo ograniczenie tego, co POKAZUJEMY jako podpowiedzi, nie może
-    // zawężać też tego, co POBIERAMY z bazy/cache. Gdyby tak było, każde przesunięcie
-    // kursora do innego zakresu zapytania (np. z głównego SELECT-a do wnętrza
-    // podzapytania) wymagałoby osobnego zapytania do bazy zamiast trafienia w cache
-    // rozgrzany wcześniejszym batchem. Zob. CompletionAbstract.ts (addColumnsFromQueryTables).
+    // regresja: to, co pokazujemy jako podpowiedzi, nie może zawężać tego, co pobieramy z bazy/cache – inaczej zmiana zakresu ominęłaby rozgrzany cache
     test('fetches columns for ALL tables in the query in a single batch, even when only some are shown', async () => {
         const sql = "SELECT  FROM leads l WHERE l.account_id IN (SELECT a.id, a.date_entered FROM accounts a WHERE a.name LIKE '%test%')";
         const cursorOffset = 'SELECT '.length;
@@ -304,15 +274,13 @@ suite('TableCompletionProvider — subquery scoping', () => {
         assert.ok(batchCalls[0].includes('leads'),    'batch fetch should include leads');
         assert.ok(batchCalls[0].includes('accounts'), 'batch fetch should include accounts too, even though it is not shown (cache-warming)');
 
-        // Mimo szerokiego batcha, lista podpowiedzi nadal poprawnie zawężona
+        // mimo szerokiego batcha, lista podpowiedzi nadal poprawnie zawężona
         const labels = items.map(labelOf);
         assert.ok(!labels.includes('name'), 'accounts.name should still not be suggested at the top level');
     });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
 // TableCompletionProvider — podpowiedzi w SQL
-// ─────────────────────────────────────────────────────────────────────────────
 
 suite('TableCompletionProvider — suggestions in SQL', () => {
 
@@ -409,13 +377,7 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(labels.includes('email'), 'missing email after schema.table.');
     });
 
-    // Regresja: REGEX_ALIAS_DOT kiedyś dopasowywał się TYLKO gdy kropka była
-    // ostatnim znakiem (np. `u.|`). Gdy po kropce była już częściowo wpisana
-    // nazwa kolumny (np. `u.em|`), kontekst aliasu był tracony i kod wpadał w
-    // ogólną gałąź zwracającą kolumny ze WSZYSTKICH tabel zapytania — więc jeśli
-    // kolumna o tej samej nazwie istniała w innej tabeli z JOIN-a (albo nawet w
-    // podzapytaniu), pojawiała się w podpowiedziach duplikat z niewłaściwej
-    // tabeli. Zob. CompletionSelect.ts.
+    // regresja: REGEX_ALIAS_DOT dopasowywał się tylko gdy kropka była ostatnim znakiem, przy częściowej nazwie kolumny gubił alias i pokazywał duplikaty
     test('filters columns after alias dot by a partially typed column name (u.em)', async () => {
         const sql = 'SELECT u.em FROM users u';
         const cursorOffset = sql.indexOf('u.em') + 'u.em'.length;
@@ -436,10 +398,7 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
     });
 
     test('does not leak a same-named column from another joined table when a partial name is typed after the alias', async () => {
-        // Odtworzenie zgłoszonego przypadku: `date_entered` istnieje zarówno w
-        // `leads`, jak i w `accounts` (dołączonej przez JOIN), a kursor stoi
-        // po `l.date_entered` (nie tuż po kropce). Podpowiedź powinna pokazać
-        // kolumnę WYŁĄCZNIE z `leads` (tabeli aliasu `l`), nie z `accounts`.
+        // `date_entered` jest w `leads` i dołączonej przez JOIN `accounts` – podpowiedź ma pokazać kolumnę wyłącznie z `leads` (alias `l`)
         const sql = 'SELECT l.date_entered FROM leads l JOIN accounts a ON a.id = l.account_id';
         const cursorOffset = sql.indexOf('l.date_entered') + 'l.date_entered'.length;
         const items = await getCompletions(sql, cursorOffset, {
