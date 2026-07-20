@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.30
+
+### Fixed
+- SQL formatter (`formatSqlCommand.ts`): a trailing `;` was not treated as
+  a token boundary, so a keyword glued directly to it (e.g. `desc;`) was
+  never uppercased. `;` is now its own token type.
+- SQL formatter: standalone `#` comments were not recognized at all (only
+  `--` was), and any comment appearing before the first recognized clause
+  (or elsewhere via the generic token renderer) got merged onto the same
+  line as the following token/comment instead of staying on its own line.
+  Both `#` and `--` comments are now always rendered on their own line,
+  consistently across all clauses.
+
+### Tests
+- Added coverage for keywords glued to a trailing semicolon and for
+  standalone comments staying on their own lines.
+- Translated `formatSqlCommand.test.ts` test/suite names and test data to
+  English (code comments stay in Polish, per project convention).
+
 ## 0.2.29
 
 ### Fixed
