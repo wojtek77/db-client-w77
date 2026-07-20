@@ -5,11 +5,57 @@ import { SQL_FUNCTIONS } from './sqlFunctions.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { CompletionInterface } from './CompletionInterface.js';
+import { tokenize, computeDepths, currentDepth, Token } from '../sql/tokenizer.js';
 
 const REGEX_SCHEMA_TABLE = /\b(?:from|join)\s+(\w+)\.(\w*)$/i;
 const REGEX_FROM_OBJECT = /\b(?:from|join)\s+(\w*)$/i;
 // grupa 2 (\\w*) obsługuje częściowo wpisaną nazwę kolumny po `alias.` (np. `l.date_ent|`) – bez niej kontekst aliasu gubił się przy dalszym pisaniu
 const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)\.(\w*)$/;
+
+export type SelectClauseName = 'select' | 'from' | 'where' | 'group' | 'having' | 'order' | 'limit';
+
+export interface DetectedClause {
+    name: SelectClauseName;
+    // offset słowa rozpoczynającego klauzulę w oryginalnym sqlBeforeCursor - potrzebne tylko do przekazania do isCursorInsideFunctionCall
+    start: number;
+}
+
+// pojedyncze słowo -> nazwa klauzuli; GROUP/ORDER wymagają jeszcze sprawdzenia kolejnego tokena ('BY'), patrz niżej
+const CLAUSE_WORD: Partial<Record<string, SelectClauseName>> = {
+    SELECT: 'select',
+    FROM: 'from',
+    WHERE: 'where',
+    HAVING: 'having',
+    LIMIT: 'limit',
+};
+
+// wykrywa, w której klauzuli zapytania SELECT znajduje się kursor (koniec sqlBeforeCursor)
+// liczy się z zagnieżdżeniem w nawiasach (podzapytania, wywołania funkcji) - szukamy klauzul tylko na głębokości, na której faktycznie stoi kursor,
+// a nie zawsze na najwyższym poziomie, bo inaczej HAVING/SELECT wewnątrz "FROM (SELECT ... )" myliłoby się z klauzulami zapytania zewnętrznego
+// dzięki tokenizacji słowo kluczowe wewnątrz stringa/komentarza albo będące częścią dłuższego identyfikatora (np. "transform_flag" zawiera "from")
+// nie jest już mylnie brane za granicę klauzuli - to był realny błąd poprzedniej wersji opartej na indexOf na surowym tekście
+export function detectCurrentClause(sqlBeforeCursor: string): DetectedClause | undefined {
+    const tokens = tokenize(sqlBeforeCursor);
+    const depths = computeDepths(tokens);
+    const targetDepth = currentDepth(tokens);
+
+    let found: DetectedClause | undefined;
+    for (let i = 0; i < tokens.length; i++) {
+        if (depths[i] !== targetDepth) { continue; }
+        const t = tokens[i];
+        if (t.type !== 'word') { continue; }
+        const upper = t.value.toUpperCase();
+        const next: Token | undefined = tokens[i + 1];
+        const nextUpper = next?.type === 'word' ? next.value.toUpperCase() : undefined;
+
+        if (upper === 'GROUP' && nextUpper === 'BY') { found = { name: 'group', start: t.start }; continue; }
+        if (upper === 'ORDER' && nextUpper === 'BY') { found = { name: 'order', start: t.start }; continue; }
+
+        const simple = CLAUSE_WORD[upper];
+        if (simple) { found = { name: simple, start: t.start }; }
+    }
+    return found;
+}
 
 export class CompletionSelect extends CompletionAbstract implements CompletionInterface {
     
@@ -20,33 +66,10 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         sqlBeforeCursor: string
     ): Promise<vscode.CompletionItem[]> {
         
-        const beforeCursor = sqlBeforeCursor.toLowerCase();
-        
-        const selectIndex = beforeCursor.lastIndexOf('select');
-        const fromIndex = beforeCursor.lastIndexOf('from');
-        const whereIndex   = beforeCursor.lastIndexOf('where');
-        const groupIndex = beforeCursor.lastIndexOf('group by');
-        const havingIndex = beforeCursor.lastIndexOf('having');
-        const orderIndex = beforeCursor.lastIndexOf('order by');
-        const limitIndex = beforeCursor.lastIndexOf('limit');
-        
-        const clauses = [
-            { name: 'select', index: selectIndex },
-            { name: 'from',   index: fromIndex },
-            { name: 'where',  index: whereIndex },
-            { name: 'group',  index: groupIndex },
-            { name: 'having', index: havingIndex },
-            { name: 'order',  index: orderIndex },
-            { name: 'limit',  index: limitIndex },
-        ];
-        
-        let maxClause = null;
-        for (const c of clauses) {
-            if (c.index !== -1 && (maxClause === null || c.index > maxClause.index)) {
-                maxClause = c;
-            }
-        }
-        const currentClause = maxClause?.name;
+        const detectedClause = detectCurrentClause(sqlBeforeCursor);
+        const currentClause = detectedClause?.name;
+        // offset klauzuli HAVING w sqlBeforeCursor - potrzebny tylko do isCursorInsideFunctionCall (metoda dziedziczona z CompletionAbstract, na razie działa na tekście, nie na tokenach)
+        const havingIndex = currentClause === 'having' ? detectedClause!.start : -1;
         
         const isInSelectClause = currentClause === 'select';
         const isInWhereClause  = currentClause === 'where';
