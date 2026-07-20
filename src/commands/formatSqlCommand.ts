@@ -25,7 +25,7 @@ const KEYWORDS = new Set([
 // ASC/DESC są wielkimi literami tylko w ORDER BY / GROUP BY, w innych klauzulach mogą być nazwą kolumny (np. WHERE asc = 1)
 const ORDER_GROUP_EXTRA_KEYWORDS = new Set(['ASC', 'DESC']);
 
-type TokenType = 'comment' | 'word' | 'comma' | 'lparen' | 'rparen' | 'string';
+type TokenType = 'comment' | 'word' | 'comma' | 'semicolon' | 'lparen' | 'rparen' | 'string';
 
 interface Token {
     type: TokenType;
@@ -82,13 +82,14 @@ function tokenize(sql: string): Token[] {
         }
 
         if (ch === ',') { tokens.push({ type: 'comma', value: ',' }); i++; sawSpace = false; continue; }
+        if (ch === ';') { tokens.push({ type: 'semicolon', value: ';' }); i++; sawSpace = false; continue; }
         if (ch === '(') { tokens.push({ type: 'lparen', value: '(', spaceBefore: sawSpace }); i++; sawSpace = false; continue; }
         if (ch === ')') { tokens.push({ type: 'rparen', value: ')' }); i++; sawSpace = false; continue; }
 
         let j = i;
         while (
             j < n &&
-            !' \t\n\r,()'.includes(sql[j]) &&
+            !' \t\n\r,();'.includes(sql[j]) &&
             !(sql[j] === '-' && sql[j + 1] === '-') &&
             sql[j] !== "'" && sql[j] !== '`' && sql[j] !== '"'
         ) { j++; }
@@ -151,7 +152,7 @@ interface AppendOptions {
 // dokłada kolejny token do stringa: bez spacji przed ',' i ')', bez spacji po '(', spacja po przecinku tylko gdy looseCommas === true
 function appendTok(out: string, val: string, opts: AppendOptions = {}): string {
     if (out === '') { return val; }
-    if (val === ',' || val === ')') { return out + val; }
+    if (val === ',' || val === ')' || val === ';') { return out + val; }
     const prevChar = out[out.length - 1];
     if (prevChar === '(') { return out + val; }
     if (opts.forceSpaceBefore === false) { return out + val; }
