@@ -180,8 +180,9 @@ function renderWord(value: string, extraKeywords?: Set<string>): string {
 // renderuje listę tokenów do tekstu – looseCommas steruje spacją po przecinku (przekazywane jawnie, bo nie da się tego wywnioskować z głębokości nawiasów)
 // extraKeywords to dodatkowe słowa kluczowe tylko w tym wywołaniu (ASC/DESC); IN (...) z kilkoma krotkami rozbijane na wiele linii
 // samodzielny komentarz zawsze zaczyna nową linię i zmusza też kolejny token do zaczęcia nowej linii (startNewLine)
-function renderTokens(tokens: Token[], indent: string, looseCommas = false, extraKeywords?: Set<string>): string {
-    let out = '';
+// initial to tekst już obecny w bieżącej linii (np. nagłówek klauzuli) – dzięki temu komentarz na starcie tokens też trafia w nową linię
+function renderTokens(tokens: Token[], indent: string, looseCommas = false, extraKeywords?: Set<string>, initial = ''): string {
+    let out = initial;
     let i = 0;
     let startNewLine = false;
 
@@ -495,12 +496,12 @@ const CLAUSE_FORMATTERS: Map<ClauseName, ClauseFormatter> = new Map([
     [ClauseName.From, (tokens) => formatFrom(tokens)],
     [ClauseName.Where, (tokens) => formatWhereLike(tokens, 'WHERE')],
     [ClauseName.Having, (tokens) => formatWhereLike(tokens, 'HAVING')],
-    [ClauseName.GroupBy, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '', true, ORDER_GROUP_EXTRA_KEYWORDS)],
-    [ClauseName.OrderBy, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '', true, ORDER_GROUP_EXTRA_KEYWORDS)],
-    [ClauseName.Limit, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '', true)],
-    [ClauseName.Insert, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '')],
-    [ClauseName.InsertInto, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '')],
-    [ClauseName.Values, (tokens, displayName) => displayName + ' ' + renderTokens(tokens, '', true)],
+    [ClauseName.GroupBy, (tokens, displayName) => renderTokens(tokens, '', true, ORDER_GROUP_EXTRA_KEYWORDS, displayName)],
+    [ClauseName.OrderBy, (tokens, displayName) => renderTokens(tokens, '', true, ORDER_GROUP_EXTRA_KEYWORDS, displayName)],
+    [ClauseName.Limit, (tokens, displayName) => renderTokens(tokens, '', true, undefined, displayName)],
+    [ClauseName.Insert, (tokens, displayName) => renderTokens(tokens, '', false, undefined, displayName)],
+    [ClauseName.InsertInto, (tokens, displayName) => renderTokens(tokens, '', false, undefined, displayName)],
+    [ClauseName.Values, (tokens, displayName) => renderTokens(tokens, '', true, undefined, displayName)],
 ]);
 
 // formatuje SQL: słowa kluczowe wielkimi literami, kolumny SELECT pakowane do SELECT_MAX_WIDTH, JOIN-y bez wcięcia, WHERE/HAVING łączone AND/OR

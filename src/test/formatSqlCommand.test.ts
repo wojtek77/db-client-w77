@@ -201,4 +201,11 @@ suite('formatSql - standalone comments stay on their own lines', () => {
             'SELECT id\nFROM customers\nORDER BY name,\n# extra sorting\nemail DESC',
         );
     });
+
+    test('a comment right after a clause header (ORDER BY) does not get glued into the header line', () => {
+        assert.strictEqual(
+            formatSql('select id from customers order by\n# extra sorting\nname desc'),
+            'SELECT id\nFROM customers\nORDER BY\n# extra sorting\nname DESC',
+        );
+    });
 });
