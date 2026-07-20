@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.31
+
+### Fixed
+- SQL formatter: a comment placed right after a clause header (e.g.
+  `ORDER BY` followed immediately by a `#`/`--` comment before the first
+  column) was glued onto the header's line instead of starting on its
+  own line. The header (`GROUP BY`/`ORDER BY`/`LIMIT`/`INSERT`/
+  `INSERT INTO`/`VALUES`) is now passed into `renderTokens` as existing
+  line content (`initial` param) instead of being concatenated outside
+  of it, so the existing "comment starts a new line" logic also applies
+  to it.
+
+### Tests
+- Added coverage for a comment immediately following an `ORDER BY`
+  clause header.
+
 ## 0.2.30
 
 ### Fixed
