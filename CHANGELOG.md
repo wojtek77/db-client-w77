@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.29
+
+### Fixed
+- The "Edit config" button on a connection error now shows up for any
+  invalid connection, not just when there's exactly one connection
+  configured overall. It now looks up the `.cnf` file that belongs to
+  the connection actually used by the current SQL file, instead of only
+  offering it when there was a single configured connection to avoid
+  ambiguity.
+- The loading spinner no longer gets stuck forever when a connection
+  fails - it now stops immediately in that case, instead of only being
+  cleared on a successful query.
+
 ## 0.2.28
 
 ### Fixed
