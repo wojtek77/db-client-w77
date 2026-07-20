@@ -45,6 +45,21 @@ suite('formatSql - ASC/DESC casing', () => {
         const result = formatSql("select id from t where asc = 1");
         assert.ok(result.includes('WHERE asc = 1'));
     });
+
+    test('uppercases desc/asc glued directly to a trailing semicolon (no space before ;)', () => {
+        // bug: ';' nie był granicą tokena, więc "desc;" trafiało jako jeden token i nie przechodziło testu /^[A-Za-z_]+$/
+        assert.strictEqual(
+            formatSql('select id from products order by price desc;'),
+            'SELECT id\nFROM products\nORDER BY price DESC;',
+        );
+    });
+
+    test('uppercases last asc/desc glued to semicolon after a function call', () => {
+        assert.strictEqual(
+            formatSql('select id from products order by name, ROUND(price, 2) desc;'),
+            'SELECT id\nFROM products\nORDER BY name, ROUND(price, 2) DESC;',
+        );
+    });
 });
 
 suite('formatSql - BETWEEN ... AND (nie jest granicą klauzuli)', () => {
