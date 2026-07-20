@@ -62,29 +62,29 @@ suite('formatSql - ASC/DESC casing', () => {
     });
 });
 
-suite('formatSql - BETWEEN ... AND (nie jest granicą klauzuli)', () => {
-    test('nie rozbija BETWEEN x AND y na dwie linie', () => {
+suite('formatSql - BETWEEN ... AND (not a clause boundary)', () => {
+    test('does not split BETWEEN x AND y into two lines', () => {
         assert.strictEqual(
             formatSql('select id from users where age between 1 and 2'),
             'SELECT id\nFROM users\nWHERE age BETWEEN 1 AND 2',
         );
     });
 
-    test('poprawnie łączy BETWEEN z kolejnym prawdziwym AND', () => {
+    test('correctly joins BETWEEN with a following real AND', () => {
         assert.strictEqual(
             formatSql("select id from users where age between 1 and 2 and name = 'x'"),
             "SELECT id\nFROM users\nWHERE age BETWEEN 1 AND 2\n\tAND name = 'x'",
         );
     });
 
-    test('obsługuje dwa BETWEEN połączone prawdziwym AND', () => {
+    test('handles two BETWEEN clauses joined by a real AND', () => {
         assert.strictEqual(
             formatSql('select id from t where a between 1 and 2 and b between 3 and 4'),
             'SELECT id\nFROM t\nWHERE a BETWEEN 1 AND 2\n\tAND b BETWEEN 3 AND 4',
         );
     });
 
-    test('obsługuje NOT BETWEEN', () => {
+    test('handles NOT BETWEEN', () => {
         assert.strictEqual(
             formatSql('select id from t where a not between 1 and 2'),
             'SELECT id\nFROM t\nWHERE a NOT BETWEEN 1 AND 2',
@@ -92,8 +92,8 @@ suite('formatSql - BETWEEN ... AND (nie jest granicą klauzuli)', () => {
     });
 });
 
-suite('formatSql - ujednolicone wielkie litery pozostałych słów kluczowych', () => {
-    test('uppercase DISTINCT, AS, IS NULL, LIKE, IN, NOT EXISTS jednocześnie', () => {
+suite('formatSql - consistent uppercasing of remaining keywords', () => {
+    test('uppercase DISTINCT, AS, IS NULL, LIKE, IN, NOT EXISTS at once', () => {
         assert.strictEqual(
             formatSql(
                 "select distinct id as user_id from users where deleted_at is null " +
@@ -118,12 +118,12 @@ suite('formatSql - ujednolicone wielkie litery pozostałych słów kluczowych', 
         );
     });
 
-    test('nie rusza zawartości literału tekstowego', () => {
+    test('does not touch the content of a string literal', () => {
         const result = formatSql("select id from t where note = 'this is null and not exists'");
         assert.ok(result.includes("'this is null and not exists'"));
     });
 
-    test('nie rusza identyfikatora w cudzysłowie (backtick)', () => {
+    test('does not touch a backtick-quoted identifier', () => {
         assert.strictEqual(
             formatSql('select `desc`, `is null` from t'),
             'SELECT `desc`, `is null`\nFROM t',
@@ -131,9 +131,9 @@ suite('formatSql - ujednolicone wielkie litery pozostałych słów kluczowych', 
     });
 });
 
-suite('formatSql - słowa kluczowe wewnątrz literału tekstowego nie są granicą klauzuli', () => {
+suite('formatSql - keywords inside a string literal are not a clause boundary', () => {
     // bug znaleziony przy naprawie BETWEEN: findClauses szukał granic klauzul w surowym tekście, więc 'where'/'and' w stringu psuło formatowanie
-    test('nie rozbija stringa zawierającego słowa kluczowe SQL', () => {
+    test('does not split a string literal containing SQL keywords', () => {
         assert.strictEqual(
             formatSql("select id from t where note = 'select this and where that'"),
             "SELECT id\nFROM t\nWHERE note = 'select this and where that'",
@@ -168,6 +168,37 @@ suite('formatSql - basic clause formatting (regression safety net)', () => {
         assert.strictEqual(
             formatSql('select id from users;'),
             'SELECT id\nFROM users;',
+        );
+    });
+});
+
+suite('formatSql - standalone comments stay on their own lines', () => {
+    test('# and -- comments before the query are not merged into one line', () => {
+        assert.strictEqual(
+            formatSql('# note one\n-- note two\nselect id from orders'),
+            '# note one\n-- note two\nSELECT id\nFROM orders',
+        );
+    });
+
+    test('recognizes a "#" comment glued without a space to the previous line', () => {
+        // bug: '#' nie było ogranicznikiem tokena słowa, więc "#note" wpadało do słowa zamiast być komentarzem
+        assert.strictEqual(
+            formatSql('#note\nselect id from customers'),
+            '#note\nSELECT id\nFROM customers',
+        );
+    });
+
+    test('a comment inside FROM/JOIN starts a new line instead of being glued to the previous token', () => {
+        assert.strictEqual(
+            formatSql('select id from customers c\n-- join comment\njoin invoices i on i.customer_id = c.id'),
+            'SELECT id\nFROM customers c\n-- join comment\nJOIN invoices i ON i.customer_id = c.id',
+        );
+    });
+
+    test('a comment inside ORDER BY starts a new line without breaking the formatting after it', () => {
+        assert.strictEqual(
+            formatSql('select id from customers order by name,\n# extra sorting\nemail desc'),
+            'SELECT id\nFROM customers\nORDER BY name,\n# extra sorting\nemail DESC',
         );
     });
 });
