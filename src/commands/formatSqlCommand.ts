@@ -34,7 +34,7 @@ interface Token {
     spaceBefore?: boolean;
 }
 
-// zamienia tekst SQL na listę tokenów – komentarze (--), literały ('...', "...") i identyfikatory w `...` to pojedyncze tokeny, nigdy nie analizowane
+// zamienia tekst SQL na listę tokenów – komentarze (-- oraz #), literały ('...', "...") i identyfikatory w `...` to pojedyncze tokeny, nigdy nie analizowane
 function tokenize(sql: string): Token[] {
     const tokens: Token[] = [];
     let i = 0;
@@ -51,6 +51,13 @@ function tokenize(sql: string): Token[] {
         }
 
         if (ch === '-' && sql[i + 1] === '-') {
+            let j = i;
+            while (j < n && sql[j] !== '\n') { j++; }
+            tokens.push({ type: 'comment', value: sql.slice(i, j).trimEnd() });
+            i = j; sawSpace = false; continue;
+        }
+
+        if (ch === '#') {
             let j = i;
             while (j < n && sql[j] !== '\n') { j++; }
             tokens.push({ type: 'comment', value: sql.slice(i, j).trimEnd() });
@@ -91,6 +98,7 @@ function tokenize(sql: string): Token[] {
             j < n &&
             !' \t\n\r,();'.includes(sql[j]) &&
             !(sql[j] === '-' && sql[j + 1] === '-') &&
+            sql[j] !== '#' &&
             sql[j] !== "'" && sql[j] !== '`' && sql[j] !== '"'
         ) { j++; }
         if (j === i) { j++; }
@@ -171,12 +179,30 @@ function renderWord(value: string, extraKeywords?: Set<string>): string {
 
 // renderuje listę tokenów do tekstu – looseCommas steruje spacją po przecinku (przekazywane jawnie, bo nie da się tego wywnioskować z głębokości nawiasów)
 // extraKeywords to dodatkowe słowa kluczowe tylko w tym wywołaniu (ASC/DESC); IN (...) z kilkoma krotkami rozbijane na wiele linii
+// samodzielny komentarz zawsze zaczyna nową linię i zmusza też kolejny token do zaczęcia nowej linii (startNewLine)
 function renderTokens(tokens: Token[], indent: string, looseCommas = false, extraKeywords?: Set<string>): string {
     let out = '';
     let i = 0;
+    let startNewLine = false;
+
+    const append = (val: string, opts: AppendOptions = {}) => {
+        if (startNewLine) {
+            out = out + '\n' + indent + val;
+            startNewLine = false;
+        } else {
+            out = appendTok(out, val, opts);
+        }
+    };
 
     while (i < tokens.length) {
         const t = tokens[i];
+
+        if (t.type === 'comment') {
+            out = out === '' ? t.value : out + '\n' + indent + t.value;
+            startNewLine = true;
+            i++;
+            continue;
+        }
 
         if (t.type === 'word' && t.value.toUpperCase() === 'IN' && tokens[i + 1]?.type === 'lparen') {
             const [inner, endIdx] = extractParenGroup(tokens, i + 1);
@@ -185,7 +211,7 @@ function renderTokens(tokens: Token[], indent: string, looseCommas = false, extr
                 groups.every(g => g[0]?.type === 'lparen' && g[g.length - 1]?.type === 'rparen');
 
             if (looksLikeTupleList) {
-                out = appendTok(out, 'IN', { looseCommas });
+                append('IN', { looseCommas });
                 out += ' (\n';
                 groups.forEach((g, idx) => {
                     out += indent + '\t' + renderTokens(g, indent + '\t', true, extraKeywords);
@@ -205,18 +231,18 @@ function renderTokens(tokens: Token[], indent: string, looseCommas = false, extr
 
             if (followedByIn && hasTopComma) {
                 const rendered = '(' + renderTokens(inner, indent, true, extraKeywords) + ')';
-                out = appendTok(out, rendered, { looseCommas, forceSpaceBefore: t.spaceBefore });
+                append(rendered, { looseCommas, forceSpaceBefore: t.spaceBefore });
                 i = endIdx + 1;
                 continue;
             }
 
-            out = appendTok(out, '(', { looseCommas, forceSpaceBefore: t.spaceBefore });
+            append('(', { looseCommas, forceSpaceBefore: t.spaceBefore });
             i++;
             continue;
         }
 
         const val = t.type === 'word' ? renderWord(t.value, extraKeywords) : t.value;
-        out = appendTok(out, val, { looseCommas });
+        append(val, { looseCommas });
         i++;
     }
 
