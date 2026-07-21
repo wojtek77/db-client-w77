@@ -104,6 +104,22 @@ suite('CompletionDelete — WHERE clause', () => {
         assert.ok(labels.includes('email'), 'missing email for "em" filter');
         assert.ok(!labels.includes('id'),   'id should not match "em"');
     });
+
+    // regresja: stare `beforeCursorLower.lastIndexOf('from')` łapało się na "from" jako podciąg wewnątrz
+    // kolumny "from_date", przez co WHERE z taką kolumną było mylone z kontekstem tabel po FROM
+    test('does not misdetect WHERE as FROM when a column name contains "from" as a substring (from_date)', async () => {
+        const sql = "DELETE FROM users WHERE from_date > '2020-01-01' AND ";
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        }, {
+            'public.users': [
+                makeColumn('id',        'int', 'PRI'),
+                makeColumn('from_date', 'datetime'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'), 'expected column suggestions in WHERE despite "from_date" containing "from"');
+    });
 });
 
 suite('CompletionDelete — JOIN', () => {

@@ -212,6 +212,22 @@ suite('CompletionUpdate — WHERE clause', () => {
         assert.ok(labels.includes('total'), 'missing total from orders after AND');
         assert.ok(labels.includes('email'), 'missing email from users after AND');
     });
+
+    // regresja: stare `beforeCursorLower.lastIndexOf('set')` łapało się na "set" jako podciąg wewnątrz
+    // kolumny "reset_password", przez co WHERE z taką kolumną było mylone z powrotem z kontekstem SET
+    test('does not misdetect WHERE as SET when a column name contains "set" as a substring (reset_password)', async () => {
+        const sql = "UPDATE users SET a = 1 WHERE reset_password = '' AND ";
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        }, {
+            'public.users': [
+                makeColumn('id',              'int', 'PRI'),
+                makeColumn('reset_password',  'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'), 'expected column suggestions in WHERE despite "reset_password" containing "set"');
+    });
 });
 
 suite('CompletionUpdate — safety', () => {

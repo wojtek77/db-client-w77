@@ -638,6 +638,73 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
     });
 });
 
+suite('TableCompletionProvider — clause detection regressions (tokenizer)', () => {
+
+    // regresja: stare `beforeCursor.lastIndexOf('from')` łapało się na "from" jako podciąg wewnątrz
+    // identyfikatora (np. "transform_flag"), przez co WHERE z taką kolumną było mylone z klauzulą FROM
+    // i podpowiedzi znikały całkowicie (żaden regex na linePrefix nie pasował, bo linePrefix kończy się na "AND ")
+    test('does not misdetect WHERE as FROM when a column name contains "from" as a substring (transform_flag)', async () => {
+        const sql = 'SELECT * FROM t1 WHERE transform_flag = 1 AND ';
+        const cursorOffset = sql.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.t1': [
+                makeColumn('id',             'int', 'PRI'),
+                makeColumn('transform_flag', 'int'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'), 'expected column suggestions in WHERE despite "transform_flag" containing "from"');
+        assert.ok(
+            items.some(item => item.kind === vscode.CompletionItemKind.Function),
+            'expected SQL function suggestions too, confirming we are in the WHERE branch, not stuck with no match',
+        );
+    });
+
+    // regresja: analogiczny błąd dla "limit" - kolumna "limit_reached" w WHERE była mylona z klauzulą LIMIT,
+    // co przez wczesny `return` dawało tylko podpowiedzi liczbowe [1, 10, 100] zamiast kolumn/funkcji z WHERE
+    test('does not misdetect WHERE as LIMIT when a column name contains "limit" as a substring (limit_reached)', async () => {
+        const sql = 'SELECT * FROM t1 WHERE limit_reached = 1 AND ';
+        const cursorOffset = sql.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.t1': [
+                makeColumn('id',            'int', 'PRI'),
+                makeColumn('limit_reached', 'int'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'), 'expected column suggestions in WHERE despite "limit_reached" containing "limit"');
+        assert.ok(!labels.every(l => ['1', '10', '100'].includes(l)), 'should not fall back to LIMIT-only numeric suggestions');
+    });
+
+    // regresja: klauzule wykrywane były zawsze na najwyższym poziomie zagnieżdżenia - kursor w podzapytaniu
+    // wewnątrz WHERE ... IN (...) mógł być mylony z klauzulą zapytania zewnętrznego (np. zewnętrzne LIMIT za podzapytaniem)
+    test('detects the clause at the cursor nesting depth, not the outer query (WHERE inside a subquery)', async () => {
+        const sql = 'SELECT * FROM t1 WHERE id IN (SELECT id FROM t2 WHERE ) LIMIT 10';
+        const cursorOffset = sql.indexOf('WHERE )') + 'WHERE '.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.t1': [makeColumn('id', 'int', 'PRI')],
+            'public.t2': [makeColumn('id', 'int', 'PRI'), makeColumn('active', 'int')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('active'), 'expected column suggestions for the inner WHERE, not the outer LIMIT');
+    });
+});
+
 suite('TableCompletionProvider — HAVING', () => {
 
     // ── prosta kolumna ────────────────────────────────────────────────────────
