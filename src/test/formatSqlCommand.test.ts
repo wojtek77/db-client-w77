@@ -335,3 +335,47 @@ suite('formatSql - UNION / INTERSECT / EXCEPT split each statement onto its own 
         );
     });
 });
+
+suite('formatSql - UPDATE / SET / DELETE are now recognized clauses', () => {
+    test('formats a simple UPDATE ... SET ... WHERE', () => {
+        assert.strictEqual(
+            formatSql('update t set a = 1, b = 2 where id = 3'),
+            'UPDATE t\nSET a = 1, b = 2\nWHERE id = 3',
+        );
+    });
+
+    test('formats UPDATE ... SET without a WHERE clause', () => {
+        assert.strictEqual(
+            formatSql('update products set price = 10'),
+            'UPDATE products\nSET price = 10',
+        );
+    });
+
+    test('formats a multi-table UPDATE with JOIN on its own line, like FROM', () => {
+        assert.strictEqual(
+            formatSql('update t1 join t2 on t1.id = t2.id set t1.a = t2.b where t2.id = 5'),
+            'UPDATE t1\nJOIN t2 ON t1.id = t2.id\nSET t1.a = t2.b\nWHERE t2.id = 5',
+        );
+    });
+
+    test('formats a simple DELETE FROM ... WHERE', () => {
+        assert.strictEqual(
+            formatSql('delete from t where id = 1'),
+            'DELETE\nFROM t\nWHERE id = 1',
+        );
+    });
+
+    test('formats DELETE FROM without a WHERE clause', () => {
+        assert.strictEqual(
+            formatSql('delete from t'),
+            'DELETE\nFROM t',
+        );
+    });
+
+    test('formats a multi-table DELETE with a table alias before FROM', () => {
+        assert.strictEqual(
+            formatSql('delete t1 from t1 join t2 on t1.id = t2.id where t2.x = 1'),
+            'DELETE t1\nFROM t1\nJOIN t2 ON t1.id = t2.id\nWHERE t2.x = 1',
+        );
+    });
+});

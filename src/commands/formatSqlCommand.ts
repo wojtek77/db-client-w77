@@ -138,6 +138,9 @@ enum ClauseName {
     Insert = 'INSERT',
     InsertInto = 'INSERT_INTO',
     Values = 'VALUES',
+    Update = 'UPDATE',
+    Set = 'SET',
+    Delete = 'DELETE',
 }
 
 interface Clause {
@@ -158,6 +161,9 @@ const WORD_TO_CLAUSE: Record<string, ClauseName> = {
     ORDER: ClauseName.OrderBy,
     INSERT: ClauseName.Insert,
     VALUES: ClauseName.Values,
+    UPDATE: ClauseName.Update,
+    SET: ClauseName.Set,
+    DELETE: ClauseName.Delete,
 };
 
 const CLAUSE_WORDS = Object.keys(WORD_TO_CLAUSE);
@@ -170,7 +176,7 @@ const CLAUSE_COMBO: Record<string, { nextWord: string; combined: ClauseName }> =
 };
 
 // dzieli zapytanie na klauzule po słowach kluczowych na najwyższym poziomie, żeby słowo w literale/podzapytaniu nie było mylone z granicą klauzuli
-// tekst przed pierwszą rozpoznaną klauzulą (np. przy UPDATE, DELETE FROM) nie jest gubiony – trafia jako ClauseName.Unknown i jest wypisany as-is
+// tekst przed pierwszą rozpoznaną klauzulą nie jest gubiony – trafia jako ClauseName.Unknown i jest wypisany as-is
 function segmentClauses(tokens: Token[]): Clause[] {
     const depths = computeDepths(tokens);
     const boundaries: { name: ClauseName; displayName: string; start: number; bodyStart: number }[] = [];
@@ -273,8 +279,9 @@ function formatSelect(tokens: Token[]): string {
 
 const JOIN_MODIFIERS = new Set(['INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER', 'CROSS']);
 
-// formatuje FROM oraz kolejne JOIN-y – każdy JOIN (wraz z ON) na osobnej linii, bez dodatkowego wcięcia
-function formatFrom(tokens: Token[]): string {
+// formatuje referencję do tabel (FROM albo UPDATE) oraz kolejne JOIN-y – każdy JOIN (wraz z ON) na osobnej linii, bez dodatkowego wcięcia
+// header to tekst nagłówka klauzuli ('FROM' albo 'UPDATE') - JOIN w UPDATE (multi-table update) korzysta z tej samej logiki co FROM
+function formatTableRef(tokens: Token[], header: string): string {
     const depths = computeDepths(tokens);
     const boundaries: number[] = [];
 
@@ -290,7 +297,7 @@ function formatFrom(tokens: Token[]): string {
     }
 
     const firstTable = tokens.slice(0, boundaries.length ? boundaries[0] : tokens.length);
-    const lines = ['FROM ' + renderTokens(firstTable, '')];
+    const lines = [header + ' ' + renderTokens(firstTable, '')];
 
     boundaries.forEach((b, idx) => {
         const end = idx + 1 < boundaries.length ? boundaries[idx + 1] : tokens.length;
@@ -365,10 +372,10 @@ type ClauseFormatter = (tokens: Token[], displayName: string) => string;
 
 // formatter dla każdej klauzuli – nowa klauzula to wpis w WORD_TO_CLAUSE (ew. CLAUSE_COMBO) i wpis tutaj, bez dotykania formatSql
 const CLAUSE_FORMATTERS: Map<ClauseName, ClauseFormatter> = new Map([
-    // nierozpoznana klauzula (np. UPDATE/DELETE FROM) nie jest formatowana specjalnie, ale też nie jest tracona (patrz segmentClauses)
+    // nierozpoznana klauzula (np. tekst przed pierwszym słowem kluczowym) nie jest formatowana specjalnie, ale też nie jest tracona (patrz segmentClauses)
     [ClauseName.Unknown, (tokens) => renderTokens(tokens, '')],
     [ClauseName.Select, (tokens) => formatSelect(tokens)],
-    [ClauseName.From, (tokens) => formatFrom(tokens)],
+    [ClauseName.From, (tokens) => formatTableRef(tokens, 'FROM')],
     [ClauseName.Where, (tokens) => formatWhereLike(tokens, 'WHERE')],
     [ClauseName.Having, (tokens) => formatWhereLike(tokens, 'HAVING')],
     [ClauseName.GroupBy, (tokens, displayName) => renderTokens(tokens, '', true, ORDER_GROUP_EXTRA_KEYWORDS, displayName)],
@@ -377,6 +384,12 @@ const CLAUSE_FORMATTERS: Map<ClauseName, ClauseFormatter> = new Map([
     [ClauseName.Insert, (tokens, displayName) => renderTokens(tokens, '', false, undefined, displayName)],
     [ClauseName.InsertInto, (tokens, displayName) => renderTokens(tokens, '', false, undefined, displayName)],
     [ClauseName.Values, (tokens, displayName) => renderTokens(tokens, '', true, undefined, displayName)],
+    // UPDATE t1 JOIN t2 ON ... (multi-table update) korzysta z tej samej logiki co FROM/JOIN
+    [ClauseName.Update, (tokens) => formatTableRef(tokens, 'UPDATE')],
+    // przypisania w SET rozdzielone przecinkiem ze spacją (looseCommas), bez łamania na osobne linie (jak VALUES)
+    [ClauseName.Set, (tokens, displayName) => renderTokens(tokens, '', true, undefined, displayName)],
+    // DELETE (ew. z aliasami tabel przy multi-table delete) - dalszy ciąg to osobno rozpoznana klauzula FROM
+    [ClauseName.Delete, (tokens, displayName) => renderTokens(tokens, '', false, undefined, displayName)],
 ]);
 
 const SET_OPERATOR_WORDS = new Set(['UNION', 'INTERSECT', 'EXCEPT']);
