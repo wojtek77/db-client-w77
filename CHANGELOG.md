@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.3.2
+
+### Fixed
+- SQL tokenizer (`src/sql/tokenizer.ts`): block comments (`/* ... */`) were not
+  recognized as a token at all, so any word inside one (e.g. `select`) could be
+  mistaken by the formatter for a real clause keyword and corrupt the whole
+  output. `/* ... */` is now tokenized as a single `comment` token, consistent
+  with the existing `--` and `#` handling; an unterminated `/* ...` consumes
+  the rest of the input instead of erroring, matching the tokenizer's existing
+  convention for unterminated strings/comments.
+- SQL tokenizer: a doubled quote/backtick inside a `'...'`, `"..."` or
+  `` `...` `` literal (e.g. `'it''s ok'`) was treated as the end of the
+  literal instead of an escaped character, splitting one literal into two
+  tokens. `'`/`"` literals also now support backslash-escaping (`'it\'s ok'`),
+  matching default MySQL/MariaDB behavior.
+- SQL formatter (`formatSqlCommand.ts`): `UNION`/`INTERSECT`/`EXCEPT` were not
+  recognized as statement separators, so the operator got silently appended to
+  the end of the first statement's `FROM` clause instead of separating the two
+  statements. Each side of `UNION`/`UNION ALL`/`INTERSECT`/`EXCEPT` (detected
+  at the top nesting level only, so one inside a subquery is left alone) is
+  now formatted independently, with the operator on its own line between them.
+- SQL formatter: `UPDATE`, `SET` and `DELETE` are now recognized clauses
+  instead of falling through as unformatted text - closes the "not yet
+  formatted as proper clauses" limitation noted in 0.2.26. `UPDATE` (including
+  multi-table `UPDATE ... JOIN ...`) reuses the same JOIN-aware formatting as
+  `FROM`; `SET` assignments now get `", "` spacing instead of `,`; `DELETE`
+  handles both the common `DELETE FROM t` form and the multi-table
+  `DELETE t1 FROM t1 JOIN t2 ...` form.
+- SQL formatter: window function syntax (`OVER (...)`) was left entirely
+  lowercase, including `PARTITION BY`/`ORDER BY` inside it. `OVER` is now
+  uppercased, and its parenthesized contents get their own keyword set
+  (`PARTITION`, `BY`, `ORDER`, `ASC`, `DESC`, `NULLS`, `FIRST`, `LAST`) that
+  only applies inside that context. `NULLS FIRST`/`NULLS LAST` are also now
+  uppercased in a regular top-level `ORDER BY`.
+
+### Tests
+- Added regression coverage in `formatSqlCommand.test.ts` for all of the
+  above: keywords inside block comments not breaking clause detection,
+  single-line/multi-line/unterminated block comments, doubled and
+  backslash-escaped quotes in strings and a doubled backtick in an
+  identifier, `UNION`/`UNION ALL`/`INTERSECT`/`EXCEPT` (including a nested
+  one inside a subquery not being split), `UPDATE`/`SET`/`DELETE` with and
+  without `WHERE`/`JOIN`, and window functions with/without `PARTITION BY`,
+  empty `OVER ()`, `NULLS FIRST`/`LAST`, and identifiers like `over_col` /
+  `partition_col` staying untouched outside a window context.
+
 ## 0.3.1
 
 ### Fixed
