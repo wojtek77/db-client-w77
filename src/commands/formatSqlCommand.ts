@@ -16,18 +16,15 @@ export async function formatSqlCommand(): Promise<void> {
     await editor.edit(eb => eb.replace(selection, formatted));
 }
 
-// słowa kluczowe zawsze wielkimi literami; celowo bez słów 'strukturalnych' (SELECT/FROM/WHERE...), bo te renderuje osobno formatSql jako nagłówki klauzul
-const KEYWORDS = new Set([
+// słowa zastrzeżone są zawsze wielkimi literami, bez kontekstowości - nieocudzysłowione słowo zastrzeżone jako nazwa kolumny/tabeli i tak nie jest poprawnym SQL-em (wymagałoby `` `backtickow` ``)
+// jedyny wyjątek to zawartość '', "", `` oraz komentarzy (-- # /* */) - te są renderowane bez zmian, patrz renderTokens
+const reservedWords = new Set([
+    'SELECT', 'FROM', 'WHERE', 'HAVING', 'LIMIT', 'GROUP', 'BY', 'ORDER', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
     'AND', 'OR', 'NOT', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER', 'CROSS', 'ON',
     'IN', 'AS', 'IS', 'LIKE', 'BETWEEN', 'EXISTS', 'DISTINCT', 'UNION', 'ALL',
     'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'NULL', 'TRUE', 'FALSE', 'OVER',
+    'ASC', 'DESC', 'PARTITION',
 ]);
-
-// ASC/DESC/NULLS FIRST/LAST są wielkimi literami tylko w ORDER BY / GROUP BY, w innych klauzulach mogą być nazwą kolumny (np. WHERE asc = 1)
-const ORDER_GROUP_EXTRA_KEYWORDS = new Set(['ASC', 'DESC', 'NULLS', 'FIRST', 'LAST']);
-
-// dodatkowe słowa kluczowe tylko wewnątrz OVER (...) (funkcje okienkowe) - PARTITION/BY/ORDER poza tym kontekstem to zwykłe słowa (np. nazwy kolumn albo klauzula ORDER BY renderowana osobno)
-const WINDOW_EXTRA_KEYWORDS = new Set(['PARTITION', 'BY', 'ORDER', 'ASC', 'DESC', 'NULLS', 'FIRST', 'LAST']);
 
 interface AppendOptions {
     looseCommas?: boolean;
@@ -47,19 +44,19 @@ function appendTok(out: string, val: string, opts: AppendOptions = {}): string {
     return out + ' ' + val;
 }
 
-function renderWord(value: string, extraKeywords?: Set<string>): string {
+function renderWord(value: string): string {
     if (/^[A-Za-z_]+$/.test(value)) {
         const upper = value.toUpperCase();
-        if (KEYWORDS.has(upper) || (extraKeywords && extraKeywords.has(upper))) { return upper; }
+        if (reservedWords.has(upper)) { return upper; }
     }
     return value;
 }
 
 // renderuje listę tokenów do tekstu – looseCommas steruje spacją po przecinku (przekazywane jawnie, bo nie da się tego wywnioskować z głębokości nawiasów)
-// extraKeywords to dodatkowe słowa kluczowe tylko w tym wywołaniu (ASC/DESC); IN (...) z kilkoma krotkami rozbijane na wiele linii
+// IN (...) z kilkoma krotkami rozbijane na wiele linii
 // samodzielny komentarz zawsze zaczyna nową linię i zmusza też kolejny token do zaczęcia nowej linii (startNewLine)
 // initial to tekst już obecny w bieżącej linii (np. nagłówek klauzuli) – dzięki temu komentarz na starcie tokens też trafia w nową linię
-function renderTokens(tokens: Token[], indent: string, looseCommas = false, extraKeywords?: Set<string>, initial = ''): string {
+function renderTokens(tokens: Token[], indent: string, looseCommas = false, initial = ''): string {
     let out = initial;
     let i = 0;
     let startNewLine = false;
@@ -83,10 +80,10 @@ function renderTokens(tokens: Token[], indent: string, looseCommas = false, extr
             continue;
         }
 
-        // funkcja okienkowa OVER (...) - wnętrze (PARTITION BY / ORDER BY / NULLS FIRST|LAST) dostaje własny zestaw extraKeywords, bo poza tym kontekstem te słowa nie są keywordami
+        // funkcja okienkowa OVER (...) - wnętrze (PARTITION BY / ORDER BY) renderowane tak samo jak reszta, bez własnego kontekstu
         if (t.type === 'word' && t.value.toUpperCase() === 'OVER' && tokens[i + 1]?.type === 'lparen') {
             const [inner, endIdx] = extractParenGroup(tokens, i + 1);
-            const rendered = 'OVER (' + renderTokens(inner, indent, true, WINDOW_EXTRA_KEYWORDS) + ')';
+            const rendered = 'OVER (' + renderTokens(inner, indent, true) + ')';
             append(rendered, { looseCommas });
             i = endIdx + 1;
             continue;
@@ -102,7 +99,7 @@ function renderTokens(tokens: Token[], indent: string, looseCommas = false, extr
                 append('IN', { looseCommas });
                 out += ' (\n';
                 groups.forEach((g, idx) => {
-                    out += indent + '\t' + renderTokens(g, indent + '\t', true, extraKeywords);
+                    out += indent + '\t' + renderTokens(g, indent + '\t', true);
                     out += idx < groups.length - 1 ? ',\n' : '\n';
                 });
                 out += indent + ')';
@@ -118,7 +115,7 @@ function renderTokens(tokens: Token[], indent: string, looseCommas = false, extr
             const hasTopComma = splitTopLevelByComma(inner).length > 1;
 
             if (followedByIn && hasTopComma) {
-                const rendered = '(' + renderTokens(inner, indent, true, extraKeywords) + ')';
+                const rendered = '(' + renderTokens(inner, indent, true) + ')';
                 append(rendered, { looseCommas, forceSpaceBefore: t.spaceBefore });
                 i = endIdx + 1;
                 continue;
@@ -129,7 +126,7 @@ function renderTokens(tokens: Token[], indent: string, looseCommas = false, extr
             continue;
         }
 
-        const val = t.type === 'word' ? renderWord(t.value, extraKeywords) : t.value;
+        const val = t.type === 'word' ? renderWord(t.value) : t.value;
         append(val, { looseCommas });
         i++;
     }
@@ -390,18 +387,18 @@ const CLAUSE_FORMATTERS: Map<ClauseName, ClauseFormatter> = new Map([
     [ClauseName.From, (tokens) => formatTableRef(tokens, 'FROM')],
     [ClauseName.Where, (tokens) => formatWhereLike(tokens, 'WHERE')],
     [ClauseName.Having, (tokens) => formatWhereLike(tokens, 'HAVING')],
-    [ClauseName.GroupBy, (tokens, displayName) => renderTokens(tokens, '', true, ORDER_GROUP_EXTRA_KEYWORDS, displayName)],
-    [ClauseName.OrderBy, (tokens, displayName) => renderTokens(tokens, '', true, ORDER_GROUP_EXTRA_KEYWORDS, displayName)],
-    [ClauseName.Limit, (tokens, displayName) => renderTokens(tokens, '', true, undefined, displayName)],
-    [ClauseName.Insert, (tokens, displayName) => renderTokens(tokens, '', false, undefined, displayName)],
-    [ClauseName.InsertInto, (tokens, displayName) => renderTokens(tokens, '', false, undefined, displayName)],
-    [ClauseName.Values, (tokens, displayName) => renderTokens(tokens, '', true, undefined, displayName)],
+    [ClauseName.GroupBy, (tokens, displayName) => renderTokens(tokens, '', true, displayName)],
+    [ClauseName.OrderBy, (tokens, displayName) => renderTokens(tokens, '', true, displayName)],
+    [ClauseName.Limit, (tokens, displayName) => renderTokens(tokens, '', true, displayName)],
+    [ClauseName.Insert, (tokens, displayName) => renderTokens(tokens, '', false, displayName)],
+    [ClauseName.InsertInto, (tokens, displayName) => renderTokens(tokens, '', false, displayName)],
+    [ClauseName.Values, (tokens, displayName) => renderTokens(tokens, '', true, displayName)],
     // UPDATE t1 JOIN t2 ON ... (multi-table update) korzysta z tej samej logiki co FROM/JOIN
     [ClauseName.Update, (tokens) => formatTableRef(tokens, 'UPDATE')],
     // przypisania w SET rozdzielone przecinkiem ze spacją (looseCommas), bez łamania na osobne linie (jak VALUES)
-    [ClauseName.Set, (tokens, displayName) => renderTokens(tokens, '', true, undefined, displayName)],
+    [ClauseName.Set, (tokens, displayName) => renderTokens(tokens, '', true, displayName)],
     // DELETE (ew. z aliasami tabel przy multi-table delete) - dalszy ciąg to osobno rozpoznana klauzula FROM
-    [ClauseName.Delete, (tokens, displayName) => renderTokens(tokens, '', false, undefined, displayName)],
+    [ClauseName.Delete, (tokens, displayName) => renderTokens(tokens, '', false, displayName)],
 ]);
 
 const SET_OPERATOR_WORDS = new Set(['UNION', 'INTERSECT', 'EXCEPT']);

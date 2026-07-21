@@ -40,10 +40,9 @@ suite('formatSql - ASC/DESC casing', () => {
         assert.ok(result.endsWith('descripcion ASC'));
     });
 
-    test('does not uppercase asc/desc outside of ORDER BY / GROUP BY (e.g. plain WHERE column)', () => {
-        // "asc"/"desc" jako nazwa kolumny w innej klauzuli nie powinny być tykane
+    test('uppercases asc/desc even outside of ORDER BY / GROUP BY (no context sensitivity - unquoted reserved words are not valid identifiers anyway)', () => {
         const result = formatSql("select id from t where asc = 1");
-        assert.ok(result.includes('WHERE asc = 1'));
+        assert.ok(result.includes('WHERE ASC = 1'));
     });
 
     test('uppercases desc/asc glued directly to a trailing semicolon (no space before ;)', () => {
@@ -93,14 +92,14 @@ suite('formatSql - BETWEEN ... AND (not a clause boundary)', () => {
 });
 
 suite('formatSql - consistent uppercasing of remaining keywords', () => {
-    test('uppercase DISTINCT, AS, IS NULL, LIKE, IN, NOT EXISTS at once', () => {
+    test('uppercase DISTINCT, AS, IS NULL, LIKE, IN, NOT EXISTS at once (including SELECT/FROM inside a subquery)', () => {
         assert.strictEqual(
             formatSql(
                 "select distinct id as user_id from users where deleted_at is null " +
                 "and name like 'a%' and id in (1,2) and not exists (select 1 from x)",
             ),
             'SELECT DISTINCT id AS user_id\nFROM users\nWHERE deleted_at IS NULL\n' +
-            "\tAND name LIKE 'a%'\n\tAND id IN (1,2)\n\tAND NOT EXISTS (select 1 from x)",
+            "\tAND name LIKE 'a%'\n\tAND id IN (1,2)\n\tAND NOT EXISTS (SELECT 1 FROM x)",
         );
     });
 
@@ -331,7 +330,7 @@ suite('formatSql - UNION / INTERSECT / EXCEPT split each statement onto its own 
     test('a UNION inside a subquery (deeper nesting) is not treated as a top-level statement boundary', () => {
         assert.strictEqual(
             formatSql('select * from (select a from t1 union select b from t2) x'),
-            'SELECT *\nFROM (select a from t1 UNION select b from t2) x',
+            'SELECT *\nFROM (SELECT a FROM t1 UNION SELECT b FROM t2) x',
         );
     });
 });
@@ -402,21 +401,21 @@ suite('formatSql - window functions (OVER / PARTITION BY) and NULLS FIRST/LAST',
         );
     });
 
-    test('uppercases NULLS LAST/FIRST in a top-level ORDER BY', () => {
+    test('does not uppercase NULLS/FIRST/LAST - not reserved words (this syntax does not even exist in MariaDB)', () => {
         assert.strictEqual(
             formatSql('select id from t order by id desc nulls last'),
-            'SELECT id\nFROM t\nORDER BY id DESC NULLS LAST',
+            'SELECT id\nFROM t\nORDER BY id DESC nulls last',
         );
         assert.strictEqual(
             formatSql('select id from t order by id nulls first'),
-            'SELECT id\nFROM t\nORDER BY id NULLS FIRST',
+            'SELECT id\nFROM t\nORDER BY id nulls first',
         );
     });
 
-    test('uppercases NULLS LAST inside a window function ORDER BY', () => {
+    test('does not uppercase NULLS/LAST inside a window function ORDER BY', () => {
         assert.strictEqual(
             formatSql('select id, lag(id) over (order by id nulls last) as prev from t'),
-            'SELECT id, lag(id) OVER (ORDER BY id NULLS LAST) AS prev\nFROM t',
+            'SELECT id, lag(id) OVER (ORDER BY id nulls last) AS prev\nFROM t',
         );
     });
 
