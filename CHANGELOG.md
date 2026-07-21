@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.3.0
+
+### Changed
+- Extracted the SQL tokenizer out of `formatSqlCommand.ts` into a shared
+  `src/sql/tokenizer.ts` module (`tokenize`, `computeDepths`,
+  `currentDepth`, `extractParenGroup`, `splitTopLevelByComma`), so it can
+  be reused by the completion providers instead of being duplicated.
+- `CompletionSelect.ts`: clause detection (SELECT/FROM/WHERE/GROUP BY/
+  HAVING/ORDER BY/LIMIT) now scans SQL tokens at the cursor's nesting
+  depth instead of comparing `lastIndexOf` positions on the raw text.
+- `CompletionDelete.ts` / `CompletionUpdate.ts`: the WHERE / SET /
+  JOIN...ON context check (`isInColumnContext`) is now token-based for
+  the same reason. `CompletionInsert.ts` and `CompletionReplace.ts` were
+  left untouched - they rely on locally anchored regexes with no
+  equivalent issue.
+
+### Fixed
+- `lastIndexOf`-based clause detection could be fooled by a clause
+  keyword appearing as a substring inside an identifier, silently
+  breaking autocomplete in real queries, e.g.:
+  - `SELECT` completion: a column like `transform_flag` or
+    `limit_reached` in a `WHERE` clause was mistaken for a new `FROM` or
+    `LIMIT` clause, making suggestions disappear entirely or fall back
+    to `LIMIT`'s numeric-only values.
+  - `DELETE` completion: a column like `from_date` in `WHERE` was
+    mistaken for `FROM`, breaking column suggestions.
+  - `UPDATE` completion: a column like `reset_password` in `WHERE` was
+    mistaken for `SET`.
+- `SELECT` completion: clause detection was always evaluated at the
+  top-level nesting depth, so a clause keyword inside a subquery (e.g.
+  its own `WHERE`) could be confused with a clause belonging to the
+  outer query. Detection now uses the nesting depth at the cursor.
+
+### Tests
+- Added regression tests for all of the above (`Completion.test.ts`,
+  `CompletionDelete.test.ts`, `CompletionUpdate.test.ts`).
+- `formatSqlCommand.test.ts` continues to pass unchanged against the
+  extracted tokenizer (no behavior change there).
+
 ## 0.2.31
 
 ### Fixed

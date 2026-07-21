@@ -3,7 +3,7 @@
   "displayName": "MariaDB & MySQL Database Client",
   "description": "Fast MariaDB & MySQL client for VS Code with SQL autocomplete, IntelliSense, schema explorer, query execution, data editing and SQL formatting.",
   "publisher": "W77",
-  "version": "0.2.31",
+  "version": "0.3.0",
   "license": "GPL-2.0-only",
   "icon": "DB-client.png",
   "engines": {
