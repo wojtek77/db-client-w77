@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.3
+
+### Changed
+- SQL formatter (`formatSqlCommand.ts`): reserved words are now uppercased
+  unconditionally, with no context sensitivity - previously `ASC`/`DESC`/
+  `PARTITION`/`BY` were only uppercased inside `ORDER BY`/`GROUP BY`/
+  `OVER (...)`, and clause words like `SELECT`/`FROM`/`WHERE`/`INSERT`/
+  `UPDATE`/`DELETE` were left untouched inside subqueries. The three
+  separate keyword sets (`KEYWORDS`, `ORDER_GROUP_EXTRA_KEYWORDS`,
+  `WINDOW_EXTRA_KEYWORDS`) are merged into a single `reservedWords` set, and
+  the `extraKeywords` parameter threaded through `renderWord`/`renderTokens`
+  is removed. An unquoted reserved word used as an identifier isn't valid
+  SQL to begin with (it would require backtick-quoting), so the old
+  context-sensitivity added complexity without real benefit.
+- `NULLS`/`FIRST`/`LAST` are no longer treated as reserved words at all -
+  they're plain English words that can legitimately be column names, and
+  the `NULLS FIRST`/`NULLS LAST` syntax they belonged to doesn't exist in
+  MariaDB.
+- String/backtick literals (`'...'`, `"..."`, `` `...` ``) and comments
+  (`--`, `#`, `/* ... */`) are still never touched, same as before.
+
+### Tests
+- Updated the 5 existing tests in `formatSqlCommand.test.ts` that asserted
+  the old context-sensitive behavior (`WHERE asc = 1`, `NOT EXISTS (select
+  1 from x)` inside a subquery, `UNION` inside a subquery, and `NULLS
+  FIRST`/`NULLS LAST`) to reflect the new, intended behavior.
+
 ## 0.3.2
 
 ### Fixed
