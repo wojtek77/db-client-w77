@@ -283,3 +283,55 @@ suite('formatSql - escaped quotes inside string/identifier literals', () => {
         );
     });
 });
+
+suite('formatSql - UNION / INTERSECT / EXCEPT split each statement onto its own block', () => {
+    // bug: UNION nie było granicą klauzuli, więc doklejało się na koniec FROM pierwszego zapytania zamiast rozdzielać dwa SELECT-y
+    test('splits a plain UNION into two independently formatted statements', () => {
+        assert.strictEqual(
+            formatSql('select a from t1 union select b from t2'),
+            'SELECT a\nFROM t1\nUNION\nSELECT b\nFROM t2',
+        );
+    });
+
+    test('keeps UNION ALL together as one operator on its own line', () => {
+        assert.strictEqual(
+            formatSql('select a from t1 union all select b from t2'),
+            'SELECT a\nFROM t1\nUNION ALL\nSELECT b\nFROM t2',
+        );
+    });
+
+    test('handles three statements chained by UNION', () => {
+        assert.strictEqual(
+            formatSql('select a from t1 union select b from t2 union select c from t3'),
+            'SELECT a\nFROM t1\nUNION\nSELECT b\nFROM t2\nUNION\nSELECT c\nFROM t3',
+        );
+    });
+
+    test('handles INTERSECT', () => {
+        assert.strictEqual(
+            formatSql('select a from t1 intersect select b from t2'),
+            'SELECT a\nFROM t1\nINTERSECT\nSELECT b\nFROM t2',
+        );
+    });
+
+    test('handles EXCEPT', () => {
+        assert.strictEqual(
+            formatSql('select a from t1 except select b from t2'),
+            'SELECT a\nFROM t1\nEXCEPT\nSELECT b\nFROM t2',
+        );
+    });
+
+    test('formats WHERE and ORDER BY correctly on both sides of a UNION', () => {
+        assert.strictEqual(
+            formatSql('select a from t1 where a > 1 union select b from t2 where b < 5 order by b'),
+            'SELECT a\nFROM t1\nWHERE a > 1\nUNION\nSELECT b\nFROM t2\nWHERE b < 5\nORDER BY b',
+        );
+    });
+
+    test('a UNION inside a subquery (deeper nesting) is not treated as a top-level statement boundary', () => {
+        assert.strictEqual(
+            formatSql('select * from (select a from t1 union select b from t2) x'),
+            'SELECT *\nFROM (select a from t1 UNION select b from t2) x',
+        );
+    });
+});

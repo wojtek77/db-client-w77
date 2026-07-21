@@ -379,9 +379,39 @@ const CLAUSE_FORMATTERS: Map<ClauseName, ClauseFormatter> = new Map([
     [ClauseName.Values, (tokens, displayName) => renderTokens(tokens, '', true, undefined, displayName)],
 ]);
 
-// formatuje SQL: słowa kluczowe wielkimi literami, kolumny SELECT pakowane do SELECT_MAX_WIDTH, JOIN-y bez wcięcia, WHERE/HAVING łączone AND/OR
-export function formatSql(sql: string): string {
-    const tokens = tokenize(sql);
+const SET_OPERATOR_WORDS = new Set(['UNION', 'INTERSECT', 'EXCEPT']);
+const SET_OPERATOR_MODIFIERS = new Set(['ALL', 'DISTINCT']);
+
+// dzieli tokeny na osobne zapytania (statementy) wg UNION/INTERSECT/EXCEPT na najwyższym poziomie zagnieżdżenia
+// operatorBefore to tekst operatora poprzedzającego dany segment (np. 'UNION ALL'), null dla pierwszego segmentu
+function splitBySetOperator(tokens: Token[]): { segment: Token[]; operatorBefore: string | null }[] {
+    const depths = computeDepths(tokens);
+    const result: { segment: Token[]; operatorBefore: string | null }[] = [];
+    let cur: Token[] = [];
+    let pendingOperator: string | null = null;
+
+    for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (depths[i] === 0 && t.type === 'word' && SET_OPERATOR_WORDS.has(t.value.toUpperCase())) {
+            result.push({ segment: cur, operatorBefore: pendingOperator });
+            cur = [];
+            let opText = t.value.toUpperCase();
+            const next = tokens[i + 1];
+            if (next?.type === 'word' && SET_OPERATOR_MODIFIERS.has(next.value.toUpperCase())) {
+                opText += ' ' + next.value.toUpperCase();
+                i++;
+            }
+            pendingOperator = opText;
+            continue;
+        }
+        cur.push(t);
+    }
+    result.push({ segment: cur, operatorBefore: pendingOperator });
+    return result;
+}
+
+// formatuje pojedynczy statement (jeden SELECT/INSERT/... bez UNION/INTERSECT/EXCEPT) rozbijając go na klauzule
+function formatStatement(tokens: Token[]): string {
     const clauses = segmentClauses(tokens);
     const out: string[] = [];
 
@@ -393,4 +423,19 @@ export function formatSql(sql: string): string {
     }
 
     return out.join('\n');
+}
+
+// formatuje SQL: słowa kluczowe wielkimi literami, kolumny SELECT pakowane do SELECT_MAX_WIDTH, JOIN-y bez wcięcia, WHERE/HAVING łączone AND/OR
+// UNION/INTERSECT/EXCEPT dzielą zapytanie na osobne statementy formatowane niezależnie, z operatorem na własnej linii pomiędzy nimi
+export function formatSql(sql: string): string {
+    const tokens = tokenize(sql);
+    const segments = splitBySetOperator(tokens);
+
+    const parts: string[] = [];
+    for (const { segment, operatorBefore } of segments) {
+        if (operatorBefore) { parts.push(operatorBefore); }
+        parts.push(formatStatement(segment));
+    }
+
+    return parts.join('\n');
 }
