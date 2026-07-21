@@ -379,3 +379,58 @@ suite('formatSql - UPDATE / SET / DELETE are now recognized clauses', () => {
         );
     });
 });
+
+suite('formatSql - window functions (OVER / PARTITION BY) and NULLS FIRST/LAST', () => {
+    test('uppercases OVER/PARTITION BY/ORDER BY inside a window function', () => {
+        assert.strictEqual(
+            formatSql('select id, row_number() over (partition by dept order by salary desc) as rn from emp'),
+            'SELECT id, row_number() OVER (PARTITION BY dept ORDER BY salary DESC) AS rn\nFROM emp',
+        );
+    });
+
+    test('handles a window function with ORDER BY but no PARTITION BY', () => {
+        assert.strictEqual(
+            formatSql('select id, rank() over (order by salary desc) as r from emp'),
+            'SELECT id, rank() OVER (ORDER BY salary DESC) AS r\nFROM emp',
+        );
+    });
+
+    test('handles an empty OVER ()', () => {
+        assert.strictEqual(
+            formatSql('select id, sum(salary) over () as total from emp'),
+            'SELECT id, sum(salary) OVER () AS total\nFROM emp',
+        );
+    });
+
+    test('uppercases NULLS LAST/FIRST in a top-level ORDER BY', () => {
+        assert.strictEqual(
+            formatSql('select id from t order by id desc nulls last'),
+            'SELECT id\nFROM t\nORDER BY id DESC NULLS LAST',
+        );
+        assert.strictEqual(
+            formatSql('select id from t order by id nulls first'),
+            'SELECT id\nFROM t\nORDER BY id NULLS FIRST',
+        );
+    });
+
+    test('uppercases NULLS LAST inside a window function ORDER BY', () => {
+        assert.strictEqual(
+            formatSql('select id, lag(id) over (order by id nulls last) as prev from t'),
+            'SELECT id, lag(id) OVER (ORDER BY id NULLS LAST) AS prev\nFROM t',
+        );
+    });
+
+    test('does not touch identifiers like over_col/partition_col outside a window context', () => {
+        assert.strictEqual(
+            formatSql('select over_col, partition_col from t where over_col = 1'),
+            'SELECT over_col, partition_col\nFROM t\nWHERE over_col = 1',
+        );
+    });
+
+    test('handles multiple window functions in the same SELECT list', () => {
+        assert.strictEqual(
+            formatSql('select a, sum(a) over (partition by b) as s1, avg(a) over (partition by c order by d) as s2 from t'),
+            'SELECT a, sum(a) OVER (PARTITION BY b) AS s1, avg(a) OVER (PARTITION BY c ORDER BY d) AS s2\nFROM t',
+        );
+    });
+});

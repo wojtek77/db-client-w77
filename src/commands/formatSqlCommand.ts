@@ -20,11 +20,14 @@ export async function formatSqlCommand(): Promise<void> {
 const KEYWORDS = new Set([
     'AND', 'OR', 'NOT', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER', 'CROSS', 'ON',
     'IN', 'AS', 'IS', 'LIKE', 'BETWEEN', 'EXISTS', 'DISTINCT', 'UNION', 'ALL',
-    'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'NULL', 'TRUE', 'FALSE',
+    'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'NULL', 'TRUE', 'FALSE', 'OVER',
 ]);
 
-// ASC/DESC są wielkimi literami tylko w ORDER BY / GROUP BY, w innych klauzulach mogą być nazwą kolumny (np. WHERE asc = 1)
-const ORDER_GROUP_EXTRA_KEYWORDS = new Set(['ASC', 'DESC']);
+// ASC/DESC/NULLS FIRST/LAST są wielkimi literami tylko w ORDER BY / GROUP BY, w innych klauzulach mogą być nazwą kolumny (np. WHERE asc = 1)
+const ORDER_GROUP_EXTRA_KEYWORDS = new Set(['ASC', 'DESC', 'NULLS', 'FIRST', 'LAST']);
+
+// dodatkowe słowa kluczowe tylko wewnątrz OVER (...) (funkcje okienkowe) - PARTITION/BY/ORDER poza tym kontekstem to zwykłe słowa (np. nazwy kolumn albo klauzula ORDER BY renderowana osobno)
+const WINDOW_EXTRA_KEYWORDS = new Set(['PARTITION', 'BY', 'ORDER', 'ASC', 'DESC', 'NULLS', 'FIRST', 'LAST']);
 
 interface AppendOptions {
     looseCommas?: boolean;
@@ -77,6 +80,15 @@ function renderTokens(tokens: Token[], indent: string, looseCommas = false, extr
             out = out === '' ? t.value : out + '\n' + indent + t.value;
             startNewLine = true;
             i++;
+            continue;
+        }
+
+        // funkcja okienkowa OVER (...) - wnętrze (PARTITION BY / ORDER BY / NULLS FIRST|LAST) dostaje własny zestaw extraKeywords, bo poza tym kontekstem te słowa nie są keywordami
+        if (t.type === 'word' && t.value.toUpperCase() === 'OVER' && tokens[i + 1]?.type === 'lparen') {
+            const [inner, endIdx] = extractParenGroup(tokens, i + 1);
+            const rendered = 'OVER (' + renderTokens(inner, indent, true, WINDOW_EXTRA_KEYWORDS) + ')';
+            append(rendered, { looseCommas });
+            i = endIdx + 1;
             continue;
         }
 
