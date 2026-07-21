@@ -52,7 +52,14 @@ export function tokenize(sql: string): Token[] {
 
         if (ch === "'") {
             let j = i + 1;
-            while (j < n && sql[j] !== "'") { j++; }
+            while (j < n) {
+                // backslash escapuje dowolny następny znak (domyślne zachowanie MySQL/MariaDB, np. 'it\'s')
+                if (sql[j] === '\\' && j + 1 < n) { j += 2; continue; }
+                // podwojony apostrof to escapowany apostrof w środku stringa (standard SQL, np. 'it''s'), a nie koniec tokena
+                if (sql[j] === "'" && sql[j + 1] === "'") { j += 2; continue; }
+                if (sql[j] === "'") { break; }
+                j++;
+            }
             j++; // domykający apostrof
             tokens.push({ type: 'string', value: sql.slice(i, j), start });
             i = j; sawSpace = false; continue;
@@ -60,7 +67,12 @@ export function tokenize(sql: string): Token[] {
 
         if (ch === '"') {
             let j = i + 1;
-            while (j < n && sql[j] !== '"') { j++; }
+            while (j < n) {
+                if (sql[j] === '\\' && j + 1 < n) { j += 2; continue; }
+                if (sql[j] === '"' && sql[j + 1] === '"') { j += 2; continue; }
+                if (sql[j] === '"') { break; }
+                j++;
+            }
             j++; // domykający cudzysłów
             tokens.push({ type: 'string', value: sql.slice(i, j), start });
             i = j; sawSpace = false; continue;
@@ -68,7 +80,12 @@ export function tokenize(sql: string): Token[] {
 
         if (ch === '`') {
             let j = i + 1;
-            while (j < n && sql[j] !== '`') { j++; }
+            while (j < n) {
+                // podwojony backtick to escapowany backtick w nazwie identyfikatora (np. `a``b`), bez backslash-escape (MySQL tego tu nie stosuje)
+                if (sql[j] === '`' && sql[j + 1] === '`') { j += 2; continue; }
+                if (sql[j] === '`') { break; }
+                j++;
+            }
             j++; // domykający backtick
             tokens.push({ type: 'string', value: sql.slice(i, j), start });
             i = j; sawSpace = false; continue;

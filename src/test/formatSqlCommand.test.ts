@@ -245,3 +245,41 @@ suite('formatSql - block comments (/* ... */)', () => {
         );
     });
 });
+
+suite('formatSql - escaped quotes inside string/identifier literals', () => {
+    // bug: apostrof podwojony w środku stringa ('it''s') był mylony z końcem tokena, co rozbijało string na dwa osobne tokeny
+    test('a doubled single quote inside a string is an escaped quote, not the end of the string', () => {
+        assert.strictEqual(
+            formatSql("select id from t where note = 'it''s ok'"),
+            "SELECT id\nFROM t\nWHERE note = 'it''s ok'",
+        );
+    });
+
+    test('a backslash-escaped single quote inside a string is not the end of the string', () => {
+        assert.strictEqual(
+            formatSql("select id from t where note = 'it\\'s ok'"),
+            "SELECT id\nFROM t\nWHERE note = 'it\\'s ok'",
+        );
+    });
+
+    test('a doubled double quote inside a double-quoted string is an escaped quote', () => {
+        assert.strictEqual(
+            formatSql('select id from t where note = "she said ""hi"""'),
+            'SELECT id\nFROM t\nWHERE note = "she said ""hi"""',
+        );
+    });
+
+    test('a doubled backtick inside a backtick identifier is an escaped backtick', () => {
+        assert.strictEqual(
+            formatSql('select `a``b` from t'),
+            'SELECT `a``b`\nFROM t',
+        );
+    });
+
+    test('an unterminated string ending in a lone backslash does not throw', () => {
+        assert.strictEqual(
+            formatSql("select id from t where note = 'abc\\"),
+            "SELECT id\nFROM t\nWHERE note = 'abc\\",
+        );
+    });
+});
