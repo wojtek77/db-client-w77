@@ -9,7 +9,7 @@ export interface Token {
     spaceBefore?: boolean;
 }
 
-// zamienia tekst SQL na listę tokenów – komentarze (-- oraz #), literały ('...', "...") i identyfikatory w `...` to pojedyncze tokeny, nigdy nie analizowane
+// zamienia tekst SQL na listę tokenów – komentarze (-- , # oraz /* */), literały ('...', "...") i identyfikatory w `...` to pojedyncze tokeny, nigdy nie analizowane
 // wejście może być urwane w dowolnym miejscu (np. sqlBeforeCursor przy podpowiedziach) - niedomknięty string/komentarz nie wywala błędu, po prostu konsumuje resztę tekstu jako jeden token
 export function tokenize(sql: string): Token[] {
     const tokens: Token[] = [];
@@ -38,6 +38,15 @@ export function tokenize(sql: string): Token[] {
             let j = i;
             while (j < n && sql[j] !== '\n') { j++; }
             tokens.push({ type: 'comment', value: sql.slice(i, j).trimEnd(), start });
+            i = j; sawSpace = false; continue;
+        }
+
+        // komentarz blokowy /* ... */ - niedomknięty konsumuje resztę tekstu jako jeden token (zgodnie z konwencją reszty tokenizera)
+        if (ch === '/' && sql[i + 1] === '*') {
+            let j = i + 2;
+            while (j < n && !(sql[j] === '*' && sql[j + 1] === '/')) { j++; }
+            j = j < n ? j + 2 : n;
+            tokens.push({ type: 'comment', value: sql.slice(i, j), start });
             i = j; sawSpace = false; continue;
         }
 
@@ -75,6 +84,7 @@ export function tokenize(sql: string): Token[] {
             j < n &&
             !' \t\n\r,();'.includes(sql[j]) &&
             !(sql[j] === '-' && sql[j + 1] === '-') &&
+            !(sql[j] === '/' && sql[j + 1] === '*') &&
             sql[j] !== '#' &&
             sql[j] !== "'" && sql[j] !== '`' && sql[j] !== '"'
         ) { j++; }

@@ -209,3 +209,39 @@ suite('formatSql - standalone comments stay on their own lines', () => {
         );
     });
 });
+
+suite('formatSql - block comments (/* ... */)', () => {
+    // bug: /* */ nie było wcale tokenizowane, więc słowo kluczowe wewnątrz (np. "select") było mylone z granicą klauzuli
+    test('a keyword inside a block comment does not create a new clause boundary', () => {
+        assert.strictEqual(
+            formatSql('select id /* please and or select */ from t'),
+            'SELECT id\n\t/* please and or select */\nFROM t',
+        );
+    });
+
+    test('does not touch the content of a block comment', () => {
+        const result = formatSql('select id /* select from where */ from t');
+        assert.ok(result.includes('/* select from where */'));
+    });
+
+    test('a single-line block comment inside SELECT starts a new line, like -- and #', () => {
+        assert.strictEqual(
+            formatSql('select id, /* note */ name from t'),
+            'SELECT id,\n\t/* note */\n\tname\nFROM t',
+        );
+    });
+
+    test('a multi-line block comment is kept intact as one token', () => {
+        assert.strictEqual(
+            formatSql('select id,\n/* multi\nline comment */\nname from t'),
+            'SELECT id,\n\t/* multi\nline comment */\n\tname\nFROM t',
+        );
+    });
+
+    test('an unterminated block comment consumes the rest of the text instead of throwing', () => {
+        assert.strictEqual(
+            formatSql('select id from t /* unterminated'),
+            'SELECT id\nFROM t\n/* unterminated',
+        );
+    });
+});
