@@ -10,8 +10,8 @@ import { tokenize, computeDepths, currentDepth } from '../sql/tokenizer.js';
 const REGEX_UPDATE_SCHEMA_TABLE = /\b([\w]+)\.([\w]*)$/i;
 const REGEX_UPDATE_OBJECT = /\b([\w]*)$/i;
 
-// wyrażenie do wykrywania, czy kursor stoi bezpośrednio po aliasie i kropce, np. `s.|` lub `c.|`
-const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+)\.$/;
+// wyrażenie do wykrywania aliasu z kropką, np. `s.|` lub `c.|`, a także z częściowo wpisaną nazwą kolumny, np. `s.na|` lub `c.id|`
+const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+)\.(\w*)$/;
 
 // sprawdza, czy kursor jest w kontekście kolumnowym (SET, WHERE albo JOIN...ON), na głębokości zagnieżdżenia kursora
 // analogicznie do isInColumnContext w CompletionDelete.ts - JOIN resetuje kontekst z powrotem na "tabele" (kolejny alias po JOIN, przed jego własnym ON)
@@ -119,6 +119,7 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
             const aliasMatch = linePrefix.match(REGEX_ALIAS_DOT);
             if (aliasMatch) {
                 const alias = aliasMatch[1].toLowerCase();
+                const columnFilter = aliasMatch[2].toLowerCase();
                 let matchedTableRef: TableRef | undefined;
 
                 // szukamy w pełnym tekście zapytania, która tabela ma przypisany ten alias
@@ -145,8 +146,10 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
                 const cacheKey = this.tableColumnsService.getTableRefKey(matchedTableRef);
                 const columns = columnsMap[cacheKey] ?? [];
 
-                // zwracamy podpowiedzi kolumn dla tego aliasu
-                return columns.map((column: TableColumn) => this.createColumnItem(matchedTableRef!.table, column));
+                // zwracamy podpowiedzi kolumn dla tego aliasu, opcjonalnie przefiltrowane po już wpisanej części nazwy
+                return columns
+                    .filter((column: TableColumn) => !columnFilter || column.name.toLowerCase().includes(columnFilter))
+                    .map((column: TableColumn) => this.createColumnItem(matchedTableRef!.table, column));
             }
 
             // PRZYPADEK 1B: Kursor stoi w wolnym miejscu (np. `WHERE 0 and |`)
