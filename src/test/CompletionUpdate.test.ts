@@ -230,6 +230,54 @@ suite('CompletionUpdate — WHERE clause', () => {
     });
 });
 
+// regresja: REGEX_ALIAS_DOT łapał tylko kursor bezpośrednio po kropce (`c.|`), a nie po
+// częściowo/w pełni wpisanej nazwie kolumny (`c.id|`) - przez co "wpadał" do gałęzi wolnego
+// miejsca, gdzie filtr zawierał kropkę i nic nie pasowało (zero podpowiedzi)
+suite('CompletionUpdate — alias dot with a partially/fully typed column name', () => {
+
+    test('suggests columns after alias + full column name in JOIN...ON (c.id)', async () => {
+        const sql = 'UPDATE student s INNER JOIN client c ON c.id';
+        const items = await getCompletions(sql, sql.length, { getDatabase: () => 'public' }, {
+            'public.student': [makeColumn('client_id', 'int')],
+            'public.client':  [makeColumn('id', 'int', 'PRI'), makeColumn('agency_id', 'int')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),        'missing id after "c.id" in JOIN...ON');
+        assert.ok(labels.includes('agency_id'), 'missing agency_id after "c.id" in JOIN...ON');
+    });
+
+    test('filters columns after alias + partial column name in JOIN...ON (c.ag)', async () => {
+        const sql = 'UPDATE student s INNER JOIN client c ON c.ag';
+        const items = await getCompletions(sql, sql.length, { getDatabase: () => 'public' }, {
+            'public.student': [makeColumn('client_id', 'int')],
+            'public.client':  [makeColumn('id', 'int', 'PRI'), makeColumn('agency_id', 'int')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('agency_id'), 'missing agency_id for "c.ag" filter');
+        assert.ok(!labels.includes('id'),       'id should not match "c.ag" filter');
+    });
+
+    test('suggests columns after alias + full column name in SET (u.em)', async () => {
+        const sql = 'UPDATE users u SET u.em';
+        const items = await getCompletions(sql, sql.length, { getDatabase: () => 'public' }, {
+            'public.users': [makeColumn('id', 'int', 'PRI'), makeColumn('email', 'varchar')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('email'), 'missing email for "u.em" filter in SET');
+        assert.ok(!labels.includes('id'),   'id should not match "u.em" filter in SET');
+    });
+
+    test('suggests columns after alias + full column name in WHERE (u.id)', async () => {
+        const sql = 'UPDATE users u SET u.email = 1 WHERE u.id';
+        const items = await getCompletions(sql, sql.length, { getDatabase: () => 'public' }, {
+            'public.users': [makeColumn('id', 'int', 'PRI'), makeColumn('email', 'varchar')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),    'missing id after "u.id" in WHERE');
+        assert.ok(!labels.includes('email'), 'email should not match "u.id" filter in WHERE');
+    });
+});
+
 suite('CompletionUpdate — safety', () => {
 
     test('suggests nothing while inside an unterminated string literal', async () => {

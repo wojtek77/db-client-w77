@@ -182,6 +182,44 @@ suite('CompletionDelete — multi-table DELETE (comma-separated)', () => {
     });
 });
 
+// regresja: REGEX_ALIAS_DOT łapał tylko kursor bezpośrednio po kropce (`c.|`), a nie po
+// częściowo/w pełni wpisanej nazwie kolumny (`c.id|`) - przez co "wpadał" do gałęzi wolnego
+// miejsca, gdzie filtr zawierał kropkę i nic nie pasowało (zero podpowiedzi)
+suite('CompletionDelete — alias dot with a partially/fully typed column name', () => {
+
+    test('suggests columns after alias + full column name in JOIN...ON (c.id)', async () => {
+        const sql = 'DELETE s FROM student s JOIN client c ON c.id';
+        const items = await getCompletions(sql, sql.length, { getDatabase: () => 'public' }, {
+            'public.student': [makeColumn('client_id', 'int')],
+            'public.client':  [makeColumn('id', 'int', 'PRI'), makeColumn('agency_id', 'int')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),        'missing id after "c.id" in JOIN...ON');
+        assert.ok(labels.includes('agency_id'), 'missing agency_id after "c.id" in JOIN...ON');
+    });
+
+    test('filters columns after alias + partial column name in JOIN...ON (c.ag)', async () => {
+        const sql = 'DELETE s FROM student s JOIN client c ON c.ag';
+        const items = await getCompletions(sql, sql.length, { getDatabase: () => 'public' }, {
+            'public.student': [makeColumn('client_id', 'int')],
+            'public.client':  [makeColumn('id', 'int', 'PRI'), makeColumn('agency_id', 'int')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('agency_id'), 'missing agency_id for "c.ag" filter');
+        assert.ok(!labels.includes('id'),       'id should not match "c.ag" filter');
+    });
+
+    test('suggests columns after alias + full column name in WHERE (u.id)', async () => {
+        const sql = 'DELETE FROM users u WHERE u.id';
+        const items = await getCompletions(sql, sql.length, { getDatabase: () => 'public' }, {
+            'public.users': [makeColumn('id', 'int', 'PRI'), makeColumn('email', 'varchar')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),    'missing id after "u.id" in WHERE');
+        assert.ok(!labels.includes('email'), 'email should not match "u.id" filter in WHERE');
+    });
+});
+
 suite('CompletionDelete — safety', () => {
 
     test('suggests nothing while inside an unterminated string literal', async () => {
