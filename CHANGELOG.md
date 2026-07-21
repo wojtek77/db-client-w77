@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.1
+
+### Fixed
+- `CompletionUpdate.ts` / `CompletionDelete.ts`: no column suggestions
+  appeared when the cursor stood right after an alias dot with a
+  partially or fully typed column name already there (e.g. `c.id|` in
+  `... JOIN client c ON c.id`, or `u.id|` in `WHERE u.id`) - only the
+  bare `alias.|` case (dot with nothing typed after it) worked.
+  `REGEX_ALIAS_DOT` required the cursor to sit immediately after the
+  dot; when text followed the dot, the query fell through to the
+  free-position branch, whose filter then contained the `.` and never
+  matched any column name. `REGEX_ALIAS_DOT` now also captures the
+  text typed after the dot (`/([a-zA-Z0-9_]+)\.(\w*)$/`) and uses it to
+  filter the returned columns, matching the fix already shipped for
+  `CompletionSelect.ts`.
+
+### Tests
+- Added regression tests for the above in `CompletionUpdate.test.ts`
+  and `CompletionDelete.test.ts`, covering a full column name after the
+  alias dot in `JOIN...ON` and in `WHERE`, and a partial column name in
+  `JOIN...ON` to confirm it still filters correctly.
+
 ## 0.3.0
 
 ### Changed
