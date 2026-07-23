@@ -32,12 +32,12 @@ interface AppendOptions {
     forceSpaceBefore?: boolean;
 }
 
-// dokłada kolejny token do stringa: bez spacji przed ',' i ')', bez spacji po '(', spacja po przecinku tylko gdy looseCommas === true
+// dokłada kolejny token do stringa: bez spacji przed ',', ')' i '.', bez spacji po '(' i '.', spacja po przecinku tylko gdy looseCommas === true
 function appendTok(out: string, val: string, opts: AppendOptions = {}): string {
     if (out === '') { return val; }
-    if (val === ',' || val === ')' || val === ';') { return out + val; }
+    if (val === ',' || val === ')' || val === ';' || val.startsWith('.')) { return out + val; }
     const prevChar = out[out.length - 1];
-    if (prevChar === '(') { return out + val; }
+    if (prevChar === '(' || prevChar === '.') { return out + val; }
     if (opts.forceSpaceBefore === false) { return out + val; }
     if (opts.forceSpaceBefore === true) { return out + ' ' + val; }
     if (prevChar === ',' && !opts.looseCommas) { return out + val; }

@@ -462,3 +462,32 @@ suite('formatSql - INSERT ... ON DUPLICATE KEY UPDATE (upsert)', () => {
         );
     });
 });
+
+suite('formatSql - no space inserted around "." before/after a backtick-quoted identifier', () => {
+    // bug: tokenizer rozdziela "alias.`col`" na dwa tokeny (word "alias." + string "`col`"), a appendTok nie miał
+    // reguły dla '.', więc dokładał spację jak dla zwykłego tokena -> "alias. `col`"
+    test('keeps alias.`column` glued together in SELECT/JOIN/WHERE', () => {
+        assert.strictEqual(
+            formatSql(
+                'select o.`order_id`, p.`title` from orders o ' +
+                'join products p on p.`id` = o.`product_id` where o.`status` = 1',
+            ),
+            'SELECT o.`order_id`, p.`title`\nFROM orders o\n' +
+            'JOIN products p ON p.`id` = o.`product_id`\nWHERE o.`status` = 1',
+        );
+    });
+
+    test('keeps `db`.table glued together when the dot follows a backtick-quoted part', () => {
+        assert.strictEqual(
+            formatSql('select id from `shop_db`.orders'),
+            'SELECT id\nFROM `shop_db`.orders',
+        );
+    });
+
+    test('keeps `db`.`table`.`column` glued together on both sides of the dots', () => {
+        assert.strictEqual(
+            formatSql('select `shop_db`.`orders`.`id` from orders'),
+            'SELECT `shop_db`.`orders`.`id`\nFROM orders',
+        );
+    });
+});
