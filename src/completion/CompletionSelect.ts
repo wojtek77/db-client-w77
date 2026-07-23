@@ -10,6 +10,9 @@ import { tokenize, computeDepths, currentDepth, Token } from '../sql/tokenizer.j
 // `?` wokół identyfikatorów obsługuje cytowanie w backtickach (standard MySQL/MariaDB, np. `` `order` ``) - grupy przechwytują samą nazwę, bez backticków
 const REGEX_SCHEMA_TABLE = /\b(?:from|join)\s+`?(\w+)`?\s*\.\s*`?(\w*)$/i;
 const REGEX_FROM_OBJECT = /\b(?:from|join)\s+`?(\w*)$/i;
+// analogiczne regexy dla kolejnej tabeli po przecinku w starym stylu JOIN - tylko gdy kursor jest w klauzuli FROM, inaczej złapałyby przecinek w SELECT
+const REGEX_COMMA_SCHEMA_TABLE = /,\s*`?(\w+)`?\s*\.\s*`?(\w*)$/;
+const REGEX_COMMA_OBJECT = /,\s*`?(\w*)$/;
 // grupa 2 (\\w*) obsługuje częściowo wpisaną nazwę kolumny po `alias.` (np. `l.date_ent|`) – bez niej kontekst aliasu gubił się przy dalszym pisaniu
 // 3 grupy: segment1[.segment2] to alias albo schema.table, ostatnia grupa to filtr kolumny; `?` znów obsługuje backticki
 const REGEX_ALIAS_DOT = /`?([a-zA-Z0-9_]+)`?(?:\s*\.\s*`?([a-zA-Z0-9_]+)`?)?\s*\.\s*`?(\w*)$/;
@@ -140,10 +143,11 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         // fallback dla FROM/JOIN w innej linii niż nazwa schematu/tabeli - linePrefix widzi tylko bieżącą linię, więc próbujemy dopasować regexy też do fragmentu sqlBeforeCursor od początku klauzuli FROM
         const fromClauseTail = isInFromClause ? sqlBeforeCursor.slice(detectedClause!.start) : '';
 
-        /* FROM schema. / JOIN schema. */
+        /* FROM schema. / JOIN schema. / , schema. (kolejna tabela po przecinku) */
         const schemaTableMatch =
             linePrefix.match(REGEX_SCHEMA_TABLE)
-            ?? (isInFromClause ? fromClauseTail.match(REGEX_SCHEMA_TABLE) : null);
+            ?? (isInFromClause ? fromClauseTail.match(REGEX_SCHEMA_TABLE) : null)
+            ?? (isInFromClause ? fromClauseTail.match(REGEX_COMMA_SCHEMA_TABLE) : null);
         if (schemaTableMatch) {
             const schema = schemaTableMatch[1];
             const filter = schemaTableMatch[2].toLowerCase();
@@ -154,10 +158,11 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 .map((table, index) => this.createTableItem(table, index));
         }
 
-        /* FROM xxx / JOIN xxx */
+        /* FROM xxx / JOIN xxx / , xxx (kolejna tabela po przecinku) */
         const objectMatch =
             linePrefix.match(REGEX_FROM_OBJECT)
-            ?? (isInFromClause ? fromClauseTail.match(REGEX_FROM_OBJECT) : null);
+            ?? (isInFromClause ? fromClauseTail.match(REGEX_FROM_OBJECT) : null)
+            ?? (isInFromClause ? fromClauseTail.match(REGEX_COMMA_OBJECT) : null);
         if (objectMatch) {
             const filter = objectMatch[1].toLowerCase();
             const result: vscode.CompletionItem[] = [];

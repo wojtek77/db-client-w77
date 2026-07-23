@@ -357,8 +357,7 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(!labels.includes('orders'), 'orders should not match "us"');
     });
 
-    // uwaga: przypadek "FROM\n    " z samymi białymi znakami na linii kursora to osobny, celowo nienaprawiony przypadek (punkt 1, wariant A) -
-    // findCurrentQuery zwraca tam null (linia.trim() === '') zanim CompletionSelect w ogóle zostanie wywołane, więc nie da się tego tu przetestować
+    // uwaga: przypadek "FROM\n    " (same białe znaki na linii kursora) to osobny, celowo nienaprawiony przypadek A (punkt 1) - findCurrentQuery zwraca tam null
 
     test('suggests tables after "JOIN" when the table name is typed on the next line', async () => {
         const sql = 'SELECT * FROM orders o\nJOIN\n    us';
@@ -384,15 +383,69 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(labels.includes('orders'), 'missing orders after multi-line FROM public.');
     });
 
-    // upewniamy się, że fallback nie obejmuje drugiej tabeli po przecinku w FROM - to osobny, jeszcze nie naprawiony brak (punkt 3 z listy)
-    test('does not produce table suggestions for an unrelated position inside a multi-line FROM clause', async () => {
+    // uwaga: przecinek w wieloliniowym FROM był tu wcześniej celowo nienaprawionym brakiem (punkt 3) - teraz to też naprawione, patrz sekcja niżej
+
+    // ── kolejna tabela po przecinku w FROM (stary styl JOIN, punkt 3) ────────
+
+    test('suggests the next table after a comma in FROM (single line)', async () => {
+        const sql = 'SELECT * FROM t1, us';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users', 'orders'],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),   'missing users for the second table after a comma');
+        assert.ok(!labels.includes('orders'), 'orders should not match "us"');
+    });
+
+    test('suggests the next table after a comma in FROM split across lines', async () => {
         const sql = 'SELECT *\nFROM t1,\n    us';
         const items = await getCompletions(sql, sql.length, {
             getDatabase:              () => 'mydb',
-            getDefaultDatabaseTables: () => ['users'],
+            getDefaultDatabaseTables: () => ['users', 'orders'],
             getSchemas:               () => [],
         });
-        assert.strictEqual(items.length, 0, 'comma-separated second table is a separate, still-open gap (point 3)');
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),   'missing users for the second table after a comma, split across lines');
+        assert.ok(!labels.includes('orders'), 'orders should not match "us"');
+    });
+
+    test('suggests all tables/schemas right after a bare comma in FROM', async () => {
+        const sql = 'SELECT * FROM t1, ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users', 'orders'],
+            getSchemas:               () => ['public'],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),  'missing users');
+        assert.ok(labels.includes('orders'), 'missing orders');
+        assert.ok(labels.includes('public'), 'missing schema public');
+    });
+
+    test('suggests schema-qualified tables after a comma in FROM ("FROM t1, schema.")', async () => {
+        const sql = 'SELECT * FROM t1, public.';
+        const items = await getCompletions(sql, sql.length, {
+            getTables:                (schema) => schema === 'public' ? ['users', 'orders'] : [],
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),  'missing users after "FROM t1, public."');
+        assert.ok(labels.includes('orders'), 'missing orders after "FROM t1, public."');
+    });
+
+    test('does not treat a comma in the SELECT list (before FROM) as a table separator', async () => {
+        const sql = 'SELECT a, b';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users', 'orders'],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('users') && !labels.includes('orders'),
+            'a comma in the SELECT column list must not trigger table suggestions');
     });
 
     // ── FROM schema. → tabele w schemacie ────────────────────────────────────
@@ -410,8 +463,7 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
     });
 
     // ── identyfikatory w backtickach (punkt 2) ───────────────────────────────
-    // regresja: REGEX_SCHEMA_TABLE/REGEX_FROM_OBJECT/REGEX_ALIAS_DOT bazowały na \w+, który nie obejmuje backticka -
-    // standardowego znaku cytowania identyfikatorów w MySQL/MariaDB (np. przy nazwach będących słowami kluczowymi)
+    // regresja: REGEX_SCHEMA_TABLE/REGEX_FROM_OBJECT/REGEX_ALIAS_DOT bazowały na \w+, który nie obejmuje backticka - standardu cytowania w MySQL/MariaDB
 
     test('suggests tables after "FROM `" (opening backtick, nothing typed yet)', async () => {
         const sql = 'SELECT * FROM `';
