@@ -26,6 +26,14 @@ const reservedWords = new Set([
     'ASC', 'DESC', 'PARTITION',
 ]);
 
+// maksymalna szerokość linii - używana zarówno przy pakowaniu kolumn SELECT jak i przy łamaniu zbyt długich subquery
+const MAX_LINE_WIDTH = 160;
+
+// czy zawartość nawiasu zaczyna się od SELECT (czyli to podzapytanie, nie lista/wywołanie funkcji)
+function isSubqueryParen(inner: Token[]): boolean {
+    return inner[0]?.type === 'word' && inner[0].value.toUpperCase() === 'SELECT';
+}
+
 interface AppendOptions {
     looseCommas?: boolean;
     // wymusza/wyklucza spację przed tokenem niezależnie od domyślnej reguły (tylko dla '(', żeby zachować count(*) vs t (a,b))
@@ -129,6 +137,30 @@ function renderTokens(tokens: Token[], indent: string, looseCommas = false, init
             if (isComparedTuple) {
                 const rendered = '(' + renderTokens(inner, indent, true) + ')';
                 append(rendered, { looseCommas, forceSpaceBefore: t.spaceBefore });
+                i = endIdx + 1;
+                continue;
+            }
+
+            // subquery: renderowane płasko dopóki mieści się w MAX_LINE_WIDTH, w przeciwnym razie łamane do nowej linii z dodatkowym wcięciem
+            if (isSubqueryParen(inner)) {
+                const flat = '(' + renderTokens(inner, indent, looseCommas) + ')';
+
+                // symulacja doklejenia płaskiej wersji, żeby zmierzyć długość powstałej linii
+                const simulated = appendTok(out, flat, { looseCommas, forceSpaceBefore: t.spaceBefore });
+                const lineLength = simulated.length - (simulated.lastIndexOf('\n') + 1);
+
+                if (lineLength <= MAX_LINE_WIDTH) {
+                    append(flat, { looseCommas, forceSpaceBefore: t.spaceBefore });
+                } else {
+                    append('(', { looseCommas, forceSpaceBefore: t.spaceBefore });
+                    const innerIndent = indent + '\t';
+                    // pełne formatowanie subquery (rozbicie na klauzule SELECT/FROM/WHERE...), nie tylko przeniesienie jednej długiej linii
+                    const formattedInner = formatStatement(inner)
+                        .split('\n')
+                        .map((line) => innerIndent + line)
+                        .join('\n');
+                    out += '\n' + formattedInner + '\n' + indent + ')';
+                }
                 i = endIdx + 1;
                 continue;
             }
@@ -261,10 +293,7 @@ type SelectItem =
     | { type: 'col'; tokens: Token[] }
     | { type: 'comment'; value: string };
 
-// maksymalna szerokość linii dla pakowanych kolumn w SELECT (w znakach)
-const SELECT_MAX_WIDTH = 160;
-
-// formatuje listę kolumn po SELECT: pakowane do linii o długości do SELECT_MAX_WIDTH znaków, komentarz zawsze zaczyna nową linię
+// formatuje listę kolumn po SELECT: pakowane do linii o długości do MAX_LINE_WIDTH znaków, komentarz zawsze zaczyna nową linię
 function formatSelect(tokens: Token[]): string {
     const depths = computeDepths(tokens);
     const items: SelectItem[] = [];
@@ -312,7 +341,7 @@ function formatSelect(tokens: Token[]): string {
         const candidateLength = currentPrefix().length +
             (currentParts.length === 0 ? part.length : currentParts.join(' ').length + 1 + part.length);
 
-        if (currentParts.length > 0 && candidateLength > SELECT_MAX_WIDTH) {
+        if (currentParts.length > 0 && candidateLength > MAX_LINE_WIDTH) {
             flush();
         }
         currentParts.push(part);
@@ -342,7 +371,7 @@ function formatTableRef(tokens: Token[], header: string): string {
     }
 
     const firstTable = tokens.slice(0, boundaries.length ? boundaries[0] : tokens.length);
-    const lines = [header + ' ' + renderTokens(firstTable, '')];
+    const lines = [renderTokens(firstTable, '', false, header)];
 
     boundaries.forEach((b, idx) => {
         const end = idx + 1 < boundaries.length ? boundaries[idx + 1] : tokens.length;
@@ -406,8 +435,8 @@ function formatWhereLike(tokens: Token[], keyword: string): string {
 
     const lines = items.map((it, idx) => {
         if (it.type === 'comment') { return '\t' + it.value; }
-        const rendered = renderTokens(it.tokens, '\t');
-        return idx === 0 ? keyword + ' ' + rendered : '\t' + it.keyword + ' ' + rendered;
+        const prefix = idx === 0 ? keyword : '\t' + it.keyword;
+        return renderTokens(it.tokens, '\t', false, prefix);
     });
 
     return lines.join('\n');
@@ -485,7 +514,7 @@ function formatStatement(tokens: Token[]): string {
     return out.join('\n');
 }
 
-// formatuje SQL: słowa kluczowe wielkimi literami, kolumny SELECT pakowane do SELECT_MAX_WIDTH, JOIN-y bez wcięcia, WHERE/HAVING łączone AND/OR
+// formatuje SQL: słowa kluczowe wielkimi literami, kolumny SELECT pakowane do MAX_LINE_WIDTH, JOIN-y bez wcięcia, WHERE/HAVING łączone AND/OR
 // UNION/INTERSECT/EXCEPT dzielą zapytanie na osobne statementy formatowane niezależnie, z operatorem na własnej linii pomiędzy nimi
 export function formatSql(sql: string): string {
     const tokens = tokenize(sql);

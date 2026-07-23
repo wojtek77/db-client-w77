@@ -527,3 +527,106 @@ suite('formatSql - tuple comparison (row constructor) keeps a space after the co
         );
     });
 });
+
+suite('formatSql - subquery line wrapping (over 160 chars)', () => {
+    test('a short subquery in FROM stays on one line, unchanged', () => {
+        assert.strictEqual(
+            formatSql('select * from (select id, name from users) u'),
+            'SELECT *\nFROM (SELECT id,name FROM users) u',
+        );
+    });
+
+    test('a short subquery in WHERE (EXISTS) stays on one line, unchanged', () => {
+        assert.strictEqual(
+            formatSql('select 1 from t where exists (select 1 from x where x.t_id = t.id)'),
+            'SELECT 1\nFROM t\nWHERE EXISTS (SELECT 1 FROM x WHERE x.t_id = t.id)',
+        );
+    });
+
+    test('a subquery whose flat line is exactly 160 chars stays on one line', () => {
+        // 'FROM (SELECT c' + 138x'a' + ' FROM t)' daje dokładnie linię o długości 160 znaków
+        const inner = 'SELECT c' + 'a'.repeat(138) + ' FROM t';
+        const result = formatSql(`select * from (${inner})`);
+        const lines = result.split('\n');
+
+        assert.strictEqual(lines.length, 2);
+        assert.strictEqual(lines[1].length, 160);
+        assert.strictEqual(lines[1], `FROM (${inner})`);
+    });
+
+    test('a subquery whose flat line is 161 chars (one over the limit) gets wrapped and fully formatted', () => {
+        // ten sam przypadek co wyżej, ale o jeden znak dłuższy - powinien się złamać
+        // i zostać sformatowany rekurencyjnie (SELECT/FROM na osobnych liniach), a nie tylko przeniesiony jako jedna długa linia
+        const inner = 'SELECT c' + 'a'.repeat(139) + ' FROM t';
+        const result = formatSql(`select * from (${inner})`);
+
+        assert.strictEqual(
+            result,
+            `SELECT *\nFROM (\n\tSELECT c${'a'.repeat(139)}\n\tFROM t\n)`,
+        );
+        result.split('\n').forEach((line) => assert.ok(line.length <= 160));
+    });
+
+    test('wraps a long subquery in FROM with an alias after the closing paren, fully formatted into its own clauses', () => {
+        const result = formatSql(
+            'select * from (select id, name, email, address, phone, created_at, updated_at, status, '
+            + 'category_id, some_other_long_column_name, another_col, yet_another_col from users where active = 1) x',
+        );
+
+        assert.strictEqual(
+            result,
+            'SELECT *\nFROM (\n\tSELECT id, name, email, address, phone, created_at, updated_at, status, '
+            + 'category_id, some_other_long_column_name, another_col, yet_another_col\n\tFROM users\n\tWHERE active = 1\n) x',
+        );
+        result.split('\n').forEach((line) => assert.ok(line.length <= 160));
+    });
+
+    test('wraps a long subquery inside WHERE (IN), fully formatted and indented one level deeper than the WHERE condition itself', () => {
+        const inner = 'SELECT c' + 'a'.repeat(139) + ' FROM t';
+        const result = formatSql(`select * from x where id in (${inner})`);
+
+        // WHERE warunki mają bazowe wcięcie '\t', więc treść subquery dostaje '\t\t'
+        assert.strictEqual(
+            result,
+            `SELECT *\nFROM x\nWHERE id IN (\n\t\tSELECT c${'a'.repeat(139)}\n\t\tFROM t\n\t)`,
+        );
+        result.split('\n').forEach((line) => assert.ok(line.length <= 160));
+    });
+
+    test('a subquery nested inside another subquery: only the level that actually exceeds 160 chars gets wrapped and fully formatted', () => {
+        const innerInner = 'SELECT c' + 'a'.repeat(139) + ' FROM t';
+        const result = formatSql(`select * from (select * from (${innerInner}))`);
+
+        // środkowy poziom ('SELECT * FROM (...)') sam z siebie mieści się w linii, gdy jego własna
+        // zawartość (podzapytanie) zostanie złamana - więc łamie się i formatuje w pełni tylko najgłębszy poziom
+        assert.strictEqual(
+            result,
+            `SELECT *\nFROM (SELECT * FROM (\n\tSELECT c${'a'.repeat(139)}\n\tFROM t\n))`,
+        );
+        // żadna linia wynikowego formatowania nie przekracza 160 znaków
+        result.split('\n').forEach((line) => assert.ok(line.length <= 160));
+    });
+
+    test('does not treat a plain (long) IN list as a subquery (no SELECT inside, stays flat even over 160 chars)', () => {
+        const nums = Array.from({ length: 60 }, (_, idx) => idx + 1).join(',');
+        const result = formatSql(`select * from t where id in (${nums})`);
+
+        assert.strictEqual(result, `SELECT *\nFROM t\nWHERE id IN (${nums})`);
+        assert.ok(result.split('\n')[2].length > 160);
+    });
+
+    test('regression: a subquery in the SELECT column list with a long WHERE (multiple AND) gets fully formatted, no line over 160', () => {
+        const sql = 'select (select a.foo_value from tab_a a where a.id = b.a_id and a.id = b.a_id '
+            + 'and a.id = b.a_id and a.id = b.a_id and a.id = b.a_id and a.id = b.a_id and a.id = b.a_id)\n'
+            + 'from tab_b b';
+        const result = formatSql(sql);
+
+        assert.strictEqual(
+            result,
+            'SELECT (\n\t\tSELECT a.foo_value\n\t\tFROM tab_a a\n\t\tWHERE a.id = b.a_id\n'
+            + '\t\t\tAND a.id = b.a_id\n\t\t\tAND a.id = b.a_id\n\t\t\tAND a.id = b.a_id\n'
+            + '\t\t\tAND a.id = b.a_id\n\t\t\tAND a.id = b.a_id\n\t\t\tAND a.id = b.a_id\n\t)\nFROM tab_b b',
+        );
+        result.split('\n').forEach((line) => assert.ok(line.length <= 160));
+    });
+});
