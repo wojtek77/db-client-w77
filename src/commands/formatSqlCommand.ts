@@ -150,6 +150,8 @@ enum ClauseName {
     Update = 'UPDATE',
     Set = 'SET',
     Delete = 'DELETE',
+    // ON DUPLICATE KEY UPDATE (upsert) - czterowyrazowy nagłówek, wykrywany osobno w segmentClauses (nie przez CLAUSE_WORDS/CLAUSE_COMBO)
+    OnDuplicateKeyUpdate = 'ON_DUPLICATE_KEY_UPDATE',
 }
 
 interface Clause {
@@ -192,8 +194,30 @@ function segmentClauses(tokens: Token[]): Clause[] {
 
     for (let i = 0; i < tokens.length; i++) {
         const t = tokens[i];
+
+        // ON DUPLICATE KEY UPDATE (upsert) - czterowyrazowy nagłówek spoza CLAUSE_WORDS, więc wykrywany osobno przed resztą pętli
+        if (depths[i] === 0 && t.type === 'word' && t.value.toUpperCase() === 'ON' &&
+            tokens[i + 1]?.type === 'word' && tokens[i + 1].value.toUpperCase() === 'DUPLICATE' &&
+            tokens[i + 2]?.type === 'word' && tokens[i + 2].value.toUpperCase() === 'KEY' &&
+            tokens[i + 3]?.type === 'word' && tokens[i + 3].value.toUpperCase() === 'UPDATE') {
+            boundaries.push({
+                name: ClauseName.OnDuplicateKeyUpdate,
+                displayName: 'ON DUPLICATE KEY UPDATE',
+                start: i,
+                bodyStart: i + 4,
+            });
+            i += 3; // pomija DUPLICATE/KEY/UPDATE, żeby to "UPDATE" nie zostało jeszcze raz złapane jako osobna klauzula UPDATE
+            continue;
+        }
+
         if (depths[i] === 0 && t.type === 'word' && CLAUSE_WORDS.includes(t.value.toUpperCase())) {
             const word = t.value.toUpperCase();
+
+            // VALUES(col) w ON DUPLICATE KEY UPDATE to wywołanie funkcji, nie nagłówek klauzuli - prawdziwa klauzula VALUES nigdy nie stoi po '='
+            if (word === 'VALUES' && tokens[i - 1]?.type === 'word' && tokens[i - 1].value === '=') {
+                continue;
+            }
+
             let name = WORD_TO_CLAUSE[word];
             let displayName = word;
             let skip = 1;
@@ -399,6 +423,8 @@ const CLAUSE_FORMATTERS: Map<ClauseName, ClauseFormatter> = new Map([
     [ClauseName.Set, (tokens, displayName) => renderTokens(tokens, '', true, displayName)],
     // DELETE (ew. z aliasami tabel przy multi-table delete) - dalszy ciąg to osobno rozpoznana klauzula FROM
     [ClauseName.Delete, (tokens, displayName) => renderTokens(tokens, '', false, displayName)],
+    // ON DUPLICATE KEY UPDATE - przypisania jak w SET (looseCommas, bez łamania na osobne linie)
+    [ClauseName.OnDuplicateKeyUpdate, (tokens, displayName) => renderTokens(tokens, '', true, displayName)],
 ]);
 
 const SET_OPERATOR_WORDS = new Set(['UNION', 'INTERSECT', 'EXCEPT']);

@@ -433,3 +433,32 @@ suite('formatSql - window functions (OVER / PARTITION BY) and NULLS FIRST/LAST',
         );
     });
 });
+
+suite('formatSql - INSERT ... ON DUPLICATE KEY UPDATE (upsert)', () => {
+    // bug: "ON DUPLICATE KEY UPDATE" nie było rozpoznawane jako jeden nagłówek klauzuli - "UPDATE" łapało się jako osobna
+    // klauzula UPDATE, a VALUES(...) w środku jako kolejna (błędna) granica klauzuli VALUES
+    test('keeps ON DUPLICATE KEY UPDATE on one line instead of splitting after "="', () => {
+        assert.strictEqual(
+            formatSql('insert into product (sku) values (7784) on duplicate key update sku = values(sku)'),
+            'INSERT INTO product (sku)\nVALUES (7784)\nON DUPLICATE KEY UPDATE sku = VALUES(sku)',
+        );
+    });
+
+    test('handles multiple column assignments in ON DUPLICATE KEY UPDATE', () => {
+        assert.strictEqual(
+            formatSql(
+                "insert into customer (id, name, email) values (42, 'Ann', 'ann@example.com') " +
+                'on duplicate key update name = values(name), email = values(email)',
+            ),
+            "INSERT INTO customer (id,name,email)\nVALUES (42, 'Ann', 'ann@example.com')\n" +
+            'ON DUPLICATE KEY UPDATE name = VALUES(name), email = VALUES(email)',
+        );
+    });
+
+    test('does not confuse a real UPDATE ... SET statement with the upsert clause', () => {
+        assert.strictEqual(
+            formatSql('update product set sku = 1 where id = 2'),
+            'UPDATE product\nSET sku = 1\nWHERE id = 2',
+        );
+    });
+});
