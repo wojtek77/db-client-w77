@@ -72,6 +72,7 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         const havingIndex = currentClause === 'having' ? detectedClause!.start : -1;
         
         const isInSelectClause = currentClause === 'select';
+        const isInFromClause   = currentClause === 'from';
         const isInWhereClause  = currentClause === 'where';
         const isInGroupClause  = currentClause === 'group';
         const isInHavingClause = currentClause === 'having';
@@ -134,8 +135,13 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             return result;
         }
 
+        // fallback dla FROM/JOIN w innej linii niż nazwa schematu/tabeli - linePrefix widzi tylko bieżącą linię, więc próbujemy dopasować regexy też do fragmentu sqlBeforeCursor od początku klauzuli FROM
+        const fromClauseTail = isInFromClause ? sqlBeforeCursor.slice(detectedClause!.start) : '';
+
         /* FROM schema. / JOIN schema. */
-        const schemaTableMatch = linePrefix.match(REGEX_SCHEMA_TABLE);
+        const schemaTableMatch =
+            linePrefix.match(REGEX_SCHEMA_TABLE)
+            ?? (isInFromClause ? fromClauseTail.match(REGEX_SCHEMA_TABLE) : null);
         if (schemaTableMatch) {
             const schema = schemaTableMatch[1];
             const filter = schemaTableMatch[2].toLowerCase();
@@ -147,7 +153,9 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         }
 
         /* FROM xxx / JOIN xxx */
-        const objectMatch = linePrefix.match(REGEX_FROM_OBJECT);
+        const objectMatch =
+            linePrefix.match(REGEX_FROM_OBJECT)
+            ?? (isInFromClause ? fromClauseTail.match(REGEX_FROM_OBJECT) : null);
         if (objectMatch) {
             const filter = objectMatch[1].toLowerCase();
             const result: vscode.CompletionItem[] = [];

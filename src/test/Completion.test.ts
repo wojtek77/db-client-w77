@@ -323,6 +323,57 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(!labels.includes('orders'), 'orders should not match "us"');
     });
 
+    // regresja: FROM w jednej linii a nazwa tabeli w kolejnej - linePrefix widzi tylko bieżącą linię, a detectCurrentClause działa na całym sqlBeforeCursor
+    test('suggests tables after "FROM" when the table name is typed on the next line', async () => {
+        const sql = 'SELECT *\nFROM\n    us';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users', 'orders'],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),   'missing users for "us" typed on the line after FROM');
+        assert.ok(!labels.includes('orders'), 'orders should not match "us"');
+    });
+
+    // uwaga: przypadek "FROM\n    " z samymi białymi znakami na linii kursora to osobny, celowo nienaprawiony przypadek (punkt 1, wariant A) -
+    // findCurrentQuery zwraca tam null (linia.trim() === '') zanim CompletionSelect w ogóle zostanie wywołane, więc nie da się tego tu przetestować
+
+    test('suggests tables after "JOIN" when the table name is typed on the next line', async () => {
+        const sql = 'SELECT * FROM orders o\nJOIN\n    us';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users', 'products'],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),     'missing users for "us" typed on the line after JOIN');
+        assert.ok(!labels.includes('products'), 'products should not match "us"');
+    });
+
+    test('suggests tables of a schema after "FROM schema." when the schema is typed on the next line', async () => {
+        const sql = 'SELECT *\nFROM\n    public.';
+        const items = await getCompletions(sql, sql.length, {
+            getTables:                (schema) => schema === 'public' ? ['users', 'orders'] : [],
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),  'missing users after multi-line FROM public.');
+        assert.ok(labels.includes('orders'), 'missing orders after multi-line FROM public.');
+    });
+
+    // upewniamy się, że fallback nie obejmuje drugiej tabeli po przecinku w FROM - to osobny, jeszcze nie naprawiony brak (punkt 3 z listy)
+    test('does not produce table suggestions for an unrelated position inside a multi-line FROM clause', async () => {
+        const sql = 'SELECT *\nFROM t1,\n    us';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        assert.strictEqual(items.length, 0, 'comma-separated second table is a separate, still-open gap (point 3)');
+    });
+
     // ── FROM schema. → tabele w schemacie ────────────────────────────────────
 
     test('suggests tables after "FROM schema."', async () => {
