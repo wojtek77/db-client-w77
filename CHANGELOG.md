@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.3.4
+
+### Fixed
+- SQL formatter (`formatSqlCommand.ts`): `INSERT ... ON DUPLICATE KEY UPDATE`
+  (upsert) was mis-segmented into clauses. `UPDATE` inside it was caught as a
+  separate, standalone `UPDATE` clause (formatted like a real
+  `UPDATE ... SET ...` statement), and `VALUES(col)` function calls used on
+  the right-hand side of an assignment were mistaken for a second `VALUES`
+  clause boundary - together splitting e.g. `id = VALUES(id)` across two
+  lines with a line break right after `=`. `ON DUPLICATE KEY UPDATE` is now
+  recognized as its own four-word clause header (new
+  `ClauseName.OnDuplicateKeyUpdate`), and a `VALUES` immediately preceded by
+  `=` is treated as a function call rather than a new clause boundary.
+- SQL formatter: a space was incorrectly inserted around a `.` next to a
+  backtick-quoted identifier (e.g. `` s.`status` `` became `` s. `status` ``).
+  The tokenizer splits `alias.` +`` `col` `` into two separate tokens (the
+  dot ends up glued to the preceding word, since backticks are a token
+  boundary), and `appendTok` had no rule for `.`, so it fell through to the
+  default "add a space" behavior. `appendTok` now treats `.` like the
+  existing `(` rule: no space before a token starting with `.`, and no space
+  after a token ending with `.`.
+- SQL formatter: a tuple comparison / row constructor (`(a, b) = (c, d)`,
+  e.g. a composite-key `JOIN ... ON`) lost the space after the comma inside
+  each tuple when rendered in a `FROM`/`JOIN`/`UPDATE` context, because the
+  generic `(...)` handling in `renderTokens` used the ambient `looseCommas`
+  of that clause (`false` there) instead of treating the tuple as a value
+  list. A `(...)` group with a top-level comma that sits directly next to
+  `=` (on either side) is now always rendered with `looseCommas: true`,
+  regardless of the surrounding clause. This is a narrow, `=`-anchored
+  special case, so it doesn't affect the already-correct, tested behavior of
+  `IN (1,2)` or the old-style `FROM t1, t2` (both intentionally kept
+  comma-tight).
+
+### Tests
+- Added regression coverage in `formatSqlCommand.test.ts` for all three
+  fixes above: single- and multi-column `ON DUPLICATE KEY UPDATE` staying on
+  one line (plus a check that a plain `UPDATE ... SET ...` still formats
+  correctly), `alias.`` `col` `` / `` `db`.table `` / `` `db`.`table`.`col` ``
+  staying glued together, and tuple comparisons in `JOIN ... ON` and `WHERE`
+  keeping their comma spacing (with explicit checks that `IN (1,2,3)` and
+  `FROM t1, t2` are unaffected).
+
 ## 0.3.3
 
 ### Changed
