@@ -7,10 +7,12 @@ import { findQueryTables } from '../sql/findQueryTables.js';
 import { CompletionInterface } from './CompletionInterface.js';
 import { tokenize, computeDepths, currentDepth, Token } from '../sql/tokenizer.js';
 
-const REGEX_SCHEMA_TABLE = /\b(?:from|join)\s+(\w+)\.(\w*)$/i;
-const REGEX_FROM_OBJECT = /\b(?:from|join)\s+(\w*)$/i;
+// `?` wokół identyfikatorów obsługuje cytowanie w backtickach (standard MySQL/MariaDB, np. `` `order` ``) - grupy przechwytują samą nazwę, bez backticków
+const REGEX_SCHEMA_TABLE = /\b(?:from|join)\s+`?(\w+)`?\s*\.\s*`?(\w*)$/i;
+const REGEX_FROM_OBJECT = /\b(?:from|join)\s+`?(\w*)$/i;
 // grupa 2 (\\w*) obsługuje częściowo wpisaną nazwę kolumny po `alias.` (np. `l.date_ent|`) – bez niej kontekst aliasu gubił się przy dalszym pisaniu
-const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)\.(\w*)$/;
+// 3 grupy: segment1[.segment2] to alias albo schema.table, ostatnia grupa to filtr kolumny; `?` znów obsługuje backticki
+const REGEX_ALIAS_DOT = /`?([a-zA-Z0-9_]+)`?(?:\s*\.\s*`?([a-zA-Z0-9_]+)`?)?\s*\.\s*`?(\w*)$/;
 
 export type SelectClauseName = 'select' | 'from' | 'where' | 'group' | 'having' | 'order' | 'limit';
 
@@ -185,8 +187,9 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
            z już częściowo wpisaną nazwą kolumny (np. s.na lub public.contacts.na) */
         const aliasMatch = linePrefix.match(REGEX_ALIAS_DOT);
         if (aliasMatch) {
-            const alias = aliasMatch[1];
-            const columnFilter = aliasMatch[2].toLowerCase();
+            // grupa 2 obecna tylko dla formy schema.table. - grupy nie zawierają backticków, nawet jeśli w tekście były
+            const alias = aliasMatch[2] ? `${aliasMatch[1]}.${aliasMatch[2]}` : aliasMatch[1];
+            const columnFilter = aliasMatch[3].toLowerCase();
             const parts = alias.split('.');
 
             if (parts.length === 2) {
@@ -207,10 +210,11 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
 
             let tableRef: TableRef | null = null;
 
+            // `?` wokół schematu/tabeli/aliasu obsługuje deklaracje w backtickach (np. FROM `users` `u`)
             const patterns = [
-                new RegExp(`from\\s+(?:(\\w+)\\s*\\.\\s*)?(\\w+)\\s+(?:as\\s+)?${alias}\\b`, 'i'),
-                new RegExp(`join\\s+(?:(\\w+)\\s*\\.\\s*)?(\\w+)\\s+(?:as\\s+)?${alias}\\b`, 'i'),
-                new RegExp(`,\\s*(?:(\\w+)\\s*\\.\\s*)?(\\w+)\\s+(?:as\\s+)?${alias}\\b`, 'i')
+                new RegExp(`from\\s+(?:\`?(\\w+)\`?\\s*\\.\\s*)?\`?(\\w+)\`?\\s+(?:as\\s+)?\`?${alias}\`?\\b`, 'i'),
+                new RegExp(`join\\s+(?:\`?(\\w+)\`?\\s*\\.\\s*)?\`?(\\w+)\`?\\s+(?:as\\s+)?\`?${alias}\`?\\b`, 'i'),
+                new RegExp(`,\\s*(?:\`?(\\w+)\`?\\s*\\.\\s*)?\`?(\\w+)\`?\\s+(?:as\\s+)?\`?${alias}\`?\\b`, 'i')
             ];
 
             for (const pattern of patterns) {

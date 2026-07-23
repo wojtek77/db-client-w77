@@ -85,6 +85,27 @@ suite('findQueryTables', () => {
         assert.strictEqual(refs[0].table, 'accounts');
     });
 
+    // regresja: identyfikatory w backtickach (standard MySQL/MariaDB, np. przy nazwach będących słowami kluczowymi) nie były w ogóle wykrywane
+    test('handles a backtick-quoted table name', () => {
+        const refs = findQueryTables('SELECT * FROM `order`', 'public', fakeDb);
+        assert.strictEqual(refs.length, 1);
+        assert.strictEqual(refs[0].table, 'order');
+    });
+
+    test('handles a backtick-quoted schema.table', () => {
+        const refs = findQueryTables('SELECT * FROM `mydb`.`accounts`', 'public', fakeDb);
+        assert.strictEqual(refs.length, 1);
+        assert.strictEqual(refs[0].schema, 'mydb');
+        assert.strictEqual(refs[0].table, 'accounts');
+    });
+
+    test('handles mixed quoting in schema.table (only the table backtick-quoted)', () => {
+        const refs = findQueryTables('SELECT * FROM mydb.`accounts`', 'public', fakeDb);
+        assert.strictEqual(refs.length, 1);
+        assert.strictEqual(refs[0].schema, 'mydb');
+        assert.strictEqual(refs[0].table, 'accounts');
+    });
+
     test('removes duplicates of the same table', () => {
         const refs = findQueryTables(
             'SELECT * FROM users JOIN users ON users.id = users.id',
@@ -386,6 +407,118 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         const labels = items.map(labelOf);
         assert.ok(labels.includes('users'),  'missing users after FROM public.');
         assert.ok(labels.includes('orders'), 'missing orders after FROM public.');
+    });
+
+    // ── identyfikatory w backtickach (punkt 2) ───────────────────────────────
+    // regresja: REGEX_SCHEMA_TABLE/REGEX_FROM_OBJECT/REGEX_ALIAS_DOT bazowały na \w+, który nie obejmuje backticka -
+    // standardowego znaku cytowania identyfikatorów w MySQL/MariaDB (np. przy nazwach będących słowami kluczowymi)
+
+    test('suggests tables after "FROM `" (opening backtick, nothing typed yet)', async () => {
+        const sql = 'SELECT * FROM `';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users', 'orders'],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),  'missing users after FROM `');
+        assert.ok(labels.includes('orders'), 'missing orders after FROM `');
+    });
+
+    test('filters tables after "FROM `us" (backtick-quoted, partially typed)', async () => {
+        const sql = 'SELECT * FROM `us';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users', 'orders'],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),   'missing users for "`us"');
+        assert.ok(!labels.includes('orders'), 'orders should not match "`us"');
+    });
+
+    test('suggests tables of a schema after "FROM `schema`."', async () => {
+        const sql = 'SELECT * FROM `public`.';
+        const items = await getCompletions(sql, sql.length, {
+            getTables:                (schema) => schema === 'public' ? ['users', 'orders'] : [],
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),  'missing users after FROM `public`.');
+        assert.ok(labels.includes('orders'), 'missing orders after FROM `public`.');
+    });
+
+    test('suggests columns after a backtick-quoted alias (`u`.)', async () => {
+        const sql = 'SELECT `u`. FROM users u';
+        const cursorOffset = sql.indexOf('`u`.') + '`u`.'.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [
+                makeColumn('id',    'int', 'PRI'),
+                makeColumn('email', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),    'missing id after `u`.');
+        assert.ok(labels.includes('email'), 'missing email after `u`.');
+    });
+
+    test('suggests columns after backtick-quoted "`schema`.`table`."', async () => {
+        const sql = 'SELECT `public`.`users`.';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [
+                makeColumn('id',    'int', 'PRI'),
+                makeColumn('email', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),    'missing id after `public`.`users`.');
+        assert.ok(labels.includes('email'), 'missing email after `public`.`users`.');
+    });
+
+    test('resolves a backtick-quoted table declaration when the alias reference is unquoted (FROM `users` u WHERE u.)', async () => {
+        const sql = 'SELECT * FROM `users` u WHERE u.';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [
+                makeColumn('id',    'int', 'PRI'),
+                makeColumn('email', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),    'missing id for alias of a backtick-quoted table');
+        assert.ok(labels.includes('email'), 'missing email for alias of a backtick-quoted table');
+    });
+
+    test('resolves a backtick-quoted alias declaration when the reference is unquoted (FROM users `u` WHERE u.)', async () => {
+        const sql = 'SELECT * FROM users `u` WHERE u.';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [
+                makeColumn('id',    'int', 'PRI'),
+                makeColumn('email', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),    'missing id for backtick-quoted alias declaration');
+        assert.ok(labels.includes('email'), 'missing email for backtick-quoted alias declaration');
     });
 
     // ── alias. → kolumny tabeli ───────────────────────────────────────────────

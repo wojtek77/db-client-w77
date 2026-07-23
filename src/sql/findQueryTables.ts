@@ -92,8 +92,9 @@ export function findQueryTables(
 
     const tableRefs: TableRef[] = [];
 
+    // `?` wokół schematu/tabeli obsługuje cytowanie w backtickach (standard MySQL/MariaDB, np. FROM `mydb`.`users`)
     const regex =
-        /\b(?:from|join)\s+(?:(\w+)\s*\.\s*)?(\w+)/gi;
+        /\b(?:from|join)\s+(?:`?(\w+)`?\s*\.\s*)?`?(\w+)`?/gi;
 
     const matches: RegExpExecArray[] = [];
     let match: RegExpExecArray | null;
