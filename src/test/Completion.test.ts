@@ -924,20 +924,44 @@ suite('TableCompletionProvider — clause detection regressions (tokenizer)', ()
 
     // regresja: klauzule wykrywane były zawsze na najwyższym poziomie zagnieżdżenia - kursor w podzapytaniu
     // wewnątrz WHERE ... IN (...) mógł być mylony z klauzulą zapytania zewnętrznego (np. zewnętrzne LIMIT za podzapytaniem)
-    test('detects the clause at the cursor nesting depth, not the outer query (WHERE inside a subquery)', async () => {
-        const sql = 'SELECT * FROM t1 WHERE id IN (SELECT id FROM t2 WHERE ) LIMIT 10';
-        const cursorOffset = sql.indexOf('WHERE )') + 'WHERE '.length;
+    // regresja: tokens[i+1] sprawdzał dosłownie następny token po GROUP/ORDER, gubiąc klauzulę gdy to był token komentarza, nie 'BY' (punkt 4)
+    // uwaga: celowo bez kropki po aliasie - z kropką zadziałałaby zawsze gałąź alias-dot, niezależna od wykrycia klauzuli
+    test('detects GROUP BY as the current clause even with a block comment between GROUP and BY', async () => {
+        const sql = 'SELECT COUNT(*) FROM users u GROUP /* uwaga */ BY ';
+        const cursorOffset = sql.length;
         const items = await getCompletions(sql, cursorOffset, {
             getDatabase:              () => 'public',
             findSchemaByTable:        () => 'public',
             getDefaultDatabaseTables: () => [],
             getSchemas:               () => [],
         }, {
-            'public.t1': [makeColumn('id', 'int', 'PRI')],
-            'public.t2': [makeColumn('id', 'int', 'PRI'), makeColumn('active', 'int')],
+            'public.users': [
+                makeColumn('id',      'int', 'PRI'),
+                makeColumn('country', 'varchar'),
+            ],
         });
         const labels = items.map(labelOf);
-        assert.ok(labels.includes('active'), 'expected column suggestions for the inner WHERE, not the outer LIMIT');
+        assert.ok(labels.includes('id'),      'missing id in GROUP /* uwaga */ BY ');
+        assert.ok(labels.includes('country'), 'missing country in GROUP /* uwaga */ BY ');
+    });
+
+    test('detects ORDER BY as the current clause even with a line comment between ORDER and BY', async () => {
+        const sql = 'SELECT * FROM users u ORDER -- sortowanie\nBY ';
+        const cursorOffset = sql.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [
+                makeColumn('id',    'int', 'PRI'),
+                makeColumn('email', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),    'missing id in ORDER -- ...\\nBY ');
+        assert.ok(labels.includes('email'), 'missing email in ORDER -- ...\\nBY ');
     });
 });
 

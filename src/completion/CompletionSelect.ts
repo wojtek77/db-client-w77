@@ -13,8 +13,7 @@ const REGEX_FROM_OBJECT = /\b(?:from|join)\s+`?(\w*)$/i;
 // analogiczne regexy dla kolejnej tabeli po przecinku w starym stylu JOIN - tylko gdy kursor jest w klauzuli FROM, inaczej złapałyby przecinek w SELECT
 const REGEX_COMMA_SCHEMA_TABLE = /,\s*`?(\w+)`?\s*\.\s*`?(\w*)$/;
 const REGEX_COMMA_OBJECT = /,\s*`?(\w*)$/;
-// grupa 2 (\\w*) obsługuje częściowo wpisaną nazwę kolumny po `alias.` (np. `l.date_ent|`) – bez niej kontekst aliasu gubił się przy dalszym pisaniu
-// 3 grupy: segment1[.segment2] to alias albo schema.table, ostatnia grupa to filtr kolumny; `?` znów obsługuje backticki
+// 3 grupy: segment1[.segment2] to alias albo schema.table, ostatnia grupa to filtr kolumny (obsługuje częściowo wpisaną nazwę, np. `l.date_ent|`); `?` obsługuje backticki
 const REGEX_ALIAS_DOT = /`?([a-zA-Z0-9_]+)`?(?:\s*\.\s*`?([a-zA-Z0-9_]+)`?)?\s*\.\s*`?(\w*)$/;
 
 export type SelectClauseName = 'select' | 'from' | 'where' | 'group' | 'having' | 'order' | 'limit';
@@ -34,6 +33,14 @@ const CLAUSE_WORD: Partial<Record<string, SelectClauseName>> = {
     LIMIT: 'limit',
 };
 
+// zwraca kolejny token pomijając komentarze (np. GROUP /* uwaga */ BY nie powinno gubić słowa BY)
+function nextSignificantToken(tokens: Token[], fromIndex: number): Token | undefined {
+    for (let j = fromIndex; j < tokens.length; j++) {
+        if (tokens[j].type !== 'comment') { return tokens[j]; }
+    }
+    return undefined;
+}
+
 // wykrywa, w której klauzuli zapytania SELECT znajduje się kursor (koniec sqlBeforeCursor)
 // liczy się z zagnieżdżeniem w nawiasach (podzapytania, wywołania funkcji) - szukamy klauzul tylko na głębokości, na której faktycznie stoi kursor,
 // a nie zawsze na najwyższym poziomie, bo inaczej HAVING/SELECT wewnątrz "FROM (SELECT ... )" myliłoby się z klauzulami zapytania zewnętrznego
@@ -50,7 +57,7 @@ export function detectCurrentClause(sqlBeforeCursor: string): DetectedClause | u
         const t = tokens[i];
         if (t.type !== 'word') { continue; }
         const upper = t.value.toUpperCase();
-        const next: Token | undefined = tokens[i + 1];
+        const next = nextSignificantToken(tokens, i + 1);
         const nextUpper = next?.type === 'word' ? next.value.toUpperCase() : undefined;
 
         if (upper === 'GROUP' && nextUpper === 'BY') { found = { name: 'group', start: t.start }; continue; }
