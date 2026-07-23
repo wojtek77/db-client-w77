@@ -491,3 +491,39 @@ suite('formatSql - no space inserted around "." before/after a backtick-quoted i
         );
     });
 });
+
+suite('formatSql - tuple comparison (row constructor) keeps a space after the comma', () => {
+    // bug: nawias z przecinkiem na najwyższym poziomie w kontekście FROM/JOIN (looseCommas=false) tracił spację po
+    // przecinku nawet gdy to była krotka porównywana przez '=', a nie lista argumentów funkcji/tabel
+    test('keeps the space in a composite-key JOIN ... ON (a, b) = (c, d)', () => {
+        assert.strictEqual(
+            formatSql(
+                'select 1 from invoice_line il ' +
+                'join price_list pl on (pl.invoice_id, pl.line_no) = (il.invoice_id, il.line_no)',
+            ),
+            'SELECT 1\nFROM invoice_line il\n' +
+            'JOIN price_list pl ON (pl.invoice_id, pl.line_no) = (il.invoice_id, il.line_no)',
+        );
+    });
+
+    test('keeps the space in a tuple comparison inside WHERE', () => {
+        assert.strictEqual(
+            formatSql('select 1 from t where (a, b) = (1, 2)'),
+            'SELECT 1\nFROM t\nWHERE (a, b) = (1, 2)',
+        );
+    });
+
+    test('does not affect a plain IN list, which still has no space after the comma', () => {
+        assert.strictEqual(
+            formatSql('select 1 from t where id in (1,2,3)'),
+            'SELECT 1\nFROM t\nWHERE id IN (1,2,3)',
+        );
+    });
+
+    test('does not affect the old-style comma join FROM t1, t2 (unrelated, left as-is)', () => {
+        assert.strictEqual(
+            formatSql('select 1 from t1, t2 where t1.id = t2.id'),
+            'SELECT 1\nFROM t1,t2\nWHERE t1.id = t2.id',
+        );
+    });
+});

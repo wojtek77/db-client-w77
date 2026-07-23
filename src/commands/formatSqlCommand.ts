@@ -110,11 +110,23 @@ function renderTokens(tokens: Token[], indent: string, looseCommas = false, init
 
         if (t.type === 'lparen') {
             const [inner, endIdx] = extractParenGroup(tokens, i);
+            const prev = tokens[i - 1];
             const next = tokens[endIdx + 1];
             const followedByIn = next?.type === 'word' && next.value.toUpperCase() === 'IN';
             const hasTopComma = splitTopLevelByComma(inner).length > 1;
 
             if (followedByIn && hasTopComma) {
+                const rendered = '(' + renderTokens(inner, indent, true) + ')';
+                append(rendered, { looseCommas, forceSpaceBefore: t.spaceBefore });
+                i = endIdx + 1;
+                continue;
+            }
+
+            // krotka po obu stronach porównania (a, b) = (c, d) - zawsze z odstępem po przecinku, niezależnie od klauzuli
+            const isComparedTuple = hasTopComma &&
+                ((prev?.type === 'word' && prev.value === '=') || (next?.type === 'word' && next.value === '='));
+
+            if (isComparedTuple) {
                 const rendered = '(' + renderTokens(inner, indent, true) + ')';
                 append(rendered, { looseCommas, forceSpaceBefore: t.spaceBefore });
                 i = endIdx + 1;
