@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.5
+
+### Added
+- SQL formatter (`formatSqlCommand.ts`): a subquery (any `(...)` whose
+  content starts with `SELECT`) that would render on a line longer than
+  160 characters is now broken onto its own, indented block instead of
+  staying on one long line. If it still fits within 160 characters, it's
+  left untouched, inline, exactly as before. When it doesn't fit, it's
+  now fully reformatted with `formatStatement` (its own `SELECT`/`FROM`/
+  `WHERE`/... on separate lines, `WHERE` conditions joined by `AND`/`OR`
+  each on their own line, etc.) rather than just relocated as a single
+  long line - so the result of breaking a subquery never itself still
+  exceeds 160 characters. Nested subqueries are handled recursively, with
+  indentation accumulating one extra level (`\t`) per nesting level; a
+  level that already fits after its own inner subquery has been broken is
+  left inline instead of being force-broken again. A plain `(...)` group
+  that doesn't start with `SELECT` (e.g. an `IN (1,2,3,...)` list) is
+  never treated as a subquery and is never wrapped, regardless of length.
+
+### Fixed
+- SQL formatter: `formatTableRef` (`FROM`/`UPDATE` + `JOIN`s) and
+  `formatWhereLike` (`WHERE`/`HAVING`) concatenated their clause header
+  (`FROM `, `WHERE `, `\tAND `, ...) onto the string returned by
+  `renderTokens` instead of passing it in as the `initial` seed value,
+  so any line-length calculation done inside `renderTokens` (such as the
+  new subquery-wrapping check above) was short by the header's length.
+  Both now pass the header through `renderTokens`'s existing `initial`
+  parameter (the same mechanism already used by `GROUP BY`/`ORDER BY`/
+  `LIMIT`), so line lengths are measured correctly.
+
+### Tests
+- Added regression coverage in `formatSqlCommand.test.ts` for the above:
+  a short subquery in `FROM`/`WHERE` staying inline, the exact 160/161
+  character boundary, a long subquery with an alias, a long subquery
+  inside `WHERE ... IN (...)`, a subquery nested inside another subquery,
+  a long non-subquery `IN` list intentionally staying inline, and a
+  dedicated regression test for a subquery with a multi-`AND` `WHERE`
+  clause that must be fully reformatted (not just relocated as one line)
+  to stay within 160 characters per line.
+
 ## 0.3.4
 
 ### Fixed
