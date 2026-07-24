@@ -16,7 +16,7 @@ const REGEX_COMMA_OBJECT = /,\s*`?(\w*)$/;
 // 3 grupy: segment1[.segment2] to alias albo schema.table, ostatnia grupa to filtr kolumny (obsługuje częściowo wpisaną nazwę, np. `l.date_ent|`); `?` obsługuje backticki
 const REGEX_ALIAS_DOT = /`?([a-zA-Z0-9_]+)`?(?:\s*\.\s*`?([a-zA-Z0-9_]+)`?)?\s*\.\s*`?(\w*)$/;
 
-export type SelectClauseName = 'select' | 'from' | 'where' | 'group' | 'having' | 'order' | 'limit';
+export type SelectClauseName = 'select' | 'from' | 'where' | 'group' | 'having' | 'order' | 'limit' | 'partition';
 
 export interface DetectedClause {
     name: SelectClauseName;
@@ -62,6 +62,7 @@ export function detectCurrentClause(sqlBeforeCursor: string): DetectedClause | u
 
         if (upper === 'GROUP' && nextUpper === 'BY') { found = { name: 'group', start: t.start }; continue; }
         if (upper === 'ORDER' && nextUpper === 'BY') { found = { name: 'order', start: t.start }; continue; }
+        if (upper === 'PARTITION' && nextUpper === 'BY') { found = { name: 'partition', start: t.start }; continue; }
 
         const simple = CLAUSE_WORD[upper];
         if (simple) { found = { name: simple, start: t.start }; }
@@ -83,13 +84,14 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         // offset klauzuli HAVING w sqlBeforeCursor - potrzebny tylko do isCursorInsideFunctionCall (metoda dziedziczona z CompletionAbstract, na razie działa na tekście, nie na tokenach)
         const havingIndex = currentClause === 'having' ? detectedClause!.start : -1;
         
-        const isInSelectClause = currentClause === 'select';
-        const isInFromClause   = currentClause === 'from';
-        const isInWhereClause  = currentClause === 'where';
-        const isInGroupClause  = currentClause === 'group';
-        const isInHavingClause = currentClause === 'having';
-        const isInOrderClause  = currentClause === 'order';
-        const isInLimitClause  = currentClause === 'limit';
+        const isInSelectClause    = currentClause === 'select';
+        const isInFromClause      = currentClause === 'from';
+        const isInWhereClause     = currentClause === 'where';
+        const isInGroupClause     = currentClause === 'group';
+        const isInHavingClause    = currentClause === 'having';
+        const isInOrderClause     = currentClause === 'order';
+        const isInLimitClause     = currentClause === 'limit';
+        const isInPartitionClause = currentClause === 'partition';
         
         /* LIMIT */
         if (isInLimitClause) {
@@ -260,8 +262,8 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 .map((column: TableColumn) => this.createColumnItem(tableRef!.table, column));
         }
 
-        /* SELECT, WHERE, GROUP BY, ORDER BY <Ctrl+Space> */
-        if (isInSelectClause || isInWhereClause || isInGroupClause || isInOrderClause) {
+        /* SELECT, WHERE, GROUP BY, ORDER BY, PARTITION BY <Ctrl+Space> */
+        if (isInSelectClause || isInWhereClause || isInGroupClause || isInOrderClause || isInPartitionClause) {
             const result: vscode.CompletionItem[] = [];
 
             // wspólna metoda: Ładujemy wszystkie kolumny dla klauzul strukturalnych

@@ -969,6 +969,83 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(!labels.includes('xxx'), 'a SELECT-list alias must not be suggested in WHERE');
     });
 
+    // ── PARTITION BY w funkcjach okna (punkt 5) ───────────────────────────────
+    // regresja: PARTITION nie było w ogóle rozpoznawane jako klauzula (nie ma w CLAUSE_WORD, nie ma specjalnej obsługi jak GROUP/ORDER), więc kursor w "OVER (PARTITION BY |" nie dostawał żadnych podpowiedzi
+
+    test('suggests columns in PARTITION BY inside a window function', async () => {
+        const sql = 'SELECT ROW_NUMBER() OVER (PARTITION BY ';
+        const cursorOffset = sql.length;
+        const fullText = sql + ' FROM employees';
+        const items = await getCompletions(fullText, cursorOffset, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.employees': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('dept', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('dept'), 'missing dept in PARTITION BY');
+        assert.ok(labels.includes('id'),   'missing id in PARTITION BY');
+    });
+
+    test('suggests columns after a comma in PARTITION BY (multiple partition columns)', async () => {
+        const sql = 'SELECT ROW_NUMBER() OVER (PARTITION BY dept, ';
+        const cursorOffset = sql.length;
+        const fullText = sql + ' FROM employees';
+        const items = await getCompletions(fullText, cursorOffset, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.employees': [
+                makeColumn('id',       'int', 'PRI'),
+                makeColumn('dept',     'varchar'),
+                makeColumn('hired_at', 'date'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('hired_at'), 'missing hired_at as the second PARTITION BY column');
+    });
+
+    test('does not suggest a SELECT-list alias in PARTITION BY (unlike GROUP BY / ORDER BY)', async () => {
+        const sql = 'SELECT id xxx, ROW_NUMBER() OVER (PARTITION BY ';
+        const cursorOffset = sql.length;
+        const fullText = sql + ' FROM customer';
+        const items = await getCompletions(fullText, cursorOffset, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.customer': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('name', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('xxx'), 'a SELECT-list alias must not be suggested inside PARTITION BY');
+    });
+
+    test('detects PARTITION BY even with a comment between PARTITION and BY', async () => {
+        const sql = 'SELECT ROW_NUMBER() OVER (PARTITION /* uwaga */ BY ';
+        const cursorOffset = sql.length;
+        const fullText = sql + ' FROM employees';
+        const items = await getCompletions(fullText, cursorOffset, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.employees': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('dept', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('dept'), 'missing dept in PARTITION /* uwaga */ BY');
+    });
+
     // ── Pusta linia → snippety top-level ─────────────────────────────────────
 
     test('returns top-level SQL snippets when cursor is on an empty line', async () => {
