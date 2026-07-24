@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { Connection } from '../db/Connection.js';
 import { findQueryTables, computeParenStack } from '../sql/findQueryTables.js';
-import { maskStringLiterals } from '../sql/maskStringLiterals.js';
+import { findCteDefinitions } from '../sql/findCteDefinitions.js';
+import { extractSelectPartAtCursorLevel as extractSelectPartAtCursorLevelPure, extractHavingCandidates as extractHavingCandidatesPure } from '../sql/selectListCandidates.js';
 import { TableColumn, TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatColumnType } from './columnFormatter.js';
 import { SqlFunction } from './sqlFunctions.js';
@@ -39,11 +40,15 @@ export abstract class CompletionAbstract {
         sqlBeforeCursor: string,
         allowedAliases?: Set<string>
     ): Promise<void> {
+        // CTE nie istnieją w katalogu bazy - wyłączamy je z zapytania do prawdziwych tabel, ich kolumny dodajemy osobno z definicji
+        const cteByName = new Map(findCteDefinitions(fullText).map(cte => [cte.name.toLowerCase(), cte]));
+
         // zasięg widoczności — tylko te tabele trafią do listy podpowiedzi
         const scopedTableRefs = findQueryTables(fullText, defaultSchema ?? '', db, sqlBeforeCursor.length);
 
         // prefetch/cache-warming – jeden batch obejmujący wszystkie tabele w tekście, niezależnie od zasięgu (patrz komentarz metody)
-        const allTableRefsForPrefetch = findQueryTables(fullText, defaultSchema ?? '', db);
+        const allTableRefsForPrefetch = findQueryTables(fullText, defaultSchema ?? '', db)
+            .filter(tableRef => !cteByName.has(tableRef.table.toLowerCase()));
         const columnsMap = await this.tableColumnsService.getCachedColumnsBatch(allTableRefsForPrefetch);
 
         for (const tableRef of scopedTableRefs) {
@@ -66,6 +71,14 @@ export abstract class CompletionAbstract {
                 if (!allowedAliases.has(currentAlias)) {
                     continue;
                 }
+            }
+
+            const cte = cteByName.get(tableRef.table.toLowerCase());
+            if (cte) {
+                for (const columnName of cte.columns) {
+                    resultList.push(this.createCteColumnItem(tableRef.table, columnName));
+                }
+                continue;
             }
 
             const columns = columnsMap[this.tableColumnsService.getTableRefKey(tableRef)] ?? [];
@@ -111,6 +124,16 @@ export abstract class CompletionAbstract {
         return item;
     }
 
+    // kolumna CTE - typ nieznany (wywnioskowany tylko z listy SELECT ciała CTE, nie z katalogu bazy)
+    protected createCteColumnItem(cteName: string, columnName: string): vscode.CompletionItem {
+        const item = new vscode.CompletionItem(columnName, vscode.CompletionItemKind.Field);
+        item.sortText   = `0_${cteName}0_${columnName}`;
+        item.insertText = columnName;
+        item.detail = `${cteName} 📊 CTE`;
+        item.documentation = `${cteName}.${columnName}\n\nKolumna CTE - typ nieznany (wywnioskowana z listy SELECT, a nie z katalogu bazy)`;
+        return item;
+    }
+
     protected createFunctionItem(fn: SqlFunction): vscode.CompletionItem {
         const item = new vscode.CompletionItem(`${fn.signature}`, vscode.CompletionItemKind.Function);
         item.filterText = fn.name;
@@ -133,98 +156,10 @@ export abstract class CompletionAbstract {
     }
 
     protected extractSelectPartAtCursorLevel(sqlBeforeCursor: string): string {
-        const stack = computeParenStack(sqlBeforeCursor, sqlBeforeCursor.length);
-        const blockStart = stack.length > 0 ? stack[stack.length - 1] + 1 : 0;
-
-        const block = sqlBeforeCursor.slice(blockStart);
-        const flat = this.flattenSubqueries(block);
-
-        const selectRegex = /\bselect\b/gi;
-        let lastSelectEnd = -1;
-        let m: RegExpExecArray | null;
-        while ((m = selectRegex.exec(flat)) !== null) {
-            lastSelectEnd = m.index + m[0].length;
-        }
-        if (lastSelectEnd === -1) { return ''; }
-
-        const fromRegex = /\bfrom\b/gi;
-        fromRegex.lastIndex = lastSelectEnd;
-        const fromResult = fromRegex.exec(flat);
-        if (!fromResult) { return ''; }
-
-        return block.slice(lastSelectEnd, fromResult.index);
+        return extractSelectPartAtCursorLevelPure(sqlBeforeCursor);
     }
 
     protected extractHavingCandidates(selectPart: string): string[] {
-        const masked = maskStringLiterals(selectPart);
-        const entries: string[] = [];
-        let depth = 0;
-        let start = 0;
-        for (let i = 0; i < selectPart.length; i++) {
-            const ch = masked[i];
-            if (ch === '(') { depth++; }
-            else if (ch === ')') { depth--; }
-            else if (ch === ',' && depth === 0) {
-                entries.push(selectPart.slice(start, i));
-                start = i + 1;
-            }
-        }
-        entries.push(selectPart.slice(start));
-
-        const result: string[] = [];
-
-        for (const entry of entries) {
-            const rtrimmed = entry.trimEnd();
-            if (!rtrimmed) { continue; }
-            
-            if (rtrimmed.endsWith(')')) {
-                const e1 = rtrimmed.trimStart();
-                if (e1.startsWith('(')) {
-                    result.push(e1);
-                    continue;
-                }
-            }
-
-            const e1 = rtrimmed.trimStart();
-            if (e1.endsWith('.*')) {
-                result.push(e1);
-                continue;
-            }
-
-            const parts = rtrimmed.split(/[ .]/);
-            const last = parts[parts.length - 1].trimStart();
-            if (last) { result.push(last); }
-        }
-
-        return [...new Set(result)];
-    }
-    
-    private flattenSubqueries(sql: string): string {
-        let text = sql;
-        let masked = maskStringLiterals(sql);
-
-        for (;;) {
-            const regex = /\([^()]*\)/g;
-            let m: RegExpExecArray | null;
-            let lastIndex = 0;
-            let nextText = '';
-            let nextMasked = '';
-            let changed = false;
-
-            while ((m = regex.exec(masked)) !== null) {
-                changed = true;
-                const blank = ' '.repeat(m[0].length);
-                nextText += text.slice(lastIndex, m.index) + blank;
-                nextMasked += masked.slice(lastIndex, m.index) + blank;
-                lastIndex = m.index + m[0].length;
-            }
-
-            if (!changed) { return text; }
-
-            nextText += text.slice(lastIndex);
-            nextMasked += masked.slice(lastIndex);
-            text = nextText;
-            masked = nextMasked;
-        }
+        return extractHavingCandidatesPure(selectPart);
     }
 }

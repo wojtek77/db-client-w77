@@ -10,6 +10,7 @@ import { CompletionDelete } from './CompletionDelete.js';
 import { CompletionInterface } from './CompletionInterface.js'; // Import interfejsu
 import { getTopLevelSqlSnippets } from './sqlSnippets.js';
 import { CompletionReplace } from './CompletionReplace.js';
+import { findMainStatementFirstWord } from '../sql/findCteDefinitions.js';
 
 const REGEX_REMOVE_COMMENT_AT_START = /^(?:(?:--|#).*(?:\r?\n|$)+|\/\*[\s\S]*?\*\/)+/;
 
@@ -105,7 +106,10 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         const queryOffset = document.offsetAt(position) - queryStartOffset;
         const sqlBeforeCursor = fullText.substring(0, queryOffset);
         
-        const firstWord = fullText.match(/^\w+/)?.[0]?.toLowerCase() || '';
+        let firstWord = fullText.match(/^\w+/)?.[0]?.toLowerCase() || '';
+        if (firstWord === 'with') {
+            firstWord = findMainStatementFirstWord(fullText) ?? 'select';
+        }
         switch (firstWord) {
             case 'select': return this.completionSelect.complete(linePrefix, fullText, db, sqlBeforeCursor);
             case 'insert': return this.completionInsert.complete(linePrefix, fullText, db, sqlBeforeCursor);

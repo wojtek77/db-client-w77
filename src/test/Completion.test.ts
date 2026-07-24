@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
+import { findCteDefinitions, findMainStatementFirstWord } from '../sql/findCteDefinitions.js';
 import { getCompletions, labelOf, makeColumn } from './testHelpers.js';
 
 // funkcje pomocnicze (makeColumn, makeFakeDb, getCompletions, labelOf) są w testHelpers.ts i współdzielone przez wszystkie pliki testowe completion
@@ -218,6 +219,84 @@ suite('findQueryTables', () => {
                 ['categories', 'orders', 'products', 'users', 'warehouses'],
             );
         });
+    });
+});
+
+// findCteDefinitions / findMainStatementFirstWord — czyste testy jednostkowe
+
+suite('findCteDefinitions', () => {
+
+    test('extracts CTE columns from its own SELECT list when no explicit column list is given', () => {
+        const defs = findCteDefinitions('WITH cte AS (SELECT id, name FROM users) SELECT * FROM cte');
+        assert.deepStrictEqual(defs, [{ name: 'cte', columns: ['id', 'name'] }]);
+    });
+
+    test('uses the explicit column list when the CTE declares one', () => {
+        const defs = findCteDefinitions('WITH cte(a, b) AS (SELECT id, name FROM users) SELECT * FROM cte');
+        assert.deepStrictEqual(defs, [{ name: 'cte', columns: ['a', 'b'] }]);
+    });
+
+    test('supports multiple comma-separated CTEs', () => {
+        const defs = findCteDefinitions('WITH a AS (SELECT x FROM t1), b AS (SELECT y FROM t2) SELECT * FROM a JOIN b');
+        assert.deepStrictEqual(defs, [{ name: 'a', columns: ['x'] }, { name: 'b', columns: ['y'] }]);
+    });
+
+    test('supports WITH RECURSIVE', () => {
+        const defs = findCteDefinitions('WITH RECURSIVE cte AS (SELECT id FROM t) SELECT * FROM cte');
+        assert.deepStrictEqual(defs, [{ name: 'cte', columns: ['id'] }]);
+    });
+
+    test('supports a backtick-quoted CTE name', () => {
+        const defs = findCteDefinitions('WITH `order` AS (SELECT id FROM t) SELECT * FROM `order`');
+        assert.deepStrictEqual(defs, [{ name: 'order', columns: ['id'] }]);
+    });
+
+    test('does not misdetect "GROUP BY x WITH ROLLUP" as a CTE', () => {
+        assert.deepStrictEqual(findCteDefinitions('SELECT a FROM t GROUP BY a WITH ROLLUP'), []);
+    });
+
+    test('returns [] for an unclosed CTE body (still being typed)', () => {
+        assert.deepStrictEqual(findCteDefinitions('WITH cte AS (SELECT id, name FROM t'), []);
+    });
+});
+
+suite('findMainStatementFirstWord', () => {
+
+    test('finds "select" after a simple WITH clause', () => {
+        assert.strictEqual(
+            findMainStatementFirstWord('WITH cte AS (SELECT id FROM t) SELECT * FROM cte'),
+            'select',
+        );
+    });
+
+    test('finds "update" after a WITH clause (MySQL/MariaDB support CTEs with UPDATE too)', () => {
+        assert.strictEqual(
+            findMainStatementFirstWord('WITH cte AS (SELECT id FROM t) UPDATE users SET x = 1'),
+            'update',
+        );
+    });
+
+    test('finds "delete" after multiple comma-separated CTEs', () => {
+        assert.strictEqual(
+            findMainStatementFirstWord('WITH a AS (SELECT x FROM t1), b AS (SELECT y FROM t2) DELETE FROM a'),
+            'delete',
+        );
+    });
+
+    test('finds "select" after WITH RECURSIVE', () => {
+        assert.strictEqual(
+            findMainStatementFirstWord('WITH RECURSIVE cte AS (SELECT id FROM t) SELECT * FROM cte'),
+            'select',
+        );
+    });
+
+    test('returns undefined for a query that does not start with WITH', () => {
+        assert.strictEqual(findMainStatementFirstWord('SELECT * FROM t'), undefined);
+    });
+
+    // regresja: przy niezamkniętym nawiasie (user jeszcze pisze ciało CTE) funkcja brała nazwę CTE za "pierwsze słowo głównego zapytania"
+    test('returns undefined for an unclosed CTE body, instead of mistaking the CTE name for the main statement', () => {
+        assert.strictEqual(findMainStatementFirstWord('WITH cte AS (SELECT id FROM t'), undefined);
     });
 });
 
@@ -967,6 +1046,132 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         });
         const labels = items.map(labelOf);
         assert.ok(!labels.includes('xxx'), 'a SELECT-list alias must not be suggested in WHERE');
+    });
+
+    // ── CTE, "WITH ... AS (...)" (punkt 6) ────────────────────────────────────
+    // regresja: findQueryTables traktowało nazwę CTE jak zwykłą tabelę katalogową - skoro taka tabela nie istnieje w bazie, kolumny zawsze wychodziły puste
+
+    test('suggests CTE columns via a direct dot reference (cte.)', async () => {
+        const sql = 'WITH cte AS (SELECT id, name FROM users) SELECT cte. FROM cte';
+        const cursorOffset = sql.indexOf('cte. FROM') + 'cte.'.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),   'missing id from CTE');
+        assert.ok(labels.includes('name'), 'missing name from CTE');
+    });
+
+    test('suggests CTE columns via a table alias (FROM cte c WHERE c.)', async () => {
+        const sql = 'WITH cte AS (SELECT id, name FROM users) SELECT * FROM cte c WHERE c.';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),   'missing id via CTE alias');
+        assert.ok(labels.includes('name'), 'missing name via CTE alias');
+    });
+
+    test('suggests CTE columns without a dot, in the general SELECT/WHERE/GROUP/ORDER branch', async () => {
+        const sql = 'WITH cte AS (SELECT id, name FROM users) SELECT  FROM cte';
+        const cursorOffset = 'WITH cte AS (SELECT id, name FROM users) SELECT '.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),   'missing id from CTE (no dot)');
+        assert.ok(labels.includes('name'), 'missing name from CTE (no dot)');
+    });
+
+    test('filters CTE columns by the already-typed prefix (cte.na)', async () => {
+        const sql = 'WITH cte AS (SELECT id, name FROM users) SELECT cte.na';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('name'), 'missing name for "cte.na"');
+        assert.ok(!labels.includes('id'),  '"id" should not match filter "na"');
+    });
+
+    test('uses the explicit column list when the CTE declares one (WITH cte(a, b) AS ...)', async () => {
+        const sql = 'WITH cte(a, b) AS (SELECT id, name FROM users) SELECT cte. FROM cte';
+        const cursorOffset = sql.indexOf('cte. FROM') + 'cte.'.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('a'),    'missing explicit CTE column "a"');
+        assert.ok(labels.includes('b'),    'missing explicit CTE column "b"');
+        assert.ok(!labels.includes('id'),  'real column names must not leak when an explicit CTE column list is given');
+        assert.ok(!labels.includes('name'),'real column names must not leak when an explicit CTE column list is given');
+    });
+
+    test('supports WITH RECURSIVE', async () => {
+        const sql = 'WITH RECURSIVE cte AS (SELECT id, name FROM users) SELECT cte. FROM cte';
+        const cursorOffset = sql.indexOf('cte. FROM') + 'cte.'.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),   'missing id in WITH RECURSIVE');
+        assert.ok(labels.includes('name'), 'missing name in WITH RECURSIVE');
+    });
+
+    test('does not mix up a CTE with a real table joined in the same query', async () => {
+        const sql = 'WITH cte AS (SELECT id, name FROM users) SELECT * FROM cte c JOIN orders o ON o.user_id = c.id WHERE c.';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.orders': [
+                makeColumn('id',      'int', 'PRI'),
+                makeColumn('user_id', 'int'),
+                makeColumn('total',   'decimal'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),        'missing id from the CTE');
+        assert.ok(labels.includes('name'),      'missing name from the CTE');
+        assert.ok(!labels.includes('user_id'),  'orders columns must not leak into the CTE alias suggestions');
+        assert.ok(!labels.includes('total'),    'orders columns must not leak into the CTE alias suggestions');
+    });
+
+    // regresja: "WITH" jako firstWord nie pasowało do żadnej gałęzi switcha w TableCompletionProvider, więc CAŁY CompletionSelect nigdy nie był wołany dla zapytań z WITH
+    test('still routes to CompletionSelect while the CTE body itself is still being typed (unclosed paren)', async () => {
+        const sql = 'WITH cte AS (SELECT  FROM employees';
+        const cursorOffset = 'WITH cte AS (SELECT '.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.employees': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('dept', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),   'missing id while typing an unclosed CTE body');
+        assert.ok(labels.includes('dept'), 'missing dept while typing an unclosed CTE body');
     });
 
     // ── PARTITION BY w funkcjach okna (punkt 5) ───────────────────────────────
