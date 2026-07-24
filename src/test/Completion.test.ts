@@ -854,6 +854,121 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(labels.includes('email'), 'missing email after users. in ORDER BY');
     });
 
+    // ── alias z listy SELECT w GROUP BY / ORDER BY (punkt 4B) ────────────────
+    // regresja: GROUP BY/ORDER BY mogą odwoływać się do aliasu z listy SELECT (np. "id xxx"), a addColumnsFromQueryTables zna tylko realne kolumny tabel
+
+    test('suggests a SELECT-list alias without AS in GROUP BY (id xxx)', async () => {
+        const sql = 'SELECT id xxx FROM customer GROUP /* comment */ BY ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.customer': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('name', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('xxx'), 'missing alias "xxx" in GROUP BY');
+    });
+
+    test('suggests a SELECT-list alias with AS in GROUP BY (id as xxx)', async () => {
+        const sql = 'SELECT id as xxx FROM customer GROUP /* comment */ BY ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.customer': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('name', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('xxx'), 'missing alias "xxx" in GROUP BY (with AS)');
+    });
+
+    test('suggests a SELECT-list alias in ORDER BY', async () => {
+        const sql = 'SELECT id xxx FROM customer ORDER BY ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.customer': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('name', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('xxx'), 'missing alias "xxx" in ORDER BY');
+    });
+
+    test('does not duplicate a plain, non-aliased column in GROUP BY', async () => {
+        const sql = 'SELECT id, name FROM customer GROUP BY ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.customer': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('name', 'varchar'),
+            ],
+        });
+        const idItems = items.filter(item => labelOf(item) === 'id');
+        assert.strictEqual(idItems.length, 1, 'a non-aliased column must appear only once, not duplicated as a text candidate');
+    });
+
+    test('does not treat a qualified column without alias (t.id) as an alias candidate', async () => {
+        const sql = 'SELECT t.id FROM customer t GROUP BY ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.customer': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('name', 'varchar'),
+            ],
+        });
+        const idItems = items.filter(item => labelOf(item) === 'id');
+        assert.strictEqual(idItems.length, 1, 'a qualified column without an alias must not add a duplicate text candidate');
+    });
+
+    test('suggests an alias for an aggregate expression in GROUP BY (sum(id) as total)', async () => {
+        const sql = 'SELECT sum(id) as total FROM customer GROUP BY ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.customer': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('name', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('total'), 'missing alias "total" for sum(id) as total');
+    });
+
+    test('does not suggest a SELECT-list alias in WHERE (not applicable there)', async () => {
+        const sql = 'SELECT id xxx FROM customer WHERE ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.customer': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('name', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('xxx'), 'a SELECT-list alias must not be suggested in WHERE');
+    });
+
     // ── Pusta linia → snippety top-level ─────────────────────────────────────
 
     test('returns top-level SQL snippets when cursor is on an empty line', async () => {

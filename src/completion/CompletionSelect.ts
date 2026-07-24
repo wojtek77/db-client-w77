@@ -267,6 +267,18 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             // wspólna metoda: Ładujemy wszystkie kolumny dla klauzul strukturalnych
             await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);
 
+            // GROUP BY / ORDER BY mogą odwoływać się do aliasu z listy SELECT (np. "SELECT id xxx ... GROUP BY xxx") - dorzucamy je jako kandydatów tekstowych, pomijając te, które już pokrywają realne kolumny załadowane wyżej (np. gołe "id" bez aliasu)
+            if (isInGroupClause || isInOrderClause) {
+                const existingLabels = new Set(result.map(item => (typeof item.label === 'string' ? item.label : item.label.label).toLowerCase()));
+                const selectPart = this.extractSelectPartAtCursorLevel(sqlBeforeCursor);
+                for (const word of this.extractHavingCandidates(selectPart)) {
+                    if (word === '*' || word.endsWith('.*') || existingLabels.has(word.toLowerCase())) { continue; }
+                    const item = new vscode.CompletionItem(word, vscode.CompletionItemKind.Text);
+                    item.sortText = `5_${word}`;
+                    result.push(item);
+                }
+            }
+
             for (const fn of SQL_FUNCTIONS) {
                 result.push(this.createFunctionItem(fn));
             }
