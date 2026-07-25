@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.8
+
+### Added
+- `sqlFunctions.ts`: added `FOUND_ROWS()` to the *Information & System*
+  function list, so it now appears in `SELECT`-list completions
+  alongside `LAST_INSERT_ID()`, `USER()`, and `DATABASE()`.
+
 ## 0.3.7
 
 ### Added
