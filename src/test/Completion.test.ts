@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { findCteDefinitions, findMainStatementFirstWord } from '../sql/findCteDefinitions.js';
+import { findDerivedTables } from '../sql/findDerivedTables.js';
 import { getCompletions, labelOf, makeColumn } from './testHelpers.js';
 
 // funkcje pomocnicze (makeColumn, makeFakeDb, getCompletions, labelOf) są w testHelpers.ts i współdzielone przez wszystkie pliki testowe completion
@@ -300,6 +301,56 @@ suite('findMainStatementFirstWord', () => {
     });
 });
 
+suite('findDerivedTables', () => {
+
+    test('extracts columns from a derived table\'s own SELECT list (no explicit column list)', () => {
+        const refs = findDerivedTables('SELECT x.id FROM (SELECT id, name FROM t) x');
+        assert.deepStrictEqual(refs, [{ alias: 'x', columns: ['id', 'name'] }]);
+    });
+
+    test('supports "AS" before the alias', () => {
+        const refs = findDerivedTables('SELECT x.id FROM (SELECT id, name FROM t) AS x');
+        assert.deepStrictEqual(refs, [{ alias: 'x', columns: ['id', 'name'] }]);
+    });
+
+    test('uses the explicit column list when given ("AS x(a, b)")', () => {
+        const refs = findDerivedTables('SELECT x.a FROM (SELECT id, name FROM t) AS x(a, b)');
+        assert.deepStrictEqual(refs, [{ alias: 'x', columns: ['a', 'b'] }]);
+    });
+
+    test('supports a backtick-quoted alias', () => {
+        const refs = findDerivedTables('SELECT x.id FROM (SELECT id FROM t) `x`');
+        assert.deepStrictEqual(refs, [{ alias: 'x', columns: ['id'] }]);
+    });
+
+    test('works after JOIN', () => {
+        const refs = findDerivedTables('SELECT * FROM t1 JOIN (SELECT id FROM t2) x ON t1.id = x.id');
+        assert.deepStrictEqual(refs, [{ alias: 'x', columns: ['id'] }]);
+    });
+
+    test('works as the second table after a comma', () => {
+        const refs = findDerivedTables('SELECT * FROM t1, (SELECT id FROM t2) x');
+        assert.deepStrictEqual(refs, [{ alias: 'x', columns: ['id'] }]);
+    });
+
+    test('ignores a derived table without an alias (syntax error in MySQL/MariaDB anyway)', () => {
+        assert.deepStrictEqual(findDerivedTables('SELECT * FROM (SELECT id FROM t) WHERE id > 1'), []);
+    });
+
+    test('does not mistake a WHERE ... IN (subquery) for a derived table', () => {
+        assert.deepStrictEqual(findDerivedTables('SELECT * FROM t WHERE id IN (SELECT id FROM t2)'), []);
+    });
+
+    test('returns [] for an unclosed derived table (still being typed)', () => {
+        assert.deepStrictEqual(findDerivedTables('SELECT * FROM (SELECT id, name FROM t'), []);
+    });
+
+    test('picks up aliases from the SELECT list inside the derived table', () => {
+        const refs = findDerivedTables('SELECT x.foo FROM (SELECT id foo FROM t) x');
+        assert.deepStrictEqual(refs, [{ alias: 'x', columns: ['foo'] }]);
+    });
+});
+
 // TableCompletionProvider — zasięg widoczności tabel przy podzapytaniach
 
 suite('TableCompletionProvider — subquery scoping', () => {
@@ -331,6 +382,7 @@ suite('TableCompletionProvider — subquery scoping', () => {
         assert.strictEqual(labels.filter(l => l === 'date_entered').length, 1, 'date_entered should appear only once');
     });
 
+    // uwaga: po punkcie 7 "id"/"name" SĄ poprawnie podpowiadane jako wyjście "sub" - prawdziwym testem wycieku jest kolumna spoza SELECT podzapytania
     test('does not suggest raw columns of a table hidden inside a FROM (subquery) AS alias', async () => {
         const sql = 'SELECT  FROM (SELECT a.id, a.name FROM accounts a) AS sub WHERE sub.id = 1';
         const cursorOffset = 'SELECT '.length;
@@ -341,12 +393,15 @@ suite('TableCompletionProvider — subquery scoping', () => {
             getSchemas:               () => [],
         }, {
             'public.accounts': [
-                makeColumn('id',   'int', 'PRI'),
-                makeColumn('name', 'varchar'),
+                makeColumn('id',           'int', 'PRI'),
+                makeColumn('name',         'varchar'),
+                makeColumn('secret_field', 'varchar'),
             ],
         });
         const labels = items.map(labelOf);
-        assert.ok(!labels.includes('name'), 'accounts.name should not leak through the derived table');
+        assert.ok(labels.includes('id'),   'sub.id is the derived table\'s own output column and should be suggested');
+        assert.ok(labels.includes('name'), 'sub.name is the derived table\'s own output column and should be suggested');
+        assert.ok(!labels.includes('secret_field'), 'a column not selected by the subquery must not leak from the real accounts table');
     });
 
     // regresja: to, co pokazujemy jako podpowiedzi, nie może zawężać tego, co pobieramy z bazy/cache – inaczej zmiana zakresu ominęłaby rozgrzany cache
@@ -1172,6 +1227,82 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         const labels = items.map(labelOf);
         assert.ok(labels.includes('id'),   'missing id while typing an unclosed CTE body');
         assert.ok(labels.includes('dept'), 'missing dept while typing an unclosed CTE body');
+    });
+
+    // ── podzapytania w FROM z aliasem, derived tables (punkt 7) ───────────────
+    // regresja: wzorce szukające aliasu wymagają \w+ po from/join, więc "(SELECT ...)" nigdy się nie dopasowywało - alias trafiał do fallbacku jako nieistniejąca tabela
+
+    test('suggests derived table columns via a dot reference (x.)', async () => {
+        const sql = 'SELECT x. FROM (SELECT id, name FROM users) x';
+        const cursorOffset = sql.indexOf('x. FROM') + 'x.'.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),   'missing id from the derived table');
+        assert.ok(labels.includes('name'), 'missing name from the derived table');
+    });
+
+    test('suggests derived table columns without a dot, in the general SELECT/WHERE/GROUP/ORDER branch', async () => {
+        const sql = 'SELECT  FROM (SELECT id, name FROM users) x';
+        const cursorOffset = 'SELECT '.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),   'missing id from the derived table (no dot)');
+        assert.ok(labels.includes('name'), 'missing name from the derived table (no dot)');
+    });
+
+    test('filters derived table columns by the already-typed prefix (x.na)', async () => {
+        const sql = 'SELECT x.na FROM (SELECT id, name FROM users) x';
+        const items = await getCompletions(sql, sql.indexOf('x.na') + 'x.na'.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('name'), 'missing name for "x.na"');
+        assert.ok(!labels.includes('id'),  '"id" should not match filter "na"');
+    });
+
+    test('uses the explicit column list when the derived table declares one ("AS x(a, b)")', async () => {
+        const sql = 'SELECT x. FROM (SELECT id, name FROM users) AS x(a, b)';
+        const cursorOffset = sql.indexOf('x. FROM') + 'x.'.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('a'),     'missing explicit derived table column "a"');
+        assert.ok(labels.includes('b'),     'missing explicit derived table column "b"');
+        assert.ok(!labels.includes('id'),   'real column names must not leak when an explicit column list is given');
+        assert.ok(!labels.includes('name'), 'real column names must not leak when an explicit column list is given');
+    });
+
+    test('does not mix up a derived table with a real table joined in the same query', async () => {
+        const sql = 'SELECT * FROM (SELECT id, name FROM users) x JOIN orders o ON o.user_id = x.id WHERE x.';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.orders': [
+                makeColumn('id',      'int', 'PRI'),
+                makeColumn('user_id', 'int'),
+                makeColumn('total',   'decimal'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),       'missing id from the derived table');
+        assert.ok(labels.includes('name'),     'missing name from the derived table');
+        assert.ok(!labels.includes('user_id'), 'orders columns must not leak into the derived table alias suggestions');
+        assert.ok(!labels.includes('total'),   'orders columns must not leak into the derived table alias suggestions');
     });
 
     // ── PARTITION BY w funkcjach okna (punkt 5) ───────────────────────────────

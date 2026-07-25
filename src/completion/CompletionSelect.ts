@@ -5,6 +5,7 @@ import { SQL_FUNCTIONS } from './sqlFunctions.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { findCteDefinitions } from '../sql/findCteDefinitions.js';
+import { findDerivedTables } from '../sql/findDerivedTables.js';
 import { CompletionInterface } from './CompletionInterface.js';
 import { tokenize, computeDepths, currentDepth, Token } from '../sql/tokenizer.js';
 
@@ -256,7 +257,15 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             if (cte) {
                 return cte.columns
                     .filter(name => !columnFilter || name.toLowerCase().includes(columnFilter))
-                    .map(name => this.createCteColumnItem(tableRef!.table, name));
+                    .map(name => this.createInferredColumnItem(tableRef!.table, name, 'CTE'));
+            }
+
+            // podzapytanie w FROM z aliasem (derived table) - alias nie odpowiada żadnej realnej tabeli, kolumny bierzemy z jego własnej listy SELECT
+            const derivedTable = findDerivedTables(fullText).find(d => d.alias.toLowerCase() === tableRef!.table.toLowerCase());
+            if (derivedTable) {
+                return derivedTable.columns
+                    .filter(name => !columnFilter || name.toLowerCase().includes(columnFilter))
+                    .map(name => this.createInferredColumnItem(tableRef!.table, name, 'derived table'));
             }
 
             // pre-fetch kolumn dla wszystkich tabel jednym batchem, celowo bez scopingu po cursorOffset – sugestia i tak buduje się z jednego `tableRef`

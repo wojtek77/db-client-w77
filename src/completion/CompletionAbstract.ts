@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { Connection } from '../db/Connection.js';
 import { findQueryTables, computeParenStack } from '../sql/findQueryTables.js';
 import { findCteDefinitions } from '../sql/findCteDefinitions.js';
+import { findDerivedTables } from '../sql/findDerivedTables.js';
 import { extractSelectPartAtCursorLevel as extractSelectPartAtCursorLevelPure, extractHavingCandidates as extractHavingCandidatesPure } from '../sql/selectListCandidates.js';
 import { TableColumn, TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatColumnType } from './columnFormatter.js';
@@ -76,7 +77,7 @@ export abstract class CompletionAbstract {
             const cte = cteByName.get(tableRef.table.toLowerCase());
             if (cte) {
                 for (const columnName of cte.columns) {
-                    resultList.push(this.createCteColumnItem(tableRef.table, columnName));
+                    resultList.push(this.createInferredColumnItem(tableRef.table, columnName, 'CTE'));
                 }
                 continue;
             }
@@ -84,6 +85,16 @@ export abstract class CompletionAbstract {
             const columns = columnsMap[this.tableColumnsService.getTableRefKey(tableRef)] ?? [];
             for (const column of columns) {
                 resultList.push(this.createColumnItem(tableRef.table, column));
+            }
+        }
+
+        // podzapytania w FROM z aliasem (derived tables) - findQueryTables ich nie widzi (nie są zwykłą "tabela", tylko "(SELECT ...)"), więc dokładamy je osobno
+        for (const derivedTable of findDerivedTables(fullText)) {
+            if (allowedAliases && !allowedAliases.has(derivedTable.alias.toLowerCase())) {
+                continue;
+            }
+            for (const columnName of derivedTable.columns) {
+                resultList.push(this.createInferredColumnItem(derivedTable.alias, columnName, 'derived table'));
             }
         }
     }
@@ -124,13 +135,13 @@ export abstract class CompletionAbstract {
         return item;
     }
 
-    // kolumna CTE - typ nieznany (wywnioskowany tylko z listy SELECT ciała CTE, nie z katalogu bazy)
-    protected createCteColumnItem(cteName: string, columnName: string): vscode.CompletionItem {
+    // kolumna wywnioskowana z listy SELECT (CTE albo derived table), a nie z katalogu bazy - typ więc nieznany
+    protected createInferredColumnItem(sourceName: string, columnName: string, sourceKind: 'CTE' | 'derived table'): vscode.CompletionItem {
         const item = new vscode.CompletionItem(columnName, vscode.CompletionItemKind.Field);
-        item.sortText   = `0_${cteName}0_${columnName}`;
+        item.sortText   = `0_${sourceName}0_${columnName}`;
         item.insertText = columnName;
-        item.detail = `${cteName} 📊 CTE`;
-        item.documentation = `${cteName}.${columnName}\n\nKolumna CTE - typ nieznany (wywnioskowana z listy SELECT, a nie z katalogu bazy)`;
+        item.detail = `${sourceName} 📊 ${sourceKind}`;
+        item.documentation = `${sourceName}.${columnName}\n\nKolumna ${sourceKind} - typ nieznany (wywnioskowana z listy SELECT, a nie z katalogu bazy)`;
         return item;
     }
 
