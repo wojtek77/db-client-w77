@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.7
+
+### Added
+- `CompletionSelect.ts`: the `SELECT` clause now suggests `DISTINCT` and
+  the other MySQL/MariaDB modifiers valid right after `SELECT` (`ALL`,
+  `DISTINCTROW`, `HIGH_PRIORITY`, `STRAIGHT_JOIN`, `SQL_SMALL_RESULT`,
+  `SQL_BIG_RESULT`, `SQL_BUFFER_RESULT`, `SQL_NO_CACHE`,
+  `SQL_CALC_FOUND_ROWS`). A new `getSelectModifierContext` helper, built
+  on the existing tokenizer, detects whether the cursor is still in the
+  "modifier zone" between `SELECT` and the first real select-list
+  expression - suggestions stop as soon as a column, `*`, comma, or
+  parenthesis appears, already-used modifiers are excluded, and the
+  partially typed word (e.g. `SELECT DIS|`) is used to filter the list.
+  `CompletionAbstract.ts` gains a `createKeywordItem` helper for these
+  entries.
+
 ## 0.3.6
 
 ### Added
