@@ -18,6 +18,13 @@ const REGEX_COMMA_OBJECT = /,\s*`?(\w*)$/;
 // 3 grupy: segment1[.segment2] to alias albo schema.table, ostatnia grupa to filtr kolumny (obsługuje częściowo wpisaną nazwę, np. `l.date_ent|`); `?` obsługuje backticki
 const REGEX_ALIAS_DOT = /`?([a-zA-Z0-9_]+)`?(?:\s*\.\s*`?([a-zA-Z0-9_]+)`?)?\s*\.\s*`?(\w*)$/;
 
+// modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie SELECT, przed listą wybieranych wyrażeń
+// (SELECT [ALL | DISTINCT | DISTINCTROW] [HIGH_PRIORITY] [STRAIGHT_JOIN] [SQL_SMALL_RESULT] [SQL_BIG_RESULT] [SQL_BUFFER_RESULT] [SQL_NO_CACHE] [SQL_CALC_FOUND_ROWS] ...)
+const SELECT_MODIFIERS = [
+    'ALL', 'DISTINCT', 'DISTINCTROW', 'HIGH_PRIORITY', 'STRAIGHT_JOIN',
+    'SQL_SMALL_RESULT', 'SQL_BIG_RESULT', 'SQL_BUFFER_RESULT', 'SQL_NO_CACHE', 'SQL_CALC_FOUND_ROWS'
+];
+
 export type SelectClauseName = 'select' | 'from' | 'where' | 'group' | 'having' | 'order' | 'limit' | 'partition';
 
 export interface DetectedClause {
@@ -41,6 +48,40 @@ function nextSignificantToken(tokens: Token[], fromIndex: number): Token | undef
         if (tokens[j].type !== 'comment') { return tokens[j]; }
     }
     return undefined;
+}
+
+interface SelectModifierContext {
+    // modyfikatory już wpisane wcześniej w tej samej klauzuli SELECT (np. po "SELECT DISTINCT " -> {'DISTINCT'}) - nie proponujemy ich ponownie
+    used: Set<string>;
+    // fragment aktualnie pisanego słowa (np. "SELECT DIS|" -> "dis") - do przefiltrowania podpowiedzi
+    filter: string;
+}
+
+// sprawdza, czy kursor w klauzuli SELECT jest jeszcze w "strefie modyfikatorów", czyli między słowem SELECT
+// a pierwszym realnym wyrażeniem z listy wybieranych kolumn - tylko wtedy warto podpowiadać DISTINCT i pokrewne słowa
+// zwraca null, gdy w klauzuli pojawiło się już coś innego niż same modyfikatory (kolumna, przecinek, nawias, gwiazdka itd.)
+function getSelectModifierContext(sqlBeforeCursor: string, selectStart: number): SelectModifierContext | null {
+    const tail = sqlBeforeCursor.slice(selectStart);
+    const tokens = tokenize(tail);
+    const used = new Set<string>();
+    let filter = '';
+
+    // pomijamy tokens[0], to samo słowo SELECT
+    for (let i = 1; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.type === 'comment') { continue; }
+        if (t.type !== 'word') { return null; }
+
+        // ostatni token dotykający końca fragmentu to właśnie pisane słowo, a nie ukończony modyfikator
+        const isBeingTyped = i === tokens.length - 1 && t.start + t.value.length === tail.length;
+        if (isBeingTyped) { filter = t.value.toLowerCase(); break; }
+
+        const upper = t.value.toUpperCase();
+        if (!SELECT_MODIFIERS.includes(upper)) { return null; }
+        used.add(upper);
+    }
+
+    return { used, filter };
 }
 
 // wykrywa, w której klauzuli zapytania SELECT znajduje się kursor (koniec sqlBeforeCursor)
@@ -283,6 +324,19 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         /* SELECT, WHERE, GROUP BY, ORDER BY, PARTITION BY <Ctrl+Space> */
         if (isInSelectClause || isInWhereClause || isInGroupClause || isInOrderClause || isInPartitionClause) {
             const result: vscode.CompletionItem[] = [];
+
+            // modyfikatory SELECT (DISTINCT, ALL itd.) - tylko dopóki w klauzuli nie pojawiło się jeszcze żadne realne wyrażenie kolumnowe
+            if (isInSelectClause) {
+                const modifierContext = getSelectModifierContext(sqlBeforeCursor, detectedClause!.start);
+                if (modifierContext) {
+                    let order = 0;
+                    for (const modifier of SELECT_MODIFIERS) {
+                        if (modifierContext.used.has(modifier)) { continue; }
+                        if (modifierContext.filter && !modifier.toLowerCase().startsWith(modifierContext.filter)) { continue; }
+                        result.push(this.createKeywordItem(modifier, order++));
+                    }
+                }
+            }
 
             // wspólna metoda: Ładujemy wszystkie kolumny dla klauzul strukturalnych
             await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);

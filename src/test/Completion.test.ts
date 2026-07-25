@@ -871,6 +871,96 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(hasFunctions, 'missing SQL functions in SELECT');
     });
 
+    // ── SELECT <Ctrl+Space> → modyfikatory DISTINCT/ALL/... ────────────────────
+
+    test('suggests DISTINCT and other SELECT modifiers right after SELECT', async () => {
+        const sql = 'SELECT  FROM users u';
+        const cursorOffset = 'SELECT '.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [makeColumn('id', 'int', 'PRI')],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('DISTINCT'), 'missing DISTINCT right after SELECT');
+        assert.ok(keywordLabels.includes('ALL'),      'missing ALL right after SELECT');
+    });
+
+    test('filters SELECT modifiers by the word being typed', async () => {
+        const sql = 'SELECT DIS FROM users u';
+        const cursorOffset = 'SELECT DIS'.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [makeColumn('id', 'int', 'PRI')],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('DISTINCT'),    'missing DISTINCT for filter "dis"');
+        assert.ok(keywordLabels.includes('DISTINCTROW'), 'missing DISTINCTROW for filter "dis"');
+        assert.ok(!keywordLabels.includes('ALL'),        'ALL should not match filter "dis"');
+    });
+
+    test('does not re-suggest a modifier already present earlier in the same SELECT', async () => {
+        const sql = 'SELECT DISTINCT  FROM users u';
+        const cursorOffset = 'SELECT DISTINCT '.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [makeColumn('id', 'int', 'PRI')],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(!keywordLabels.includes('DISTINCT'), 'DISTINCT should not be suggested twice');
+        assert.ok(keywordLabels.includes('SQL_CALC_FOUND_ROWS'), 'other modifiers should still be offered');
+    });
+
+    test('stops suggesting SELECT modifiers once a real column has been typed', async () => {
+        const sql = 'SELECT id,  FROM users u';
+        const cursorOffset = 'SELECT id, '.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [
+                makeColumn('id',    'int', 'PRI'),
+                makeColumn('email', 'varchar'),
+            ],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.strictEqual(keywordLabels.length, 0, 'no SELECT modifiers should be suggested after a real column');
+        assert.ok(items.map(labelOf).includes('email'), 'columns should still be suggested normally');
+    });
+
+    test('still suggests and correctly filters columns when DISTINCT is already present', async () => {
+        const sql = 'SELECT DISTINCT na FROM users u';
+        const cursorOffset = 'SELECT DISTINCT na'.length;
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'public',
+            findSchemaByTable:        () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.users': [
+                makeColumn('id',   'int', 'PRI'),
+                makeColumn('name', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('name'), 'missing "name" column suggestion after "SELECT DISTINCT na"');
+        // filtrowanie po prefiksie robi sam edytor (na podstawie zakresu słowa), więc provider ma tu zwrócić wszystkie kolumny bez błędu
+        assert.ok(labels.includes('id'), 'unexpected error while listing columns after "SELECT DISTINCT na"');
+    });
+
     // ── JOIN → tabele i schematy ──────────────────────────────────────────────
 
     test('suggests tables after "JOIN "', async () => {

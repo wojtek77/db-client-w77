@@ -145,6 +145,15 @@ export abstract class CompletionAbstract {
         return item;
     }
 
+    // element podpowiedzi dla słowa kluczowego SQL (np. modyfikatory SELECT: DISTINCT, ALL...) - sortText '2_' ląduje po kolumnach ('0_'), przed funkcjami ('9_')
+    protected createKeywordItem(keyword: string, order: number): vscode.CompletionItem {
+        const item = new vscode.CompletionItem(keyword, vscode.CompletionItemKind.Keyword);
+        item.insertText = keyword;
+        item.detail     = 'SQL Keyword';
+        item.sortText   = `2_${order.toString().padStart(5, '0')}`;
+        return item;
+    }
+
     protected createFunctionItem(fn: SqlFunction): vscode.CompletionItem {
         const item = new vscode.CompletionItem(`${fn.signature}`, vscode.CompletionItemKind.Function);
         item.filterText = fn.name;
