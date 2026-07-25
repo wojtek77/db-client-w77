@@ -164,6 +164,63 @@ suite('findQueryTables', () => {
         assert.ok(!tables.includes('bar'),  'bar is a sibling subquery table and should not leak');
     });
 
+    // UNION/UNION ALL/INTERSECT/EXCEPT → oddzielne, niepowiązane gałęzie (punkt 9)
+    // regresja: isAncestorScope liczyło tylko zagnieżdżenie w nawiasach, więc tabela z jednej gałęzi UNION przeciekała do drugiej (obie są na głębokości 0)
+
+    test('excludes a sibling table from another UNION branch', () => {
+        const sql = 'SELECT a FROM t1 WHERE x UNION SELECT b FROM t2 WHERE ';
+        const cursorOffset = sql.length;
+        const tables = findQueryTables(sql, 'public', fakeDb, cursorOffset).map(r => r.table);
+        assert.ok(tables.includes('t2'),  'missing own branch table t2');
+        assert.ok(!tables.includes('t1'), 't1 belongs to the other UNION branch and should not leak');
+    });
+
+    test('excludes a sibling table from a later UNION branch when the cursor is in the first branch', () => {
+        const firstBranch = 'SELECT a FROM t1 WHERE ';
+        const sql = firstBranch + ' UNION SELECT b FROM t2 WHERE x';
+        const tables = findQueryTables(sql, 'public', fakeDb, firstBranch.length).map(r => r.table);
+        assert.ok(tables.includes('t1'),  'missing own branch table t1');
+        assert.ok(!tables.includes('t2'), 't2 belongs to a later UNION branch and should not leak');
+    });
+
+    test('works with 3+ branches joined by UNION ALL', () => {
+        const sql = 'SELECT a FROM t1 UNION ALL SELECT b FROM t2 UNION ALL SELECT c FROM t3 WHERE ';
+        const tables = findQueryTables(sql, 'public', fakeDb, sql.length).map(r => r.table);
+        assert.deepStrictEqual(tables, ['t3']);
+    });
+
+    test('treats INTERSECT and EXCEPT as branch separators too', () => {
+        const intersectSql = 'SELECT a FROM t1 INTERSECT SELECT b FROM t2 WHERE ';
+        assert.deepStrictEqual(findQueryTables(intersectSql, 'public', fakeDb, intersectSql.length).map(r => r.table), ['t2']);
+
+        const exceptSql = 'SELECT a FROM t1 EXCEPT SELECT b FROM t2 WHERE ';
+        assert.deepStrictEqual(findQueryTables(exceptSql, 'public', fakeDb, exceptSql.length).map(r => r.table), ['t2']);
+    });
+
+    test('a UNION inside one subquery does not affect scoping of an unrelated, sibling subquery', () => {
+        const sql = "SELECT * FROM t WHERE a IN (SELECT x FROM t1 UNION SELECT y FROM t2) AND b IN (SELECT z FROM t3 WHERE )";
+        const cursorOffset = sql.lastIndexOf('WHERE )') + 'WHERE '.length;
+        const tables = findQueryTables(sql, 'public', fakeDb, cursorOffset).map(r => r.table);
+        assert.ok(tables.includes('t'),   'missing top-level table t');
+        assert.ok(tables.includes('t3'),  'missing own subquery table t3');
+        assert.ok(!tables.includes('t1'), 't1 is inside an unrelated sibling subquery and should not leak');
+        assert.ok(!tables.includes('t2'), 't2 is inside an unrelated sibling subquery and should not leak');
+    });
+
+    test('the outer (correlated) table stays visible inside a specific UNION branch of a subquery', () => {
+        const sql = 'SELECT * FROM t WHERE id IN (SELECT a FROM t1 UNION SELECT b FROM t2 WHERE ';
+        const tables = findQueryTables(sql, 'public', fakeDb, sql.length).map(r => r.table);
+        assert.ok(tables.includes('t'),   'missing outer correlated table t');
+        assert.ok(tables.includes('t2'),  'missing own UNION branch table t2');
+        assert.ok(!tables.includes('t1'), 't1 is a sibling UNION branch and should not leak');
+    });
+
+    test('without UNION, behaves exactly as before (regression)', () => {
+        const sql = 'SELECT * FROM t1 JOIN t2 ON t1.id = t2.id WHERE ';
+        const tables = findQueryTables(sql, 'public', fakeDb, sql.length).map(r => r.table);
+        assert.deepStrictEqual([...tables].sort(), ['t1', 't2']);
+    });
+
     // zapytanie z wieloma (4) JOIN-ami
     // regresja wydajnościowa: computeParenStack był liczony od zera dla każdego FROM/JOIN (O(n*m)) – testy pilnują niezmienności scopingu po cursorOffset
     suite('with 4 JOINs', () => {
@@ -1303,6 +1360,33 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(labels.includes('name'),     'missing name from the derived table');
         assert.ok(!labels.includes('user_id'), 'orders columns must not leak into the derived table alias suggestions');
         assert.ok(!labels.includes('total'),   'orders columns must not leak into the derived table alias suggestions');
+    });
+
+    // ── UNION → gałęzie nie mieszają kolumn (punkt 9) ─────────────────────────
+
+    test('does not mix columns from an unrelated UNION branch (customers vs suppliers)', async () => {
+        const sql = 'SELECT id, name, email FROM customers UNION SELECT id, company_name, tax_id FROM suppliers WHERE ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        }, {
+            'public.customers': [
+                makeColumn('id',    'int', 'PRI'),
+                makeColumn('name',  'varchar'),
+                makeColumn('email', 'varchar'),
+            ],
+            'public.suppliers': [
+                makeColumn('id',           'int', 'PRI'),
+                makeColumn('company_name', 'varchar'),
+                makeColumn('tax_id',       'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('company_name'), 'missing company_name from the current (suppliers) branch');
+        assert.ok(labels.includes('tax_id'),       'missing tax_id from the current (suppliers) branch');
+        assert.ok(!labels.includes('name'),        'name belongs to the customers branch and should not leak');
+        assert.ok(!labels.includes('email'),       'email belongs to the customers branch and should not leak');
     });
 
     // ── PARTITION BY w funkcjach okna (punkt 5) ───────────────────────────────

@@ -29,55 +29,87 @@ export function computeParenStack(sql: string, uptoIndex: number): number[] {
 }
 
 /**
- * Sprawdza, czy `matchStack` jest "przodkiem" (lub tym samym poziomem) względem
- * `cursorStack` — czyli czy dopasowanie FROM/JOIN znajduje się w zasięgu widoczności
- * kursora (na poziomie głównego zapytania, albo w tym samym podzapytaniu co kursor,
- * albo w podzapytaniu, które go otacza — jak przy skorelowanych podzapytaniach).
+ * Sprawdza, czy `match` jest "przodkiem" (lub tym samym poziomem) względem `cursor` —
+ * czyli czy dopasowanie FROM/JOIN znajduje się w zasięgu widoczności kursora (na poziomie
+ * głównego zapytania, albo w tym samym podzapytaniu co kursor, albo w podzapytaniu, które
+ * go otacza — jak przy skorelowanych podzapytaniach) ORAZ w tej samej gałęzi zapytania
+ * złożonego (UNION/UNION ALL/INTERSECT/EXCEPT) na każdym wspólnym poziomie zagnieżdżenia,
+ * łącznie z głównym zapytaniem (poziom 0) - bez tego `t1` z pierwszej gałęzi UNION
+ * przeciekałoby do podpowiedzi w drugiej, niepowiązanej gałęzi.
  */
-function isAncestorScope(matchStack: number[], cursorStack: number[]): boolean {
-    if (matchStack.length > cursorStack.length) {
+function isAncestorScope(match: ScopeSignature, cursor: ScopeSignature): boolean {
+    if (match.parenStack.length > cursor.parenStack.length) {
         return false;
     }
-    for (let i = 0; i < matchStack.length; i++) {
-        if (matchStack[i] !== cursorStack[i]) {
+    for (let i = 0; i < match.parenStack.length; i++) {
+        if (match.parenStack[i] !== cursor.parenStack[i]) {
+            return false;
+        }
+    }
+    for (let i = 0; i <= match.parenStack.length; i++) {
+        if (match.branchStack[i] !== cursor.branchStack[i]) {
             return false;
         }
     }
     return true;
 }
 
+interface ScopeSignature {
+    parenStack: number[];
+    branchStack: number[];
+}
+
+// granice gałęzi zapytania złożonego - każda "przełącza" na nową, niepowiązaną listę tabel na danym poziomie zagnieżdżenia
+const BRANCH_KEYWORD_REGEX = /\b(?:union|intersect|except)\b/gi;
+
 /**
- * Liczy stos nawiasów w KILKU punktach tekstu naraz, jednym przebiegiem od lewej
- * do prawej (zamiast liczyć go od zera dla każdego punktu osobno, jak robił to
- * poprzednio `computeParenStack` wywoływane w pętli w `findQueryTables`).
+ * Liczy sygnaturę zasięgu (stos nawiasów + stos numerów gałęzi UNION/INTERSECT/EXCEPT na
+ * każdym poziomie zagnieżdżenia) w KILKU punktach tekstu naraz, jednym przebiegiem od lewej
+ * do prawej (zamiast liczyć go od zera dla każdego punktu osobno, jak robił to poprzednio
+ * `computeParenStack` wywoływane w pętli w `findQueryTables`).
  *
  * Tekst jest maskowany (`maskStringLiterals`) TYLKO RAZ, a nie raz na punkt -
  * przy zapytaniu z wieloma FROM/JOIN dawało to niepotrzebne O(n * liczba_dopasowań).
  *
- * Zwraca mapę: indeks punktu z `checkpoints` -> stos pozycji otwierających `(`
- * niezamkniętych przed tym punktem.
+ * Każde wejście w nawias odkłada nowy licznik gałęzi = 0 (podzapytanie liczy swoje
+ * UNION-y niezależnie od zapytania zewnętrznego); wyjście z nawiasu go zdejmuje.
  */
-function computeParenStacksAt(sql: string, checkpoints: number[]): number[][] {
+function computeScopeSignaturesAt(sql: string, checkpoints: number[]): ScopeSignature[] {
     const masked = maskStringLiterals(sql);
+
+    const branchKeywordStarts = new Set<number>();
+    let keywordMatch: RegExpExecArray | null;
+    while ((keywordMatch = BRANCH_KEYWORD_REGEX.exec(masked)) !== null) {
+        branchKeywordStarts.add(keywordMatch.index);
+    }
 
     // sortujemy punkty rosnąco żeby przejść tekst jednym przebiegiem, ale wynik zwracamy w oryginalnej kolejności
     const order = checkpoints
         .map((pos, originalIndex) => ({ pos, originalIndex }))
         .sort((a, b) => a.pos - b.pos);
 
-    const results: number[][] = new Array(checkpoints.length);
-    const stack: number[] = [];
+    const results: ScopeSignature[] = new Array(checkpoints.length);
+    const parenStack: number[] = [];
+    const branchStack: number[] = [0]; // poziom 0 = główne zapytanie, zawsze obecny
     let cursor = 0;
 
     for (const { pos, originalIndex } of order) {
         const end = Math.min(pos, masked.length);
         while (cursor < end) {
+            if (branchKeywordStarts.has(cursor)) {
+                branchStack[branchStack.length - 1]++;
+            }
             const ch = masked[cursor];
-            if (ch === '(') { stack.push(cursor); }
-            else if (ch === ')') { stack.pop(); }
+            if (ch === '(') {
+                parenStack.push(cursor);
+                branchStack.push(0);
+            } else if (ch === ')') {
+                parenStack.pop();
+                branchStack.pop();
+            }
             cursor++;
         }
-        results[originalIndex] = [...stack];
+        results[originalIndex] = { parenStack: [...parenStack], branchStack: [...branchStack] };
     }
 
     return results;
@@ -102,22 +134,22 @@ export function findQueryTables(
         matches.push(match);
     }
 
-    // przy podanym kursorze ograniczamy dopasowania do jego zasięgu (pomijamy tabele z obcych podzapytań) i liczymy stosy nawiasów jednym przebiegiem
-    let cursorStack: number[] | null = null;
-    let matchStacks: number[][] | null = null;
+    // przy podanym kursorze ograniczamy dopasowania do jego zasięgu (pomijamy tabele z obcych podzapytań/gałęzi UNION) i liczymy sygnatury zasięgu jednym przebiegiem
+    let cursorSignature: ScopeSignature | null = null;
+    let matchSignatures: ScopeSignature[] | null = null;
 
     if (cursorOffset !== undefined) {
         const checkpoints = matches.map(m => m.index);
         checkpoints.push(cursorOffset);
 
-        const stacks = computeParenStacksAt(sql, checkpoints);
-        matchStacks = stacks.slice(0, matches.length);
-        cursorStack = stacks[matches.length];
+        const signatures = computeScopeSignaturesAt(sql, checkpoints);
+        matchSignatures = signatures.slice(0, matches.length);
+        cursorSignature = signatures[matches.length];
     }
 
     matches.forEach((match, i) => {
-        if (cursorStack !== null && matchStacks !== null) {
-            if (!isAncestorScope(matchStacks[i], cursorStack)) {
+        if (cursorSignature !== null && matchSignatures !== null) {
+            if (!isAncestorScope(matchSignatures[i], cursorSignature)) {
                 return;
             }
         }
