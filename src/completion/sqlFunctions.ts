@@ -1407,6 +1407,52 @@ SELECT CONCAT('DB: ', DATABASE());
 {
     category: 'Information & System',
 
+    name: 'FOUND_ROWS',
+
+    signature:
+        'FOUND_ROWS()',
+
+    snippet:
+        'FOUND_ROWS()',
+
+    documentation: `
+# FOUND_ROWS
+
+\`\`\`sql
+FOUND_ROWS()
+\`\`\`
+
+Returns the number of rows a preceding SELECT with SQL_CALC_FOUND_ROWS would have returned without LIMIT.
+
+## Full Syntax
+
+\`\`\`sql
+FOUND_ROWS()
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+SELECT SQL_CALC_FOUND_ROWS *
+FROM contacts
+LIMIT 10;
+
+SELECT FOUND_ROWS();
+\`\`\`
+
+\`\`\`sql
+SELECT FOUND_ROWS() AS total_rows;
+\`\`\`
+
+\`\`\`sql
+SELECT FOUND_ROWS() AS total_matches;
+\`\`\`
+`
+},
+
+{
+    category: 'Information & System',
+
     name: 'LAST_INSERT_ID',
 
     signature:
