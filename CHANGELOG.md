@@ -1,5 +1,115 @@
 # Changelog
 
+## 0.3.6
+
+### Added
+- `CompletionSelect.ts`: `GROUP BY`/`ORDER BY` now also suggest aliases
+  from the `SELECT` list (e.g. `SELECT id xxx FROM customer GROUP BY x|`
+  now offers `xxx`), reusing the same select-list-candidate extraction
+  already used for `HAVING`. A candidate is skipped when its name is
+  already covered by a real column just loaded for the query's tables,
+  so a plain, non-aliased column (`t.id`, `id`) never appears twice.
+
+### Fixed
+- `CompletionSelect.ts`: `FROM`/`JOIN` table and schema completion only
+  matched against the current line's text (`linePrefix`), so it silently
+  produced no suggestions whenever the keyword and the table name ended
+  up on different lines (e.g. `FROM` on its own line, with the table name
+  typed on the next one) - even though the clause itself was correctly
+  detected as `FROM` via the (multi-line-aware) tokenizer. `REGEX_SCHEMA_TABLE`/
+  `REGEX_FROM_OBJECT` now fall back to matching against the tail of
+  `sqlBeforeCursor` starting at the detected clause, in addition to the
+  single-line fast path.
+- `CompletionSelect.ts` / `findQueryTables.ts`: identifiers quoted with
+  backticks (the default MySQL/MariaDB quoting, commonly needed for
+  reserved words like `` `order` ``) were never recognized by any of the
+  `FROM`/`JOIN`/alias-dot regexes, all of which were built on plain `\w+`.
+  `` `?...`? `` is now allowed around schema/table/alias segments
+  everywhere those regexes are used; captured groups still contain the
+  bare name, without backticks.
+- `CompletionSelect.ts`: a second (or later) table in an old-style,
+  comma-separated `FROM` list (`FROM t1, t2`) never got table/schema
+  completion - the existing regexes only matched directly after the
+  `FROM`/`JOIN` keyword itself. Added a comma-anchored fallback,
+  restricted to when the cursor is actually inside a `FROM` clause (so a
+  comma in the `SELECT` column list is never mistaken for a table
+  separator).
+- `CompletionSelect.ts`: `detectCurrentClause` looked at the token
+  literally following `GROUP`/`ORDER`/`PARTITION` to confirm it was `BY`;
+  a comment between the two keywords (e.g. `GROUP /* note */ BY`) made
+  the clause undetectable, silently disabling completion for the rest of
+  that clause. The lookup now skips over comment tokens.
+- `CompletionSelect.ts`: `PARTITION BY` inside a window function
+  (`OVER (PARTITION BY ...)`) wasn't a recognized clause at all (`PARTITION`
+  was never added to `CLAUSE_WORD`), so it never got any column
+  suggestions, regardless of nesting depth or a following comment.
+  Added as its own clause, wired into the same column-suggestion branch
+  as `SELECT`/`WHERE`/`GROUP BY`/`ORDER BY` - deliberately *not* into the
+  new alias-suggestion behavior above, since a window function's
+  `PARTITION BY` refers to source columns, not `SELECT`-list aliases.
+- `TableCompletionProvider.ts` / new `findCteDefinitions.ts`: a query
+  starting with `WITH` (a CTE) never reached any completion logic at all -
+  the provider picks a handler by matching the query's first word against
+  `select`/`insert`/`update`/`delete`/`replace`, and `with` matched none of
+  them. The first word of the *main* statement (after skipping over all
+  `WITH [RECURSIVE] name [(cols)] AS (...)` definitions) is now used for
+  that routing instead, falling back to `select` if the `WITH` clause
+  itself is still incomplete (e.g. an unclosed CTE body being typed).
+- `CompletionSelect.ts` / `CompletionAbstract.ts`: once routing worked,
+  a CTE's own alias (`WITH cte AS (...) ... FROM cte c WHERE c.|`) still
+  resolved to nothing, because `findQueryTables` has no notion of CTEs
+  and just treated `cte` as a literal (non-existent) catalog table name.
+  CTE columns are now resolved from the CTE's own definition instead: an
+  explicit column list (`WITH cte(a, b) AS (...)`) is used verbatim when
+  given, otherwise columns are inferred from the CTE body's own `SELECT`
+  list (same mechanism as the `GROUP BY`/`ORDER BY` alias suggestions
+  above). Applies both to `alias.column` completion and to the general,
+  no-dot column list.
+- `CompletionSelect.ts` / `CompletionAbstract.ts` / new
+  `findDerivedTables.ts`: the same problem as above, for an aliased
+  derived table (a subquery used directly in `FROM`, e.g.
+  `FROM (SELECT id, name FROM t) x`) - `x` isn't a `\w+` table name, so
+  none of the alias-declaration regexes could ever match it, and `x.`
+  resolved to nothing. Columns are now inferred the same way as for CTEs
+  (explicit `AS x(a, b)` list if present, otherwise the subquery's own
+  `SELECT` list); a derived table without an alias is ignored (invalid
+  MySQL/MariaDB syntax anyway, since it can't be referenced).
+- `findQueryTables.ts`: table-visibility scoping (`isAncestorScope`) was
+  based purely on parenthesis nesting, with no notion of `UNION`/
+  `UNION ALL`/`INTERSECT`/`EXCEPT` branches. Since every branch of a
+  compound query sits at the *same* nesting depth, columns from one
+  branch's tables leaked into completion for a sibling, unrelated branch
+  (e.g. `SELECT id,name FROM customers UNION SELECT id,tax_id FROM
+  suppliers WHERE |` also suggested `name`, which doesn't exist on
+  `suppliers`). Scope tracking now also keeps a per-depth branch counter,
+  incremented on each `UNION`/`INTERSECT`/`EXCEPT` and reset for every
+  newly opened subquery; two positions are only in the same scope when
+  both their paren nesting *and* their branch index match at every shared
+  depth level, including the top-level query itself.
+
+### Tests
+- Extensive new coverage in `Completion.test.ts` for all of the above:
+  multi-line `FROM`, backtick-quoted identifiers (table, schema, alias,
+  and mixed with an unquoted declaration/reference on the other side),
+  comma-separated table lists (including a negative check that a `SELECT`
+  column-list comma is left alone), `GROUP`/`ORDER`/`PARTITION` split
+  across a comment, `PARTITION BY` (including a negative check that it
+  does *not* get alias suggestions), `GROUP BY`/`ORDER BY` alias
+  suggestions (with and without `AS`, an aggregate expression, and
+  negative checks for plain columns and for `WHERE`), CTEs (direct
+  reference, aliased reference, explicit column list, `WITH RECURSIVE`,
+  routing while the CTE body is still unclosed, and not mixing up a CTE
+  with a real joined table), derived tables (dot reference, no-dot
+  reference, explicit column list, `JOIN`/comma position, and not mixing
+  up with a real joined table), and `UNION`/`UNION ALL`/`INTERSECT`/
+  `EXCEPT` branch isolation (including a `UNION` nested inside an
+  unrelated sibling subquery, and a correlated outer table staying
+  visible inside a specific branch). Also updated one pre-existing
+  derived-table test whose assertion happened to rely on the very gap
+  being fixed here (columns it expected to stay hidden are now correctly
+  exposed as the derived table's own output; the test was changed to
+  check for a column the subquery doesn't select instead).
+
 ## 0.3.5
 
 ### Added
