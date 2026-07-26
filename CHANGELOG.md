@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.11
+
+### Added
+- `CompletionInsert.ts` / `CompletionReplace.ts`: added completion support for the alternative
+  `INSERT INTO tbl SET col1 = val1, col2 = val2` / `REPLACE INTO tbl SET ...` syntax, which
+  MySQL/MariaDB allows instead of `(columns) VALUES (...)`.
+  - Right after the table name, `SET` is now suggested alongside the existing `(columns)` snippet.
+  - Inside the `SET` clause, column names are suggested as `column = <default value>` snippets,
+    reusing the same type-based default-value logic already used for the `VALUES (...)` row snippet
+    (generated columns excluded, `NULL` for nullable/auto_increment columns, proper date/enum/numeric
+    formatting, etc.).
+  - Once the cursor is right after `=`, plain column-name suggestions are shown instead, without
+    overriding with the `column = value` snippet.
+
+### Changed
+- `CompletionAbstract.ts`: extracted the per-column default-value token generation (previously
+  duplicated in `CompletionInsert.ts` and `CompletionReplace.ts`) into a shared `buildDefaultValueToken`
+  helper, reused by both the `VALUES (...)` row snippet and the new `SET` clause snippets.
+
+### Tests
+- Added dedicated test suites for the new `SET` syntax in `CompletionInsert.test.ts` and
+  `CompletionReplace.test.ts` (column suggestions after `SET`, prefix filtering, multi-column
+  completion after a comma, no snippet override right after `=`, schema-qualified tables).
+- Updated the existing "column list in parentheses" tests to account for the new `SET` keyword
+  suggestion shown alongside the `(columns)` snippet right after the table name.
+
 ## 0.3.10
 
 ### Fixed
