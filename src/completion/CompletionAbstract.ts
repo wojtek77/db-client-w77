@@ -205,4 +205,70 @@ export abstract class CompletionAbstract {
     protected extractHavingCandidates(selectPart: string): string[] {
         return extractHavingCandidatesPure(selectPart);
     }
+
+    // buduje token snippetu z wartością domyślną dla kolumny wg jej typu/atrybutów - współdzielone przez CompletionInsert i CompletionReplace (VALUES(...) oraz SET col = val)
+    protected buildDefaultValueToken(dbCol: TableColumn, tabIndex: number): string {
+        const colExtra = String(dbCol.extra || '').toLowerCase();
+
+        if (colExtra.includes('generated')) {
+            return `\${${tabIndex}:DEFAULT}`;
+        }
+        if (colExtra.includes('auto_increment')) {
+            return `\${${tabIndex}:NULL}`;
+        }
+
+        const dataType = (dbCol.type || '').toLowerCase();
+
+        if (dbCol.defaultValue !== null && dbCol.defaultValue !== undefined && String(dbCol.defaultValue).toLowerCase() !== 'null') {
+            const rawDefault = String(dbCol.defaultValue);
+            const rawDefaultLower = rawDefault.toLowerCase();
+
+            const isSqlFunction = [
+                'current_timestamp', 'now()', 'uuid()', 'current_date', 'current_time'
+            ].some(f => rawDefaultLower.includes(f));
+
+            if (isSqlFunction) {
+                return `\${${tabIndex}:${rawDefault}}`;
+            }
+
+            const cleanDefault = rawDefault.replace(/^['"]|['"]$/g, '');
+
+            const numericTypesForDefault = ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal', 'numeric', 'bit'];
+            if (numericTypesForDefault.some(t => dataType.includes(t))) {
+                return `\${${tabIndex}:${cleanDefault}}`;
+            }
+            return `'\${${tabIndex}:${cleanDefault}}'`;
+        }
+
+        const colNullableRaw = String(dbCol.isNullable).toLowerCase();
+        const isNullable = colNullableRaw === 'yes' || colNullableRaw === '1' || colNullableRaw === 'true';
+
+        if (isNullable) {
+            return `\${${tabIndex}:NULL}`;
+        }
+
+        if (dataType.startsWith('enum')) {
+            const fullEnumDefinition = ((dbCol as any).columnType || dbCol.type || '');
+            const enumMatch = fullEnumDefinition.match(/['"]([^'"]+)['"]/);
+
+            if (enumMatch && enumMatch[1]) {
+                return `'\${${tabIndex}:${enumMatch[1]}}'`;
+            }
+            return `'\${${tabIndex}}'`;
+        }
+
+        if (dataType.startsWith('date') && !dataType.startsWith('datetime')) {
+            return `'\${${tabIndex}:0000-00-00}'`;
+        }
+        if (dataType.startsWith('datetime') || dataType.startsWith('timestamp')) {
+            return `'\${${tabIndex}:0000-00-00 00:00:00}'`;
+        }
+
+        const numericTypes = ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal', 'numeric', 'bit'];
+        if (numericTypes.some(t => dataType.includes(t))) {
+            return `\${${tabIndex}:0}`;
+        }
+
+        return `'\${${tabIndex}:[${dbCol.name}]}'`;
+    }
 }

@@ -21,6 +21,9 @@ const REGEX_ON_DUPLICATE_CONTEXT = /\bon\s+duplicate\s+key\s+update\s+([\s\S]*)$
 const REGEX_GLOBAL_TABLE_EXTRACT = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\b/i;
 const REGEX_INSIDE_VALUES_FUNCTION = /\bvalues\s*\(\s*(\w*)$/i;
 
+// NOWE: wykrywanie alternatywnej składni "INSERT INTO tbl SET col1 = val1, col2 = val2" (bez listy kolumn i VALUES)
+const REGEX_SET_CONTEXT = /\bset\s+([\s\S]*)$/i;
+
 export class CompletionInsert extends CompletionAbstract implements CompletionInterface {
 
     public async complete(
@@ -88,6 +91,42 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
             }
         }
 
+        // NOWE: obsługa alternatywnej składni INSERT INTO tbl SET col1 = val1, col2 = val2 (MySQL/MariaDB dopuszcza SET zamiast (columns) VALUES (...))
+        const setMatch = sqlBeforeCursor.match(REGEX_SET_CONTEXT);
+        if (setMatch) {
+            const tableMatch = sqlBeforeCursor.match(REGEX_GLOBAL_TABLE_EXTRACT);
+            if (tableMatch) {
+                const matchedSchema = tableMatch[1];
+                const tableName = tableMatch[2];
+                const schema = matchedSchema || defaultSchema || '';
+
+                if (schema && tableName) {
+                    const tableRef = { schema, table: tableName };
+                    const columnsMap = await this.tableColumnsService.getCachedColumnsBatch([tableRef]);
+                    const cacheKey = this.tableColumnsService.getTableRefKey(tableRef);
+                    const columns = columnsMap[cacheKey] || [];
+
+                    if (columns.length > 0) {
+                        const lastWordMatch = linePrefix.match(/(\w+)$/);
+                        const filter = lastWordMatch ? lastWordMatch[1].toLowerCase() : '';
+
+                        return columns
+                            .filter(col => !String(col.extra || '').toLowerCase().includes('generated'))
+                            .filter(col => !filter || col.name.toLowerCase().includes(filter))
+                            .map(column => {
+                                const item = this.createColumnItem(tableName, column);
+                                // sugerujemy od razu pełną konstrukcję jako snippet 'column = wartość_domyślna', chyba że użytkownik wpisał już znak równości
+                                if (!linePrefix.trim().endsWith('=')) {
+                                    item.insertText = new vscode.SnippetString(`${column.name} = ${this.buildDefaultValueToken(column, 1)}`);
+                                    item.detail = `Set column value`;
+                                }
+                                return item;
+                            });
+                    }
+                }
+            }
+        }
+
         // 1. podpowiadanie słowa kluczowego VALUES (również w nowej linii, np. 'v|')
         const lastWordMatch = linePrefix.match(/(\w+)$/);
         const lastWord = lastWordMatch ? lastWordMatch[1].toLowerCase() : '';
@@ -143,80 +182,7 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                                 continue;
                             }
 
-                            const colExtra = String(dbCol.extra || '').toLowerCase();
-
-                            if (colExtra.includes('generated')) {
-                                valueTokens.push(`\${${tabIndex++}:DEFAULT}`);
-                                continue;
-                            }
-
-                            if (colExtra.includes('auto_increment')) {
-                                valueTokens.push(`\${${tabIndex++}:NULL}`);
-                                continue;
-                            }
-
-                            const dataType = (dbCol.type || '').toLowerCase();
-
-                            if (dbCol.defaultValue !== null && dbCol.defaultValue !== undefined && String(dbCol.defaultValue).toLowerCase() !== 'null') {
-                                const rawDefault = String(dbCol.defaultValue);
-                                const rawDefaultLower = rawDefault.toLowerCase();
-
-                                const isSqlFunction = [
-                                    'current_timestamp', 'now()', 'uuid()', 'current_date', 'current_time'
-                                ].some(f => rawDefaultLower.includes(f));
-
-                                if (isSqlFunction) {
-                                    valueTokens.push(`\${${tabIndex++}:${rawDefault}}`);
-                                    continue;
-                                }
-
-                                const cleanDefault = rawDefault.replace(/^['"]|['"]$/g, '');
-
-                                const numericTypes = ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal', 'numeric', 'bit'];
-                                if (numericTypes.some(t => dataType.includes(t))) {
-                                    valueTokens.push(`\${${tabIndex++}:${cleanDefault}}`);
-                                } else {
-                                    valueTokens.push(`'\${${tabIndex++}:${cleanDefault}}'`);
-                                }
-                                continue;
-                            }
-
-                            const colNullableRaw = String(dbCol.isNullable).toLowerCase();
-                            const isNullable = colNullableRaw === 'yes' || colNullableRaw === '1' || colNullableRaw === 'true';
-                            
-                            if (isNullable) {
-                                valueTokens.push(`\${${tabIndex++}:NULL}`);
-                                continue;
-                            }
-
-                            if (dataType.startsWith('enum')) {
-                                const fullEnumDefinition = ((dbCol as any).columnType || dbCol.type || '');
-                                const enumMatch = fullEnumDefinition.match(/['"]([^'"]+)['"]/);
-                                
-                                if (enumMatch && enumMatch[1]) {
-                                    valueTokens.push(`'\${${tabIndex++}:${enumMatch[1]}}'`);
-                                } else {
-                                    valueTokens.push(`'\${${tabIndex++}}'`);
-                                }
-                                continue;
-                            }
-
-                            if (dataType.startsWith('date') && !dataType.startsWith('datetime')) {
-                                valueTokens.push(`'\${${tabIndex++}:0000-00-00}'`);
-                                continue;
-                            }
-                            if (dataType.startsWith('datetime') || dataType.startsWith('timestamp')) {
-                                valueTokens.push(`'\${${tabIndex++}:0000-00-00 00:00:00}'`);
-                                continue;
-                            }
-
-                            const numericTypes = ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal', 'numeric', 'bit'];
-                            if (numericTypes.some(t => dataType.includes(t))) {
-                                valueTokens.push(`\${${tabIndex++}:0}`);
-                                continue;
-                            }
-
-                            valueTokens.push(`'\${${tabIndex++}:[${dbCol.name}]}'`);
+                            valueTokens.push(this.buildDefaultValueToken(dbCol, tabIndex++));
                         }
 
                         if (valueTokens.length > 0) {
@@ -290,7 +256,12 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
                     completionItem.documentation = new vscode.MarkdownString(`Insert column list:\n\`\`\`sql\n${snippetString}\n\`\`\``);
                     completionItem.sortText = '00000_' + snippetString;
 
-                    return [completionItem];
+                    // NOWE: alternatywna składnia SET obok listy kolumn - użytkownik może wybrać jedną z dwóch form INSERT
+                    const setKeywordItem = new vscode.CompletionItem('SET', vscode.CompletionItemKind.Keyword);
+                    setKeywordItem.detail = 'SQL Keyword (alternative INSERT ... SET syntax)';
+                    setKeywordItem.sortText = '00001_SET';
+
+                    return [completionItem, setKeywordItem];
                 }
             }
         }
