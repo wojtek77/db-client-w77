@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.9
+
+### Added
+- `CompletionSelect.ts`: `FROM`/`JOIN` now suggests MySQL/MariaDB index
+  hints right after a table name or alias (`USE INDEX`, `FORCE INDEX`,
+  `IGNORE INDEX`), inserted as a snippet that opens the parenthesis and
+  places the cursor inside it. Once inside `USE/FORCE/IGNORE INDEX (`,
+  real index names are suggested for that specific table, fetched from
+  `INFORMATION_SCHEMA.STATISTICS` and cached the same way table columns
+  already are. When a query has several `JOIN`s each with their own
+  hint, the suggested index names always resolve to the table closest
+  to the open parenthesis. New `TableIndexesCache` (`src/cache/`) and
+  `getTableIndexesBatch` (`src/db/query.ts`) mirror the existing
+  `TableColumnsCache`/`getTableColumnsBatch` pattern; `CompletionAbstract.ts`
+  gains an optional `tableIndexesService` plus `createIndexHintKeywordItem`/
+  `createIndexNameItem` helpers, wired up only for `CompletionSelect`.
+
+### Fixed
+- `CompletionSelect.ts`: the open parenthesis of `USE/FORCE/IGNORE INDEX (`
+  raised the cursor's nesting depth, which made `detectCurrentClause` stop
+  seeing the enclosing `FROM` (sitting at depth 0) - the same class of
+  problem `isCursorInsideFunctionCall` already solves for `HAVING`. Index
+  hint detection now runs independently of the standard clause detection.
+
 ## 0.3.8
 
 ### Added
