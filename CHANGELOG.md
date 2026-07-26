@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.13
+
+### Fixed
+- `CompletionSelect.ts`: `REGEX_INDEX_HINT_KEYWORD` and `REGEX_INDEX_HINT_TABLE`
+  only matched a bare `\w+` table name, so `USE`/`FORCE`/`IGNORE INDEX` suggestions
+  (and resolving the table for real index names inside the parens) never triggered
+  when the table was schema-qualified (e.g. `FROM schema.users |`). Both regexes now
+  accept an optional non-capturing `schema.` prefix before the table name.
+
+### Tests
+- Added coverage in `Completion.test.ts` for index-hint keyword suggestions and real
+  index-name resolution when the table in `FROM` is schema-qualified (with and without
+  an alias).
+
 ## 0.3.12
 
 ### Changed
