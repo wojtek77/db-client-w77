@@ -2,10 +2,16 @@ import { ConnectionManager } from '../db/ConnectionManager.js';
 import { getTableIndexesBatch } from '../db/query.js';
 import { TableRef } from './TableColumnsCache.js';
 
+// typ indeksu wynikający z INFORMATION_SCHEMA.STATISTICS: 'PRIMARY' dla klucza głównego, unique gdy NON_UNIQUE = 0, w przeciwnym razie zwykły indeks
+export type TableIndexType = 'primary' | 'unique' | 'index';
+
 export interface TableIndex {
     schema: string;
     table: string;
     name: string;
+    type: TableIndexType;
+    // kolumny wchodzące w skład indeksu, w kolejności SEQ_IN_INDEX
+    columns: string[];
 }
 
 type Cache = Record<

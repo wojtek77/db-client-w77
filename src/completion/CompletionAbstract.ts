@@ -5,7 +5,7 @@ import { findCteDefinitions } from '../sql/findCteDefinitions.js';
 import { findDerivedTables } from '../sql/findDerivedTables.js';
 import { extractSelectPartAtCursorLevel as extractSelectPartAtCursorLevelPure, extractHavingCandidates as extractHavingCandidatesPure } from '../sql/selectListCandidates.js';
 import { TableColumn, TableColumnsCache } from '../cache/TableColumnsCache.js';
-import { TableIndexesCache } from '../cache/TableIndexesCache.js';
+import { TableIndexesCache, TableIndexType } from '../cache/TableIndexesCache.js';
 import { formatColumnType } from './columnFormatter.js';
 import { SqlFunction } from './sqlFunctions.js';
 
@@ -169,10 +169,15 @@ export abstract class CompletionAbstract {
     }
 
     // nazwa realnego indeksu tabeli (do wstawienia wewnątrz USE/FORCE/IGNORE INDEX (...))
-    protected createIndexNameItem(tableName: string, indexName: string, order: number): vscode.CompletionItem {
+    protected createIndexNameItem(tableName: string, indexName: string, type: TableIndexType, columns: string[], order: number): vscode.CompletionItem {
         const item = new vscode.CompletionItem(indexName, vscode.CompletionItemKind.Reference);
         item.insertText = indexName;
-        item.detail     = `${tableName} 🔑 Index`;
+        // etykieta typu: klucz główny, indeks jednoznaczny albo zwykły indeks
+        const typeLabel =
+            type === 'primary' ? '🔑 PRIMARY KEY' :
+            type === 'unique' ? 'UNIQUE INDEX' :
+            'INDEX';
+        item.detail     = `${tableName} · ${typeLabel} (${columns.join(', ')})`;
         item.sortText   = `0_${order.toString().padStart(5, '0')}`;
         return item;
     }

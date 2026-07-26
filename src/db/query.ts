@@ -4,7 +4,7 @@ import { Connection } from './Connection.js';
 import { SqlUtil } from '../sql/SqlUtil.js';
 import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
-import { TableIndex } from '../cache/TableIndexesCache.js';
+import { TableIndex, TableIndexType } from '../cache/TableIndexesCache.js';
 
 export async function executeQuery(db: Connection, sql: string) {
     let rows: any[] = [];
@@ -272,12 +272,15 @@ export async function getTableIndexesBatch(
                 ]
             );
 
-        // DISTINCT bo STATISTICS ma jeden wiersz na każdą kolumnę wchodzącą w skład indeksu, a nas interesują tylko same nazwy
+        // bez DISTINCT: STATISTICS ma jeden wiersz na każdą kolumnę wchodzącą w skład indeksu, a te wiersze są nam teraz potrzebne do zebrania listy kolumn
         const sql = `
-            SELECT DISTINCT
+            SELECT
                 TABLE_SCHEMA,
                 TABLE_NAME,
-                INDEX_NAME
+                INDEX_NAME,
+                NON_UNIQUE,
+                COLUMN_NAME,
+                SEQ_IN_INDEX
             FROM INFORMATION_SCHEMA.STATISTICS
             WHERE (
                 TABLE_SCHEMA,
@@ -285,19 +288,40 @@ export async function getTableIndexesBatch(
             ) IN (
                 ${placeholders}
             )
-            ORDER BY INDEX_NAME
+            ORDER BY INDEX_NAME, SEQ_IN_INDEX
         `;
 
         const rows =
             await db.query(sql, params);
 
-        return rows.map(
-            (row: any) => ({
-                schema: row.TABLE_SCHEMA,
-                table: row.TABLE_NAME,
-                name: row.INDEX_NAME
-            })
-        );
+        // grupujemy wiersze STATISTICS (jeden na kolumnę) w jeden obiekt TableIndex na indeks, kolejność kolumn zachowana dzięki ORDER BY SEQ_IN_INDEX
+        const grouped = new Map<string, TableIndex>();
+
+        for (const row of rows) {
+            const key = `${row.TABLE_SCHEMA}.${row.TABLE_NAME}.${row.INDEX_NAME}`;
+            let index = grouped.get(key);
+
+            if (!index) {
+                // NON_UNIQUE = 0 oznacza indeks jednoznaczny, a nazwa PRIMARY zawsze wskazuje na klucz główny
+                const type: TableIndexType =
+                    row.INDEX_NAME === 'PRIMARY' ? 'primary' :
+                    row.NON_UNIQUE === 0 ? 'unique' :
+                    'index';
+
+                index = {
+                    schema: row.TABLE_SCHEMA,
+                    table: row.TABLE_NAME,
+                    name: row.INDEX_NAME,
+                    type,
+                    columns: []
+                };
+                grouped.set(key, index);
+            }
+
+            index.columns.push(row.COLUMN_NAME);
+        }
+
+        return [...grouped.values()];
 
     } catch (err) {
         const tableList =

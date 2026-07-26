@@ -34,8 +34,14 @@ export function makeColumn(
     };
 }
 
-export function makeIndex(name: string, table = 'users', schema = 'public'): TableIndex {
-    return { schema, table, name };
+export function makeIndex(
+    name: string,
+    table = 'users',
+    schema = 'public',
+    type: TableIndex['type'] = 'index',
+    columns: string[] = ['id'],
+): TableIndex {
+    return { schema, table, name, type, columns };
 }
 
 export function makeFakeDb(overrides: Partial<FakeDb> = {}): FakeDb {

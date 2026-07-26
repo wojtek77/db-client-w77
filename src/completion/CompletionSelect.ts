@@ -170,9 +170,11 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                     const indexesMap = await this.tableIndexesService.getCachedIndexesBatch([tableRef]);
                     const indexes = indexesMap[this.tableIndexesService.getTableRefKey(tableRef)] ?? [];
 
+                    // sortujemy wg połączonych nazw kolumn (np. "aaa" przed "aaa,bbb" przed "bbb"), a nie wg samej nazwy indeksu
                     return indexes
                         .filter(index => !filter || index.name.toLowerCase().includes(filter))
-                        .map((index, order) => this.createIndexNameItem(table, index.name, order));
+                        .sort((a, b) => a.columns.join(',').localeCompare(b.columns.join(',')))
+                        .map((index, order) => this.createIndexNameItem(table, index.name, index.type, index.columns, order));
                 }
             }
         }
