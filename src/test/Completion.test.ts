@@ -1092,6 +1092,46 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(!labels.includes('idx_order_date'),  'idx_order_date should not leak from a different table\'s hint');
     });
 
+    // regresja: REGEX_INDEX_HINT_KEYWORD/REGEX_INDEX_HINT_TABLE łapały nazwę tabeli tylko jako goły \w+, więc "schema.table" w ogóle nie dopasowywało wzorca
+
+    test('suggests USE/FORCE/IGNORE INDEX right after a schema-qualified table name in FROM', async () => {
+        const sql = 'SELECT * FROM myschema.users ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'missing USE INDEX for schema.table');
+        assert.ok(labels.includes('FORCE INDEX'),  'missing FORCE INDEX for schema.table');
+        assert.ok(labels.includes('IGNORE INDEX'), 'missing IGNORE INDEX for schema.table');
+    });
+
+    test('suggests USE/FORCE/IGNORE INDEX right after a schema-qualified table alias in FROM', async () => {
+        const sql = 'SELECT * FROM myschema.users u ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'missing USE INDEX after alias for schema.table');
+        assert.ok(labels.includes('FORCE INDEX'),  'missing FORCE INDEX after alias for schema.table');
+        assert.ok(labels.includes('IGNORE INDEX'), 'missing IGNORE INDEX after alias for schema.table');
+    });
+
+    test('resolves real index names inside USE INDEX (...) when the table in FROM is schema-qualified', async () => {
+        const sql = 'SELECT * FROM myschema.users USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.users': [
+                makeIndex('PRIMARY'),
+                makeIndex('idx_email'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('PRIMARY'),   'missing PRIMARY index for schema.table');
+        assert.ok(labels.includes('idx_email'), 'missing idx_email for schema.table');
+    });
+
     // ── WHERE → kolumny przez alias ───────────────────────────────────────────
 
     test('suggests columns after alias in WHERE (u.)', async () => {

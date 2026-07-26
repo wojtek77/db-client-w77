@@ -20,7 +20,7 @@ const REGEX_ALIAS_DOT = /`?([a-zA-Z0-9_]+)`?(?:\s*\.\s*`?([a-zA-Z0-9_]+)`?)?\s*\
 
 // pozycja tuż po nazwie tabeli i opcjonalnym aliasie w FROM/JOIN (np. "FROM users u |" albo "FROM users |") - tu mogą pojawić się USE/FORCE/IGNORE INDEX
 // grupa 1: nazwa tabeli, grupa 2: opcjonalny alias, grupa 3: aktualnie pisane słowo (filtr podpowiedzi, może być puste)
-const REGEX_INDEX_HINT_KEYWORD = /\b(?:from|join)\s+`?(\w+)`?(?:\s+(?:as\s+)?`?(\w+)`?)?\s+(\w*)$/i;
+const REGEX_INDEX_HINT_KEYWORD = /\b(?:from|join)\s+(?:`?\w+`?\s*\.\s*)?`?(\w+)`?(?:\s+(?:as\s+)?`?(\w+)`?)?\s+(\w*)$/i;
 
 // kursor wewnątrz nawiasu USE/FORCE/IGNORE {INDEX|KEY} (...) - tu podpowiadamy realne nazwy indeksów; obsługuje już wpisane nazwy przed przecinkiem
 const REGEX_INDEX_LIST = /\b(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(\s*(?:`?\w+`?\s*,\s*)*`?(\w*)$/i;
@@ -28,7 +28,7 @@ const REGEX_INDEX_LIST = /\b(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:j
 const INDEX_HINT_KEYWORDS = ['USE INDEX', 'FORCE INDEX', 'IGNORE INDEX'];
 
 // znajduje tabelę, do której odnosi się otwarty nawias USE/FORCE/IGNORE INDEX ( - global, bo interesuje nas ostatnie (najbliższe kursorowi) wystąpienie
-const REGEX_INDEX_HINT_TABLE = /\b(?:from|join)\s+`?(\w+)`?(?:\s+(?:as\s+)?`?\w+`?)?\s+(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(/gi;
+const REGEX_INDEX_HINT_TABLE = /\b(?:from|join)\s+(?:`?\w+`?\s*\.\s*)?`?(\w+)`?(?:\s+(?:as\s+)?`?\w+`?)?\s+(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(/gi;
 
 // modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie SELECT, przed listą wybieranych wyrażeń
 // (SELECT [ALL | DISTINCT | DISTINCTROW] [HIGH_PRIORITY] [STRAIGHT_JOIN] [SQL_SMALL_RESULT] [SQL_BIG_RESULT] [SQL_BUFFER_RESULT] [SQL_NO_CACHE] [SQL_CALC_FOUND_ROWS] ...)
