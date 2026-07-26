@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.12
+
+### Changed
+- `TableIndexesCache.ts` / `query.ts`: index lookups now fetch `NON_UNIQUE` and
+  per-column `COLUMN_NAME`/`SEQ_IN_INDEX` from `INFORMATION_SCHEMA.STATISTICS` instead of
+  just distinct index names, and group the rows into a `TableIndex` carrying an index
+  `type` (`primary` / `unique` / `index`) and its ordered `columns`.
+- `CompletionAbstract.ts`: `createIndexNameItem` now shows the index type and its columns
+  in the completion detail (e.g. `users · 🔑 PRIMARY KEY (id)`, `users · UNIQUE INDEX (email)`,
+  `users · INDEX (last_name, first_name)`).
+- `CompletionSelect.ts`: index suggestions inside `USE`/`FORCE`/`IGNORE INDEX (...)` are now
+  sorted by their column list (e.g. `(aaa)` before `(aaa, bbb)` before `(bbb)`) instead of
+  by index name.
+
+### Tests
+- Updated `makeIndex` test helper to include the new `type` and `columns` fields.
+
 ## 0.3.11
 
 ### Added
