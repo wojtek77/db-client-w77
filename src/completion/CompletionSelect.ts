@@ -18,6 +18,18 @@ const REGEX_COMMA_OBJECT = /,\s*`?(\w*)$/;
 // 3 grupy: segment1[.segment2] to alias albo schema.table, ostatnia grupa to filtr kolumny (obsługuje częściowo wpisaną nazwę, np. `l.date_ent|`); `?` obsługuje backticki
 const REGEX_ALIAS_DOT = /`?([a-zA-Z0-9_]+)`?(?:\s*\.\s*`?([a-zA-Z0-9_]+)`?)?\s*\.\s*`?(\w*)$/;
 
+// pozycja tuż po nazwie tabeli i opcjonalnym aliasie w FROM/JOIN (np. "FROM users u |" albo "FROM users |") - tu mogą pojawić się USE/FORCE/IGNORE INDEX
+// grupa 1: nazwa tabeli, grupa 2: opcjonalny alias, grupa 3: aktualnie pisane słowo (filtr podpowiedzi, może być puste)
+const REGEX_INDEX_HINT_KEYWORD = /\b(?:from|join)\s+`?(\w+)`?(?:\s+(?:as\s+)?`?(\w+)`?)?\s+(\w*)$/i;
+
+// kursor wewnątrz nawiasu USE/FORCE/IGNORE {INDEX|KEY} (...) - tu podpowiadamy realne nazwy indeksów; obsługuje już wpisane nazwy przed przecinkiem
+const REGEX_INDEX_LIST = /\b(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(\s*(?:`?\w+`?\s*,\s*)*`?(\w*)$/i;
+
+const INDEX_HINT_KEYWORDS = ['USE INDEX', 'FORCE INDEX', 'IGNORE INDEX'];
+
+// znajduje tabelę, do której odnosi się otwarty nawias USE/FORCE/IGNORE INDEX ( - global, bo interesuje nas ostatnie (najbliższe kursorowi) wystąpienie
+const REGEX_INDEX_HINT_TABLE = /\b(?:from|join)\s+`?(\w+)`?(?:\s+(?:as\s+)?`?\w+`?)?\s+(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(/gi;
+
 // modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie SELECT, przed listą wybieranych wyrażeń
 // (SELECT [ALL | DISTINCT | DISTINCTROW] [HIGH_PRIORITY] [STRAIGHT_JOIN] [SQL_SMALL_RESULT] [SQL_BIG_RESULT] [SQL_BUFFER_RESULT] [SQL_NO_CACHE] [SQL_CALC_FOUND_ROWS] ...)
 const SELECT_MODIFIERS = [
@@ -114,7 +126,13 @@ export function detectCurrentClause(sqlBeforeCursor: string): DetectedClause | u
 }
 
 export class CompletionSelect extends CompletionAbstract implements CompletionInterface {
-    
+
+    // bierzemy ostatnie (najbliższe kursorowi) dopasowanie - w zapytaniu może być kilka JOIN-ów, każdy z własnym index hintem
+    private extractPrecedingTableName(fromClauseTail: string): string | undefined {
+        const matches = [...fromClauseTail.matchAll(REGEX_INDEX_HINT_TABLE)];
+        return matches.at(-1)?.[1];
+    }
+
     public async complete(
         linePrefix: string,
         fullText: string,
@@ -135,6 +153,29 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         const isInOrderClause     = currentClause === 'order';
         const isInLimitClause     = currentClause === 'limit';
         const isInPartitionClause = currentClause === 'partition';
+
+        const defaultSchema = db.getDatabase();
+
+        /* USE/FORCE/IGNORE INDEX (xxx) - kursor wewnątrz nawiasu index hintu.
+           Sprawdzane NIEZALEŻNIE od detectCurrentClause/isInFromClause: otwarty nawias podnosi głębokość
+           zagnieżdżenia kursora, przez co FROM (na głębokości 0) przestałby być widoczny dla standardowej
+           detekcji klauzuli - dokładnie ten sam problem, który dla HAVING rozwiązuje isCursorInsideFunctionCall. */
+        if (this.tableIndexesService) {
+            const indexListMatch = sqlBeforeCursor.match(REGEX_INDEX_LIST);
+            if (indexListMatch) {
+                const table = this.extractPrecedingTableName(sqlBeforeCursor);
+                if (table) {
+                    const filter = indexListMatch[1].toLowerCase();
+                    const tableRef = { schema: defaultSchema || db.findSchemaByTable(table) || '', table };
+                    const indexesMap = await this.tableIndexesService.getCachedIndexesBatch([tableRef]);
+                    const indexes = indexesMap[this.tableIndexesService.getTableRefKey(tableRef)] ?? [];
+
+                    return indexes
+                        .filter(index => !filter || index.name.toLowerCase().includes(filter))
+                        .map((index, order) => this.createIndexNameItem(table, index.name, order));
+                }
+            }
+        }
         
         /* LIMIT */
         if (isInLimitClause) {
@@ -144,8 +185,6 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 new vscode.CompletionItem('100', vscode.CompletionItemKind.Value)
             ];
         }
-        
-        const defaultSchema = db.getDatabase();
 
         /* HAVING */
         if (isInHavingClause) {
@@ -319,6 +358,17 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             return columns
                 .filter((column: TableColumn) => !columnFilter || column.name.toLowerCase().includes(columnFilter))
                 .map((column: TableColumn) => this.createColumnItem(tableRef!.table, column));
+        }
+
+        /* USE INDEX / FORCE INDEX / IGNORE INDEX - tuż po nazwie tabeli (i opcjonalnym aliasie) w FROM/JOIN */
+        if (isInFromClause) {
+            const indexHintMatch = linePrefix.match(REGEX_INDEX_HINT_KEYWORD) ?? fromClauseTail.match(REGEX_INDEX_HINT_KEYWORD);
+            if (indexHintMatch) {
+                const filter = indexHintMatch[3].toLowerCase();
+                return INDEX_HINT_KEYWORDS
+                    .filter(keyword => !filter || keyword.toLowerCase().startsWith(filter))
+                    .map((keyword, order) => this.createIndexHintKeywordItem(keyword, order));
+            }
         }
 
         /* SELECT, WHERE, GROUP BY, ORDER BY, PARTITION BY <Ctrl+Space> */

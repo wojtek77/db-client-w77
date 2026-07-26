@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../db/ConnectionManager.js';
 import { TableColumn, TableColumnsCache } from '../cache/TableColumnsCache.js';
+import { TableIndex, TableIndexesCache } from '../cache/TableIndexesCache.js';
 import { TableCompletionProvider } from '../completion/TableCompletionProvider.js';
 
 // ─── Typy pomocnicze ──────────────────────────────────────────────────────────
@@ -33,6 +34,10 @@ export function makeColumn(
     };
 }
 
+export function makeIndex(name: string, table = 'users', schema = 'public'): TableIndex {
+    return { schema, table, name };
+}
+
 export function makeFakeDb(overrides: Partial<FakeDb> = {}): FakeDb {
     return {
         getTables:               overrides.getTables               ?? (() => []),
@@ -60,6 +65,7 @@ export async function getCompletions(
     dbOverrides:  Partial<FakeDb> = {},
     columnsStub:  Record<string, TableColumn[]> = {},
     onBatchCall?: (tables: string[]) => void,
+    indexesStub:  Record<string, TableIndex[]> = {},
 ): Promise<vscode.CompletionItem[]> {
 
     const db = makeFakeDb(dbOverrides);
@@ -80,6 +86,11 @@ export async function getCompletions(
         return columnsStub;
     };
 
+    // 3. Podmiana metody w instancji TableIndexesService — zachowaj oryginał
+    const indexesServiceInstance = TableIndexesCache.getInstance();
+    const origGetCachedIndexesBatch = indexesServiceInstance.getCachedIndexesBatch.bind(indexesServiceInstance);
+    indexesServiceInstance.getCachedIndexesBatch = async () => indexesStub;
+
     try {
         const document = await vscode.workspace.openTextDocument({
             language: 'sql',
@@ -98,6 +109,7 @@ export async function getCompletions(
         // 3. Przywrócenie oryginalnych zachowań w bloku finally
         (ConnectionManager as any).getInstance = origConnectionGetInstance;
         columnsServiceInstance.getCachedColumnsBatch = origGetCachedColumnsBatch;
+        indexesServiceInstance.getCachedIndexesBatch = origGetCachedIndexesBatch;
     }
 }
 

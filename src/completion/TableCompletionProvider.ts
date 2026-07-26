@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../db/ConnectionManager.js';
 import { TableColumnsCache } from '../cache/TableColumnsCache.js';
+import { TableIndexesCache } from '../cache/TableIndexesCache.js';
 import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { Connection } from '../db/Connection.js';
 import { CompletionSelect } from './CompletionSelect.js';
@@ -24,7 +25,8 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
     
     public constructor() {
         const tableColumnsCache = TableColumnsCache.getInstance();
-        this.completionSelect = new CompletionSelect(tableColumnsCache);
+        const tableIndexesCache = TableIndexesCache.getInstance();
+        this.completionSelect = new CompletionSelect(tableColumnsCache, tableIndexesCache);
         this.completionInsert = new CompletionInsert(tableColumnsCache);
         this.completionUpdate = new CompletionUpdate(tableColumnsCache);
         this.completionDelete = new CompletionDelete(tableColumnsCache);

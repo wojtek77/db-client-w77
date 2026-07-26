@@ -4,6 +4,7 @@ import { Connection } from './Connection.js';
 import { SqlUtil } from '../sql/SqlUtil.js';
 import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
+import { TableIndex } from '../cache/TableIndexesCache.js';
 
 export async function executeQuery(db: Connection, sql: string) {
     let rows: any[] = [];
@@ -239,6 +240,75 @@ export async function getTableColumnsBatch(
                 .join(', ');
         console.error(
             `Error getting columns for tables: ${tableList}`,
+            err
+        );
+        return [];
+    }
+}
+
+export async function getTableIndexesBatch(
+    tables: TableRef[]
+): Promise<TableIndex[]> {
+
+    if (tables.length === 0) {
+        return [];
+    }
+
+    const db = await ConnectionManager.getInstance().getDb();
+
+    try {
+        const placeholders =
+            tables
+                .map(
+                    () => '(?, ?)'
+                )
+                .join(', ');
+
+        const params =
+            tables.flatMap(
+                table => [
+                    table.schema,
+                    table.table
+                ]
+            );
+
+        // DISTINCT bo STATISTICS ma jeden wiersz na każdą kolumnę wchodzącą w skład indeksu, a nas interesują tylko same nazwy
+        const sql = `
+            SELECT DISTINCT
+                TABLE_SCHEMA,
+                TABLE_NAME,
+                INDEX_NAME
+            FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE (
+                TABLE_SCHEMA,
+                TABLE_NAME
+            ) IN (
+                ${placeholders}
+            )
+            ORDER BY INDEX_NAME
+        `;
+
+        const rows =
+            await db.query(sql, params);
+
+        return rows.map(
+            (row: any) => ({
+                schema: row.TABLE_SCHEMA,
+                table: row.TABLE_NAME,
+                name: row.INDEX_NAME
+            })
+        );
+
+    } catch (err) {
+        const tableList =
+            tables
+                .map(
+                    table =>
+                        `${table.schema}.${table.table}`
+                )
+                .join(', ');
+        console.error(
+            `Error getting indexes for tables: ${tableList}`,
             err
         );
         return [];

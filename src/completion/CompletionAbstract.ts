@@ -5,15 +5,19 @@ import { findCteDefinitions } from '../sql/findCteDefinitions.js';
 import { findDerivedTables } from '../sql/findDerivedTables.js';
 import { extractSelectPartAtCursorLevel as extractSelectPartAtCursorLevelPure, extractHavingCandidates as extractHavingCandidatesPure } from '../sql/selectListCandidates.js';
 import { TableColumn, TableColumnsCache } from '../cache/TableColumnsCache.js';
+import { TableIndexesCache } from '../cache/TableIndexesCache.js';
 import { formatColumnType } from './columnFormatter.js';
 import { SqlFunction } from './sqlFunctions.js';
 
 export abstract class CompletionAbstract {
     
     protected tableColumnsService;
+    // opcjonalny - potrzebny tylko tam, gdzie faktycznie podpowiadamy index hinty (na razie CompletionSelect)
+    protected tableIndexesService?: TableIndexesCache;
     
-    public constructor(tableColumnsService: TableColumnsCache) {
+    public constructor(tableColumnsService: TableColumnsCache, tableIndexesService?: TableIndexesCache) {
         this.tableColumnsService = tableColumnsService;
+        this.tableIndexesService = tableIndexesService;
     }
     
     /**
@@ -151,6 +155,25 @@ export abstract class CompletionAbstract {
         item.insertText = keyword;
         item.detail     = 'SQL Keyword';
         item.sortText   = `2_${order.toString().padStart(5, '0')}`;
+        return item;
+    }
+
+    // słowo kluczowe index hintu (USE INDEX / FORCE INDEX / IGNORE INDEX) - wstawiane jako snippet z nawiasem,
+    // żeby od razu po wybraniu otworzyć listę nazw indeksów tej tabeli
+    protected createIndexHintKeywordItem(keyword: string, order: number): vscode.CompletionItem {
+        const item = new vscode.CompletionItem(keyword, vscode.CompletionItemKind.Keyword);
+        item.insertText = new vscode.SnippetString(`${keyword} ($1)$0`);
+        item.detail     = 'Index hint';
+        item.sortText   = `2_${order.toString().padStart(5, '0')}`;
+        return item;
+    }
+
+    // nazwa realnego indeksu tabeli (do wstawienia wewnątrz USE/FORCE/IGNORE INDEX (...))
+    protected createIndexNameItem(tableName: string, indexName: string, order: number): vscode.CompletionItem {
+        const item = new vscode.CompletionItem(indexName, vscode.CompletionItemKind.Reference);
+        item.insertText = indexName;
+        item.detail     = `${tableName} 🔑 Index`;
+        item.sortText   = `0_${order.toString().padStart(5, '0')}`;
         return item;
     }
 

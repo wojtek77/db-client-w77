@@ -4,7 +4,7 @@ import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { findCteDefinitions, findMainStatementFirstWord } from '../sql/findCteDefinitions.js';
 import { findDerivedTables } from '../sql/findDerivedTables.js';
-import { getCompletions, labelOf, makeColumn } from './testHelpers.js';
+import { getCompletions, labelOf, makeColumn, makeIndex } from './testHelpers.js';
 
 // funkcje pomocnicze (makeColumn, makeFakeDb, getCompletions, labelOf) są w testHelpers.ts i współdzielone przez wszystkie pliki testowe completion
 
@@ -1007,6 +1007,89 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(labels.includes('id'),      'missing id after alias in JOIN');
         assert.ok(labels.includes('user_id'), 'missing user_id after alias in JOIN');
         assert.ok(labels.includes('total'),   'missing total after alias in JOIN');
+    });
+
+    // ── index hinty: USE/FORCE/IGNORE INDEX po tabeli w FROM/JOIN ─────────────
+
+    test('suggests USE/FORCE/IGNORE INDEX right after a table name in FROM', async () => {
+        const sql = 'SELECT * FROM users ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'missing USE INDEX');
+        assert.ok(labels.includes('FORCE INDEX'),  'missing FORCE INDEX');
+        assert.ok(labels.includes('IGNORE INDEX'), 'missing IGNORE INDEX');
+    });
+
+    test('suggests USE/FORCE/IGNORE INDEX right after a table alias in FROM', async () => {
+        const sql = 'SELECT * FROM users u ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'missing USE INDEX after alias');
+        assert.ok(labels.includes('FORCE INDEX'),  'missing FORCE INDEX after alias');
+        assert.ok(labels.includes('IGNORE INDEX'), 'missing IGNORE INDEX after alias');
+    });
+
+    test('filters index hint keywords to the typed prefix', async () => {
+        const sql = 'SELECT * FROM users FOR';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('FORCE INDEX'),      'missing FORCE INDEX for "FOR"');
+        assert.ok(!labels.includes('USE INDEX'),       'USE INDEX should not match "FOR"');
+        assert.ok(!labels.includes('IGNORE INDEX'),    'IGNORE INDEX should not match "FOR"');
+    });
+
+    test('suggests real index names inside USE INDEX (...)', async () => {
+        const sql = 'SELECT * FROM users USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.users': [
+                makeIndex('PRIMARY'),
+                makeIndex('idx_email'),
+                makeIndex('idx_created_at'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('PRIMARY'),        'missing PRIMARY index');
+        assert.ok(labels.includes('idx_email'),      'missing idx_email');
+        assert.ok(labels.includes('idx_created_at'), 'missing idx_created_at');
+    });
+
+    test('filters index names to the typed prefix inside FORCE INDEX (...)', async () => {
+        const sql = 'SELECT * FROM users FORCE INDEX (idx_e';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.users': [
+                makeIndex('idx_email'),
+                makeIndex('idx_created_at'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_email'),       'missing idx_email for "idx_e"');
+        assert.ok(!labels.includes('idx_created_at'), 'idx_created_at should not match "idx_e"');
+    });
+
+    test('resolves the correct table for index names when JOIN has its own hint', async () => {
+        const sql = 'SELECT * FROM orders o JOIN users u USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.orders': [makeIndex('idx_order_date', 'orders')],
+            'public.users':  [makeIndex('idx_email', 'users')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_email'),        'missing idx_email (should resolve to the JOINed table, not orders)');
+        assert.ok(!labels.includes('idx_order_date'),  'idx_order_date should not leak from a different table\'s hint');
     });
 
     // ── WHERE → kolumny przez alias ───────────────────────────────────────────
