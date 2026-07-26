@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.10
+
+### Fixed
+- `CompletionUpdate.ts`: `updateSetRegex` required a literal `SET` in the
+  text, so while the cursor was still inside a `JOIN ... ON` clause (before
+  `SET` was typed) the main table right after `UPDATE` was never added to
+  `allTableRefs` - `findQueryTables` only matches `FROM`/`JOIN`. Column
+  suggestions for that table's alias silently returned nothing. The regex
+  now falls back to the end of the string when `SET` is absent, matching
+  the pattern already used in `CompletionDelete.ts`.
+- `CompletionUpdate.ts` / `CompletionDelete.ts`: the keyword list used to
+  reset the table-name filter after a `JOIN` keyword was missing `right`,
+  `outer`, `cross`, and `straight_join`, so e.g. typing `RIGHT ` was
+  treated as a text filter instead of resetting to the full table list.
+
 ## 0.3.9
 
 ### Added
