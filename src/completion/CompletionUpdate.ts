@@ -63,7 +63,8 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
             const allTableRefsForPrefetch = findQueryTables(fullText, defaultSchema ?? '', db);
             
             // b. Multi-table UPDATE (Obsługa tabel po przecinku oraz tabeli głównej)
-            const updateSetRegex = /\bupdate\s+([\s\S]*?)\s+set/i;
+            // fallback `|$` obsługuje przypadek, gdy SET jeszcze nie zostało wpisane (np. kursor w warunku ON joina)
+            const updateSetRegex = /\bupdate\s+([\s\S]*?)(?:\s+set\b|$)/i;
             const updateSetMatch = fullText.match(updateSetRegex);
             
             if (updateSetMatch && updateSetMatch[1]) {
@@ -201,7 +202,7 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
             const words = linePrefix.trim().split(/\s+/);
             const lastWord = words[words.length - 1].toLowerCase();
             
-            const keywords = ['update', 'ignore', 'low_priority', 'inner', 'join', 'left', 'on'];
+            const keywords = ['update', 'ignore', 'low_priority', 'inner', 'join', 'left', 'right', 'outer', 'cross', 'straight_join', 'on'];
             const filter = keywords.includes(lastWord) ? '' : lastWord;
 
             const result: vscode.CompletionItem[] = [];

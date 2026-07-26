@@ -54,6 +54,19 @@ suite('CompletionDelete — table / schema suggestions (before WHERE)', () => {
         const labels = items.map(labelOf);
         assert.ok(labels.includes('users'), 'missing users after DELETE LOW_PRIORITY QUICK IGNORE FROM');
     });
+
+    // regresja: 'right'/'outer'/'cross'/'straight_join' brakowały w FORBIDDEN_KEYWORDS
+    test('resets the filter (does not treat as text) after RIGHT keyword', async () => {
+        const sql = 'DELETE FROM orders o RIGHT ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users', 'clients'],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),   'missing users after RIGHT (should not be filtered by "right")');
+        assert.ok(labels.includes('clients'), 'missing clients after RIGHT (should not be filtered by "right")');
+    });
 });
 
 suite('CompletionDelete — WHERE clause', () => {
@@ -105,8 +118,7 @@ suite('CompletionDelete — WHERE clause', () => {
         assert.ok(!labels.includes('id'),   'id should not match "em"');
     });
 
-    // regresja: stare `beforeCursorLower.lastIndexOf('from')` łapało się na "from" jako podciąg wewnątrz
-    // kolumny "from_date", przez co WHERE z taką kolumną było mylone z kontekstem tabel po FROM
+    // regresja: stare `lastIndexOf('from')` łapało się na "from" wewnątrz kolumny "from_date", mylącej to z FROM
     test('does not misdetect WHERE as FROM when a column name contains "from" as a substring (from_date)', async () => {
         const sql = "DELETE FROM users WHERE from_date > '2020-01-01' AND ";
         const items = await getCompletions(sql, sql.length, {
@@ -182,9 +194,7 @@ suite('CompletionDelete — multi-table DELETE (comma-separated)', () => {
     });
 });
 
-// regresja: REGEX_ALIAS_DOT łapał tylko kursor bezpośrednio po kropce (`c.|`), a nie po
-// częściowo/w pełni wpisanej nazwie kolumny (`c.id|`) - przez co "wpadał" do gałęzi wolnego
-// miejsca, gdzie filtr zawierał kropkę i nic nie pasowało (zero podpowiedzi)
+// regresja: REGEX_ALIAS_DOT łapał tylko kursor tuż po kropce (`c.|`), a nie po wpisanej już nazwie kolumny (`c.id|`)
 suite('CompletionDelete — alias dot with a partially/fully typed column name', () => {
 
     test('suggests columns after alias + full column name in JOIN...ON (c.id)', async () => {

@@ -65,6 +65,19 @@ suite('CompletionUpdate — table / schema suggestions (before SET)', () => {
         const labels = items.map(labelOf);
         assert.ok(labels.includes('users'), 'missing users after UPDATE LOW_PRIORITY IGNORE');
     });
+
+    // regresja: 'right'/'outer'/'cross'/'straight_join' brakowały w liście słów kluczowych resetujących filtr
+    test('resets the filter (does not treat as text) after RIGHT keyword', async () => {
+        const sql = 'UPDATE orders o RIGHT ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users', 'clients'],
+            getSchemas:               () => [],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),   'missing users after RIGHT (should not be filtered by "right")');
+        assert.ok(labels.includes('clients'), 'missing clients after RIGHT (should not be filtered by "right")');
+    });
 });
 
 suite('CompletionUpdate — SET clause', () => {
@@ -153,6 +166,44 @@ suite('CompletionUpdate — JOIN', () => {
         assert.ok(labels.includes('id'),    'missing id after alias in JOIN...ON');
         assert.ok(labels.includes('email'), 'missing email after alias in JOIN...ON');
     });
+
+    // regresja: updateSetRegex wymagał obecności SET, więc bez SET tabela główna nie trafiała do allTableRefs
+    test('suggests columns of the main table alias in JOIN...ON, before SET is typed', async () => {
+        const sql = 'UPDATE orders o JOIN users u ON o.';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        }, {
+            'public.orders': [
+                makeColumn('id',      'int'),
+                makeColumn('user_id', 'int'),
+            ],
+            'public.users': [
+                makeColumn('id', 'int'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),      'missing id from main table alias before SET');
+        assert.ok(labels.includes('user_id'), 'missing user_id from main table alias before SET');
+    });
+
+    // to samo co wyżej, ale ze schematem w nazwie tabeli głównej (schema.table alias)
+    test('suggests columns of the main table alias (with schema) in JOIN...ON, before SET is typed', async () => {
+        const sql = 'UPDATE zam_system.zamowienia z JOIN zam_system.klienci k ON z.';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'zam_system',
+        }, {
+            'zam_system.zamowienia': [
+                makeColumn('id',         'int'),
+                makeColumn('klient_id',  'int'),
+            ],
+            'zam_system.klienci': [
+                makeColumn('id', 'int'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('id'),        'missing id from zamowienia before SET');
+        assert.ok(labels.includes('klient_id'), 'missing klient_id from zamowienia before SET');
+    });
 });
 
 suite('CompletionUpdate — multi-table UPDATE (comma-separated)', () => {
@@ -213,8 +264,7 @@ suite('CompletionUpdate — WHERE clause', () => {
         assert.ok(labels.includes('email'), 'missing email from users after AND');
     });
 
-    // regresja: stare `beforeCursorLower.lastIndexOf('set')` łapało się na "set" jako podciąg wewnątrz
-    // kolumny "reset_password", przez co WHERE z taką kolumną było mylone z powrotem z kontekstem SET
+    // regresja: stare `lastIndexOf('set')` łapało się na "set" wewnątrz kolumny "reset_password", mylącej to z SET
     test('does not misdetect WHERE as SET when a column name contains "set" as a substring (reset_password)', async () => {
         const sql = "UPDATE users SET a = 1 WHERE reset_password = '' AND ";
         const items = await getCompletions(sql, sql.length, {
@@ -230,9 +280,7 @@ suite('CompletionUpdate — WHERE clause', () => {
     });
 });
 
-// regresja: REGEX_ALIAS_DOT łapał tylko kursor bezpośrednio po kropce (`c.|`), a nie po
-// częściowo/w pełni wpisanej nazwie kolumny (`c.id|`) - przez co "wpadał" do gałęzi wolnego
-// miejsca, gdzie filtr zawierał kropkę i nic nie pasowało (zero podpowiedzi)
+// regresja: REGEX_ALIAS_DOT łapał tylko kursor tuż po kropce (`c.|`), a nie po wpisanej już nazwie kolumny (`c.id|`)
 suite('CompletionUpdate — alias dot with a partially/fully typed column name', () => {
 
     test('suggests columns after alias + full column name in JOIN...ON (c.id)', async () => {
