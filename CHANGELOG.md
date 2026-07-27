@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.15
+
+### Added
+- `CompletionInsert.ts`: added keyword suggestions for the `LOW_PRIORITY`,
+  `DELAYED`, `HIGH_PRIORITY` and `IGNORE` modifiers right after `INSERT`,
+  merged with the existing table/schema suggestions - mirrors the
+  `DISTINCT`/`ALL` modifier-zone pattern already used for `SELECT`.
+  `LOW_PRIORITY`/`DELAYED`/`HIGH_PRIORITY` are mutually exclusive with
+  each other; `IGNORE` is independent. All table/column/`VALUES`/`SET`/
+  `ON DUPLICATE KEY UPDATE` regexes now tolerate these modifiers
+  appearing before the table name.
+- `CompletionReplace.ts`: same treatment for `REPLACE`, with its
+  narrower modifier set (`LOW_PRIORITY` / `DELAYED`, mutually exclusive).
+- `CompletionUpdate.ts`: added keyword suggestions for `LOW_PRIORITY`
+  and `IGNORE` right after `UPDATE` (both independent), merged with the
+  existing table/schema suggestions. Modifiers are only offered before
+  the first table, never leaking into a later `JOIN` section.
+- `CompletionDelete.ts`: added keyword suggestions for `LOW_PRIORITY`,
+  `QUICK` and `IGNORE` right after `DELETE` (all independent), merged
+  with the existing table/schema suggestions.
+- `sqlKeywords.ts`: added full documentation for `LOW_PRIORITY`,
+  `DELAYED`, `IGNORE` and `QUICK`; extended `HIGH_PRIORITY`'s
+  documentation to also cover its `INSERT` usage.
+
+### Fixed
+- `CompletionUpdate.ts` / `CompletionDelete.ts`: `REGEX_UPDATE_OBJECT`
+  and `REGEX_DELETE_OBJECT` started with a `\b` word-boundary anchor,
+  which never matches an empty string. This silently skipped all
+  table/modifier suggestions whenever the cursor sat on a new line with
+  only indentation before it (e.g. right after `UPDATE`/`DELETE` on its
+  own line). Removed the leading `\b` from both regexes.
+
+### Tests
+- Added coverage in `CompletionInsert.test.ts`, `CompletionReplace.test.ts`,
+  `CompletionUpdate.test.ts` and `CompletionDelete.test.ts` for the new
+  modifier suggestions (offering, filtering, mutual exclusion where
+  applicable, and the modifier zone ending at the right place), plus a
+  regression test in `CompletionUpdate.test.ts` and
+  `CompletionDelete.test.ts` for the new-line/indentation-only cursor case.
+
 ## 0.3.14
 
 ### Added
