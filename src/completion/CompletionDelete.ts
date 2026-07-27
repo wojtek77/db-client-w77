@@ -6,15 +6,44 @@ import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { tokenize, computeDepths, currentDepth } from '../sql/tokenizer.js';
 
+// modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie DELETE, przed klauzulą FROM - wszystkie niezależne od siebie (DELETE [LOW_PRIORITY] [QUICK] [IGNORE] FROM tbl_name ...)
+const DELETE_MODIFIERS = ['LOW_PRIORITY', 'QUICK', 'IGNORE'];
+
 // wyrażenia regularne dla sekcji tabel (operujące na linePrefix)
 const REGEX_DELETE_SCHEMA_TABLE = /\b([\w]+)\.([\w]*)$/i;
-const REGEX_DELETE_OBJECT = /\b([\w]*)$/i;
+// bez \b na początku - w przeciwnym razie nie dopasowuje pustego/samego-białoznakowego linePrefix, np. kursor na nowej linii przed samym wcięciem (ta sama poprawka co w CompletionUpdate.ts)
+const REGEX_DELETE_OBJECT = /([\w]*)$/i;
 
 // wyrażenie do wykrywania aliasu z kropką, np. `s.|` lub `c.|`, a także z częściowo wpisaną nazwą kolumny, np. `s.na|` lub `c.id|`
 const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+)\.(\w*)$/;
 
 // wyrażenie wyciągające sekcję FROM aż do WHERE, ORDER BY, LIMIT lub końca zapytania
 const REGEX_DELETE_FROM_CLAUSE = /\bfrom\s+([\s\S]*?)(?:\s+(?:where|order\s+by|limit)\b|$)/i;
+
+// sprawdza, czy kursor jest jeszcze w "strefie modyfikatorów" DELETE, czyli między słowem DELETE a klauzulą FROM
+// zwraca null, gdy w tej pozycji pojawiło się już coś innego niż same modyfikatory - czyli FROM
+function getDeleteModifierContext(sqlBeforeCursor: string): { used: Set<string>; filter: string } | null {
+    const tokens = tokenize(sqlBeforeCursor);
+    const used = new Set<string>();
+    let filter = '';
+
+    // pomijamy tokens[0], to samo słowo DELETE
+    for (let i = 1; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.type === 'comment') { continue; }
+        if (t.type !== 'word') { return null; }
+
+        const isBeingTyped = i === tokens.length - 1 && t.start + t.value.length === sqlBeforeCursor.length;
+        if (isBeingTyped) { filter = t.value.toLowerCase(); break; }
+
+        const upper = t.value.toUpperCase();
+        if (upper === 'FROM') { return null; }
+        if (!DELETE_MODIFIERS.includes(upper)) { return null; }
+        used.add(upper);
+    }
+
+    return { used, filter };
+}
 
 // słowa zastrzeżone wyciągnięte na górę pliku, aby nie alokować Set-a przy każdym naciśnięciu klawisza
 const FORBIDDEN_KEYWORDS = new Set([
@@ -218,6 +247,17 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
             const filter = FORBIDDEN_KEYWORDS.has(lastWord) ? '' : lastWord;
 
             const result: vscode.CompletionItem[] = [];
+
+            // modyfikatory DELETE (LOW_PRIORITY, QUICK, IGNORE) - tylko dopóki nie pojawiła się jeszcze klauzula FROM
+            const modifierContext = getDeleteModifierContext(sqlBeforeCursor);
+            if (modifierContext) {
+                let order = 0;
+                for (const modifier of DELETE_MODIFIERS) {
+                    if (modifierContext.used.has(modifier)) { continue; }
+                    if (modifierContext.filter && !modifier.toLowerCase().startsWith(modifierContext.filter)) { continue; }
+                    result.push(this.createKeywordItem(modifier, order++));
+                }
+            }
 
             if (defaultSchema) {
                 let tableOrder = 0;

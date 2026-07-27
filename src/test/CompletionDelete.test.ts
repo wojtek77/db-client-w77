@@ -69,6 +69,75 @@ suite('CompletionDelete — table / schema suggestions (before WHERE)', () => {
     });
 });
 
+suite('CompletionDelete — LOW_PRIORITY / QUICK / IGNORE modifiers', () => {
+
+    test('suggests all three modifiers and tables together right after "DELETE "', async () => {
+        const sql = 'DELETE ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('LOW_PRIORITY'), 'missing LOW_PRIORITY right after DELETE');
+        assert.ok(keywordLabels.includes('QUICK'),        'missing QUICK right after DELETE');
+        assert.ok(keywordLabels.includes('IGNORE'),       'missing IGNORE right after DELETE');
+        assert.ok(items.map(labelOf).includes('users'),  'table suggestion should still be offered alongside modifiers');
+    });
+
+    test('filters modifiers by the word being typed', async () => {
+        const sql = 'DELETE LOW_PRI';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('LOW_PRIORITY'), 'missing LOW_PRIORITY for filter "low_pri"');
+        assert.ok(!keywordLabels.includes('QUICK'),       'QUICK should not match filter "low_pri"');
+        assert.ok(!keywordLabels.includes('IGNORE'),      'IGNORE should not match filter "low_pri"');
+    });
+
+    test('does not re-suggest a modifier already present, but keeps offering the independent ones', async () => {
+        const sql = 'DELETE LOW_PRIORITY ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(!keywordLabels.includes('LOW_PRIORITY'), 'LOW_PRIORITY should not be suggested twice');
+        assert.ok(keywordLabels.includes('QUICK'),         'QUICK should still be offered, it is independent of LOW_PRIORITY');
+        assert.ok(keywordLabels.includes('IGNORE'),        'IGNORE should still be offered, it is independent of LOW_PRIORITY');
+    });
+
+    test('stops suggesting modifiers once FROM has been typed', async () => {
+        const sql = 'DELETE LOW_PRIORITY QUICK IGNORE FROM ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.strictEqual(keywordLabels.length, 0, 'no more modifiers should be offered after FROM');
+        assert.ok(items.map(labelOf).includes('users'), 'table suggestion should still work after modifiers + FROM');
+    });
+
+    // regresja analogiczna do CompletionUpdate: kursor na nowej linii przed samym wcięciem, z dalszą treścią zapytania PO kursorze
+    test('suggests modifiers and tables when the cursor is on a new line with only indentation before it', async () => {
+        const sql = 'DELETE\n    IGNORE\n    FROM users';
+        const cursorOffset = 'DELETE\n    '.length; // tuż przed "IGNORE"
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('IGNORE'), 'missing IGNORE when cursor is on a new indented line right after DELETE');
+        assert.ok(items.map(labelOf).includes('users'), 'missing users table when cursor is on a new indented line right after DELETE');
+    });
+});
+
 suite('CompletionDelete — WHERE clause', () => {
 
     test('suggests columns after an alias with a dot (u.) in WHERE', async () => {

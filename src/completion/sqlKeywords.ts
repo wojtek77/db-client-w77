@@ -255,6 +255,36 @@ INSERT IGNORE INTO users (id, email) VALUES (1, 'a@example.com')
 },
 
 {
+    name: 'QUICK',
+
+    signature:
+        'DELETE QUICK FROM tbl_name WHERE ...',
+
+    documentation: `
+# QUICK
+
+\`\`\`sql
+DELETE QUICK FROM tbl_name WHERE ...
+\`\`\`
+
+Tells the storage engine not to merge index leaves during the delete, which can speed up some deletes on MyISAM tables. Has no effect on other storage engines such as InnoDB.
+
+## Full Syntax
+
+\`\`\`sql
+DELETE QUICK FROM tbl_name
+    WHERE where_condition;
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+DELETE QUICK FROM logs WHERE created_at < '2020-01-01'
+\`\`\`
+`
+},
+
+{
     name: 'STRAIGHT_JOIN',
 
     signature:
