@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.14
+
+### Added
+- `sqlKeywords.ts`: added full MariaDB-style documentation (syntax, description,
+  full syntax, examples) for the SELECT modifier keywords `ALL`, `DISTINCT`,
+  `DISTINCTROW`, `HIGH_PRIORITY`, `STRAIGHT_JOIN`, `SQL_SMALL_RESULT`,
+  `SQL_BIG_RESULT`, `SQL_BUFFER_RESULT`, `SQL_NO_CACHE` and `SQL_CALC_FOUND_ROWS`,
+  in the same format already used for function completions in `sqlFunctions.ts`.
+
+### Changed
+- `CompletionAbstract.ts`: `createKeywordItem` now shows the full markdown
+  documentation for keywords listed in `SQL_KEYWORDS` instead of the generic
+  `SQL Keyword` detail, which previously pushed the heading below where it
+  appears for functions.
+
 ## 0.3.13
 
 ### Fixed
