@@ -305,6 +305,130 @@ suite('CompletionInsert — ON DUPLICATE KEY UPDATE', () => {
     });
 });
 
+suite('CompletionInsert — LOW_PRIORITY / DELAYED / HIGH_PRIORITY / IGNORE modifiers', () => {
+
+    test('suggests modifiers and tables together right after "INSERT "', async () => {
+        const sql = 'INSERT ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('LOW_PRIORITY'),  'missing LOW_PRIORITY right after INSERT');
+        assert.ok(keywordLabels.includes('DELAYED'),       'missing DELAYED right after INSERT');
+        assert.ok(keywordLabels.includes('HIGH_PRIORITY'), 'missing HIGH_PRIORITY right after INSERT');
+        assert.ok(keywordLabels.includes('IGNORE'),        'missing IGNORE right after INSERT');
+        assert.ok(items.map(labelOf).includes('users'),    'table suggestion should still be offered alongside modifiers');
+    });
+
+    test('filters modifiers by the word being typed', async () => {
+        const sql = 'INSERT LOW_PRI';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('LOW_PRIORITY'), 'missing LOW_PRIORITY for filter "low_pri"');
+        assert.ok(!keywordLabels.includes('DELAYED'),     'DELAYED should not match filter "low_pri"');
+        assert.ok(!keywordLabels.includes('IGNORE'),      'IGNORE should not match filter "low_pri"');
+    });
+
+    test('does not re-suggest a modifier already present, and hides the other priority modifiers', async () => {
+        const sql = 'INSERT LOW_PRIORITY ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(!keywordLabels.includes('LOW_PRIORITY'),  'LOW_PRIORITY should not be suggested twice');
+        assert.ok(!keywordLabels.includes('DELAYED'),       'DELAYED is mutually exclusive with LOW_PRIORITY');
+        assert.ok(!keywordLabels.includes('HIGH_PRIORITY'), 'HIGH_PRIORITY is mutually exclusive with LOW_PRIORITY');
+        assert.ok(keywordLabels.includes('IGNORE'),         'IGNORE should still be offered, it is independent of the priority modifiers');
+    });
+
+    test('stops suggesting modifiers once INTO has been typed', async () => {
+        const sql = 'INSERT LOW_PRIORITY IGNORE INTO ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.strictEqual(keywordLabels.length, 0, 'no more modifiers should be offered after INTO');
+        assert.ok(items.map(labelOf).includes('users'), 'table suggestion should still work after modifiers + INTO');
+    });
+
+    test('stops suggesting modifiers once a table name has been typed', async () => {
+        const sql = 'INSERT users ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        }, {
+            'public.users': [makeColumn('id', 'int', 'PRI')],
+        });
+        // uwaga: "SET" jest tu legalną, wcześniejszą podpowiedzią (alternatywna składnia INSERT ... SET) - sprawdzamy tylko brak naszych czterech modyfikatorów
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        for (const modifier of ['LOW_PRIORITY', 'DELAYED', 'HIGH_PRIORITY', 'IGNORE']) {
+            assert.ok(!keywordLabels.includes(modifier), `${modifier} should not be offered once the table name is already typed`);
+        }
+    });
+
+    test('still suggests table/schema names for "INSERT IGNORE INTO " despite the modifiers in between', async () => {
+        const sql = 'INSERT IGNORE INTO ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => ['users', 'orders'],
+            getSchemas:               () => ['analytics'],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('users'),     'missing users after INSERT IGNORE INTO');
+        assert.ok(labels.includes('orders'),    'missing orders after INSERT IGNORE INTO');
+        assert.ok(labels.includes('analytics'), 'missing analytics schema after INSERT IGNORE INTO');
+    });
+
+    test('still resolves the all-columns snippet for "INSERT LOW_PRIORITY INTO users " despite the modifier', async () => {
+        const sql = 'INSERT LOW_PRIORITY INTO users ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        }, {
+            'public.users': [
+                makeColumn('id',    'int', 'PRI', 'auto_increment'),
+                makeColumn('email', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.some(label => label.startsWith('(') && label.includes('email')), 'missing all-columns snippet after modifier + INTO');
+    });
+
+    test('still resolves individual columns inside parentheses for "INSERT DELAYED INTO users (id, em" despite the modifier', async () => {
+        const sql = 'INSERT DELAYED INTO users (id, em';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        }, {
+            'public.users': [
+                makeColumn('id',    'int', 'PRI'),
+                makeColumn('email', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('email'), 'missing email suggestion inside parentheses after modifier + INTO');
+    });
+
+    test('modifier keyword carries documentation', async () => {
+        const sql = 'INSERT ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => [],
+            getSchemas:               () => [],
+        });
+        const ignoreItem = items.find(i => i.kind === vscode.CompletionItemKind.Keyword && labelOf(i) === 'IGNORE');
+        assert.ok(ignoreItem, 'missing IGNORE keyword item');
+        assert.ok(ignoreItem!.documentation, 'IGNORE keyword item should carry documentation');
+    });
+});
+
 suite('CompletionInsert — safety', () => {
 
     test('suggests nothing while inside an unterminated string literal', async () => {

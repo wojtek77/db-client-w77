@@ -132,6 +132,8 @@ SELECT HIGH_PRIORITY select_expr [, select_expr ...]
 
 Gives the SELECT higher priority than a statement that updates a table, letting it run even while another statement is waiting for the table to be free. Intended only for queries that are very fast and must run immediately.
 
+Also valid on INSERT, where it gives the insert priority over statements that are reading from the table - the opposite of LOW_PRIORITY.
+
 ## Full Syntax
 
 \`\`\`sql
@@ -140,12 +142,114 @@ SELECT HIGH_PRIORITY
     col2,
     ...
 FROM table_name;
+
+INSERT HIGH_PRIORITY INTO tbl_name (col1, ...) VALUES (...);
 \`\`\`
 
 ## Examples
 
 \`\`\`sql
 SELECT HIGH_PRIORITY * FROM settings WHERE id = 1
+\`\`\`
+
+\`\`\`sql
+INSERT HIGH_PRIORITY INTO settings (id, value) VALUES (1, 'on')
+\`\`\`
+`
+},
+
+{
+    name: 'LOW_PRIORITY',
+
+    signature:
+        'INSERT LOW_PRIORITY INTO tbl_name [(col1, ...)] VALUES (...)',
+
+    documentation: `
+# LOW_PRIORITY
+
+\`\`\`sql
+INSERT LOW_PRIORITY INTO tbl_name [(col1, ...)] VALUES (...)
+\`\`\`
+
+Delays execution of the statement until no other clients are reading from the table. Also valid on UPDATE, DELETE and REPLACE. The opposite of HIGH_PRIORITY.
+
+## Full Syntax
+
+\`\`\`sql
+INSERT LOW_PRIORITY INTO tbl_name
+    (col1, col2, ...)
+VALUES
+    (val1, val2, ...);
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+INSERT LOW_PRIORITY INTO logs (message) VALUES ('done')
+\`\`\`
+`
+},
+
+{
+    name: 'DELAYED',
+
+    signature:
+        'INSERT DELAYED INTO tbl_name [(col1, ...)] VALUES (...)',
+
+    documentation: `
+# DELAYED
+
+\`\`\`sql
+INSERT DELAYED INTO tbl_name [(col1, ...)] VALUES (...)
+\`\`\`
+
+Queues the row(s) and returns to the client immediately, letting the server insert them when the table is next free. Removed in MySQL 8.0 (silently treated as a no-op there), but still supported by MariaDB.
+
+## Full Syntax
+
+\`\`\`sql
+INSERT DELAYED INTO tbl_name
+    (col1, col2, ...)
+VALUES
+    (val1, val2, ...);
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+INSERT DELAYED INTO click_log (url) VALUES ('/home')
+\`\`\`
+`
+},
+
+{
+    name: 'IGNORE',
+
+    signature:
+        'INSERT IGNORE INTO tbl_name [(col1, ...)] VALUES (...)',
+
+    documentation: `
+# IGNORE
+
+\`\`\`sql
+INSERT IGNORE INTO tbl_name [(col1, ...)] VALUES (...)
+\`\`\`
+
+Turns errors that would normally abort the statement (duplicate keys, data conversion issues, etc.) into warnings, skipping only the offending row instead of stopping the whole statement. Also valid on UPDATE, DELETE and REPLACE.
+
+## Full Syntax
+
+\`\`\`sql
+INSERT IGNORE INTO tbl_name
+    (col1, col2, ...)
+VALUES
+    (val1, val2, ...);
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+INSERT IGNORE INTO users (id, email) VALUES (1, 'a@example.com')
 \`\`\`
 `
 },

@@ -2,27 +2,67 @@ import * as vscode from 'vscode';
 import { Connection } from "../db/Connection.js";
 import { CompletionAbstract } from "./CompletionAbstract.js";
 import { CompletionInterface } from './CompletionInterface.js';
+import { tokenize } from '../sql/tokenizer.js';
+
+// modyfikatory INSERT [LOW_PRIORITY|DELAYED|HIGH_PRIORITY] [IGNORE] [INTO] tbl_name - pierwsza trójka wzajemnie się wyklucza, IGNORE jest od nich niezależny
+const INSERT_PRIORITY_MODIFIERS = ['LOW_PRIORITY', 'DELAYED', 'HIGH_PRIORITY'];
+const INSERT_MODIFIERS = [...INSERT_PRIORITY_MODIFIERS, 'IGNORE'];
+
+// wspólny fragment źródłowy regexów poniżej - dopuszcza opcjonalne modyfikatory (i/lub IGNORE, i/lub INTO) między słowem INSERT a nazwą tabeli
+const INSERT_PREFIX_SRC = '(?:insert(?:\\s+(?:low_priority|delayed|high_priority))?(?:\\s+ignore)?(?:\\s+into)?|into)';
 
 // wyrażenia regularne operujące na linePrefix (bieżąca linia przed kursorem)
-const REGEX_INSERT_SCHEMA_TABLE = /\b(?:insert(?:\s+into)?|into)\s+(\w+)\.(\w*)$/i;
-const REGEX_INSERT_OBJECT = /\b(?:insert(?:\s+into)?|into)\s+(\w*)$/i;
+const REGEX_INSERT_SCHEMA_TABLE = new RegExp(`\\b${INSERT_PREFIX_SRC}\\s+(\\w+)\\.(\\w*)$`, 'i');
+const REGEX_INSERT_OBJECT = new RegExp(`\\b${INSERT_PREFIX_SRC}\\s+(\\w*)$`, 'i');
 
 // dopasowuje sytuację, gdzie po nazwie tabeli są wyłącznie białe znaki przed końcem linii/kursorem
-const REGEX_ALL_COLUMNS_TRIGGER = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s+$/i;
+const REGEX_ALL_COLUMNS_TRIGGER = new RegExp(`\\b${INSERT_PREFIX_SRC}\\s+(?:(\\w+)\\.)?(\\w+)\\s+$`, 'i');
 
 // wykrywa, czy kursor znajduje się wewnątrz bloku nawiasów definicji kolumn, np. "insert into agency (id, na|"
-const REGEX_INSIDE_PARENTHESIS = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s*\(([^)]*)$/i;
+const REGEX_INSIDE_PARENTHESIS = new RegExp(`\\b${INSERT_PREFIX_SRC}\\s+(?:(\\w+)\\.)?(\\w+)\\s*\\(([^)]*)$`, 'i');
 
 // bezpieczny wzorzec do przeszukania całego zapytania przed kursem w celu znalezienia tabeli i nawiasu kolumn
-const REGEX_EXTRACT_TABLE_AND_COLUMNS = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s*\(([^)]+)\)\s*$/i;
+const REGEX_EXTRACT_TABLE_AND_COLUMNS = new RegExp(`\\b${INSERT_PREFIX_SRC}\\s+(?:(\\w+)\\.)?(\\w+)\\s*\\(([^)]+)\\)\\s*$`, 'i');
 
 // NOWE: Wykrywanie kontekstu ON DUPLICATE KEY UPDATE i wyciąganie z niego końcówki
 const REGEX_ON_DUPLICATE_CONTEXT = /\bon\s+duplicate\s+key\s+update\s+([\s\S]*)$/i;
-const REGEX_GLOBAL_TABLE_EXTRACT = /\b(?:insert(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\b/i;
+const REGEX_GLOBAL_TABLE_EXTRACT = new RegExp(`\\b${INSERT_PREFIX_SRC}\\s+(?:(\\w+)\\.)?(\\w+)\\b`, 'i');
 const REGEX_INSIDE_VALUES_FUNCTION = /\bvalues\s*\(\s*(\w*)$/i;
 
 // NOWE: wykrywanie alternatywnej składni "INSERT INTO tbl SET col1 = val1, col2 = val2" (bez listy kolumn i VALUES)
 const REGEX_SET_CONTEXT = /\bset\s+([\s\S]*)$/i;
+
+interface InsertModifierContext {
+    // modyfikatory już wpisane wcześniej w tym samym INSERT (np. po "INSERT LOW_PRIORITY " -> {'LOW_PRIORITY'}) - nie proponujemy ich ponownie
+    used: Set<string>;
+    // fragment aktualnie pisanego słowa (np. "INSERT LOW_PRI|" -> "low_pri") - do przefiltrowania podpowiedzi
+    filter: string;
+}
+
+// sprawdza, czy kursor jest w "strefie modyfikatorów" INSERT (między INSERT a nazwą tabeli); null gdy pojawiło się już INTO albo nazwa tabeli
+function getInsertModifierContext(sqlBeforeCursor: string): InsertModifierContext | null {
+    const tokens = tokenize(sqlBeforeCursor);
+    const used = new Set<string>();
+    let filter = '';
+
+    // pomijamy tokens[0], to samo słowo INSERT
+    for (let i = 1; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.type === 'comment') { continue; }
+        if (t.type !== 'word') { return null; }
+
+        // ostatni token dotykający końca fragmentu to właśnie pisane słowo, a nie ukończony modyfikator
+        const isBeingTyped = i === tokens.length - 1 && t.start + t.value.length === sqlBeforeCursor.length;
+        if (isBeingTyped) { filter = t.value.toLowerCase(); break; }
+
+        const upper = t.value.toUpperCase();
+        if (upper === 'INTO') { return null; }
+        if (!INSERT_MODIFIERS.includes(upper)) { return null; }
+        used.add(upper);
+    }
+
+    return { used, filter };
+}
 
 export class CompletionInsert extends CompletionAbstract implements CompletionInterface {
 
@@ -282,6 +322,19 @@ export class CompletionInsert extends CompletionAbstract implements CompletionIn
         if (objectMatch) {
             const filter = objectMatch[1].toLowerCase();
             const result: vscode.CompletionItem[] = [];
+
+            // modyfikatory INSERT (LOW_PRIORITY, DELAYED, HIGH_PRIORITY, IGNORE) - tylko dopóki nie pojawiła się jeszcze nazwa tabeli
+            const modifierContext = getInsertModifierContext(sqlBeforeCursor);
+            if (modifierContext) {
+                const hasPriorityModifier = INSERT_PRIORITY_MODIFIERS.some(m => modifierContext.used.has(m));
+                let order = 0;
+                for (const modifier of INSERT_MODIFIERS) {
+                    if (modifierContext.used.has(modifier)) { continue; }
+                    if (hasPriorityModifier && INSERT_PRIORITY_MODIFIERS.includes(modifier)) { continue; }
+                    if (modifierContext.filter && !modifier.toLowerCase().startsWith(modifierContext.filter)) { continue; }
+                    result.push(this.createKeywordItem(modifier, order++));
+                }
+            }
 
             if (defaultSchema && defaultSchema.trim() !== '') {
                 let tableOrder = 0;
