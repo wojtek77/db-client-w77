@@ -6,12 +6,40 @@ import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { tokenize, computeDepths, currentDepth } from '../sql/tokenizer.js';
 
+// modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie UPDATE, przed nazwą (pierwszej) tabeli - oba niezależne od siebie (UPDATE [LOW_PRIORITY] [IGNORE] tbl_reference SET ...)
+const UPDATE_MODIFIERS = ['LOW_PRIORITY', 'IGNORE'];
+
 // uproszczone wyrażenia regularne dla sekcji tabel (operujące na linePrefix)
 const REGEX_UPDATE_SCHEMA_TABLE = /\b([\w]+)\.([\w]*)$/i;
-const REGEX_UPDATE_OBJECT = /\b([\w]*)$/i;
+// bez \b na początku - w przeciwnym razie nie dopasowuje pustego/samego-białoznakowego linePrefix, np. kursor na nowej linii przed samym wcięciem
+const REGEX_UPDATE_OBJECT = /([\w]*)$/i;
 
 // wyrażenie do wykrywania aliasu z kropką, np. `s.|` lub `c.|`, a także z częściowo wpisaną nazwą kolumny, np. `s.na|` lub `c.id|`
 const REGEX_ALIAS_DOT = /([a-zA-Z0-9_]+)\.(\w*)$/;
+
+// sprawdza, czy kursor jest jeszcze w "strefie modyfikatorów" UPDATE, czyli między słowem UPDATE a nazwą pierwszej tabeli
+// zwraca null, gdy w tej pozycji pojawiło się już coś innego niż same modyfikatory - czyli (domniemana) nazwa tabeli
+function getUpdateModifierContext(sqlBeforeCursor: string): { used: Set<string>; filter: string } | null {
+    const tokens = tokenize(sqlBeforeCursor);
+    const used = new Set<string>();
+    let filter = '';
+
+    // pomijamy tokens[0], to samo słowo UPDATE
+    for (let i = 1; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.type === 'comment') { continue; }
+        if (t.type !== 'word') { return null; }
+
+        const isBeingTyped = i === tokens.length - 1 && t.start + t.value.length === sqlBeforeCursor.length;
+        if (isBeingTyped) { filter = t.value.toLowerCase(); break; }
+
+        const upper = t.value.toUpperCase();
+        if (!UPDATE_MODIFIERS.includes(upper)) { return null; }
+        used.add(upper);
+    }
+
+    return { used, filter };
+}
 
 // sprawdza, czy kursor jest w kontekście kolumnowym (SET, WHERE albo JOIN...ON), na głębokości zagnieżdżenia kursora
 // analogicznie do isInColumnContext w CompletionDelete.ts - JOIN resetuje kontekst z powrotem na "tabele" (kolejny alias po JOIN, przed jego własnym ON)
@@ -206,6 +234,17 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
             const filter = keywords.includes(lastWord) ? '' : lastWord;
 
             const result: vscode.CompletionItem[] = [];
+
+            // modyfikatory UPDATE (LOW_PRIORITY, IGNORE) - tylko dopóki nie pojawiła się jeszcze nazwa (pierwszej) tabeli
+            const modifierContext = getUpdateModifierContext(sqlBeforeCursor);
+            if (modifierContext) {
+                let order = 0;
+                for (const modifier of UPDATE_MODIFIERS) {
+                    if (modifierContext.used.has(modifier)) { continue; }
+                    if (modifierContext.filter && !modifier.toLowerCase().startsWith(modifierContext.filter)) { continue; }
+                    result.push(this.createKeywordItem(modifier, order++));
+                }
+            }
 
             if (defaultSchema) {
                 let tableOrder = 0;

@@ -80,6 +80,96 @@ suite('CompletionUpdate — table / schema suggestions (before SET)', () => {
     });
 });
 
+suite('CompletionUpdate — LOW_PRIORITY / IGNORE modifiers', () => {
+
+    test('suggests both modifiers and tables together right after "UPDATE "', async () => {
+        const sql = 'UPDATE ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('LOW_PRIORITY'), 'missing LOW_PRIORITY right after UPDATE');
+        assert.ok(keywordLabels.includes('IGNORE'),       'missing IGNORE right after UPDATE');
+        assert.ok(items.map(labelOf).includes('users'),  'table suggestion should still be offered alongside modifiers');
+    });
+
+    test('filters modifiers by the word being typed', async () => {
+        const sql = 'UPDATE LOW_PRI';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('LOW_PRIORITY'), 'missing LOW_PRIORITY for filter "low_pri"');
+        assert.ok(!keywordLabels.includes('IGNORE'),      'IGNORE should not match filter "low_pri"');
+    });
+
+    test('does not re-suggest a modifier already present, but keeps offering the independent one', async () => {
+        const sql = 'UPDATE LOW_PRIORITY ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(!keywordLabels.includes('LOW_PRIORITY'), 'LOW_PRIORITY should not be suggested twice');
+        assert.ok(keywordLabels.includes('IGNORE'),        'IGNORE should still be offered, it is independent of LOW_PRIORITY');
+    });
+
+    test('stops suggesting modifiers once both are used', async () => {
+        const sql = 'UPDATE LOW_PRIORITY IGNORE ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.strictEqual(keywordLabels.length, 0, 'no more modifiers should be offered once both are already used');
+        assert.ok(items.map(labelOf).includes('users'), 'table suggestion should still work after both modifiers');
+    });
+
+    test('stops suggesting modifiers once a table name has been typed', async () => {
+        const sql = 'UPDATE users ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.strictEqual(keywordLabels.length, 0, 'no modifiers should be offered once the table name is already typed');
+    });
+
+    test('does not leak modifier suggestions into the JOIN section of a multi-table UPDATE', async () => {
+        const sql = 'UPDATE users u JOIN ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['users', 'orders'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.strictEqual(keywordLabels.length, 0, 'modifiers should never be suggested after JOIN, only right after UPDATE');
+        assert.ok(items.map(labelOf).includes('orders'), 'table suggestion should still work after JOIN');
+    });
+
+    // regresja: kursor na nowej linii przed samym wcięciem, z dalszą treścią zapytania PO kursorze (np. już wpisane "IGNORE student" + "SET" w kolejnych liniach) -
+    // \b na początku REGEX_UPDATE_OBJECT nie dopasowywał pustego stringa (bo linePrefix to samo wcięcie), więc cały blok "przypadek B" był pomijany
+    test('suggests modifiers and tables when the cursor is on a new line with only indentation before it', async () => {
+        const sql = 'UPDATE\n    IGNORE student\n    SET';
+        const cursorOffset = 'UPDATE\n    '.length; // tuż przed "IGNORE"
+        const items = await getCompletions(sql, cursorOffset, {
+            getDatabase:              () => 'mydb',
+            getDefaultDatabaseTables: () => ['student'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('IGNORE'), 'missing IGNORE when cursor is on a new indented line right after UPDATE');
+        assert.ok(items.map(labelOf).includes('student'), 'missing student table when cursor is on a new indented line right after UPDATE');
+    });
+});
+
 suite('CompletionUpdate — SET clause', () => {
 
     test('suggests columns after an alias with a dot (t1.) in SET', async () => {
