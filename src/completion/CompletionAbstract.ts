@@ -8,6 +8,7 @@ import { TableColumn, TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { TableIndexesCache, TableIndexType } from '../cache/TableIndexesCache.js';
 import { formatColumnType } from './columnFormatter.js';
 import { SqlFunction } from './sqlFunctions.js';
+import { SQL_KEYWORDS } from './sqlKeywords.js';
 
 export abstract class CompletionAbstract {
     
@@ -153,8 +154,15 @@ export abstract class CompletionAbstract {
     protected createKeywordItem(keyword: string, order: number): vscode.CompletionItem {
         const item = new vscode.CompletionItem(keyword, vscode.CompletionItemKind.Keyword);
         item.insertText = keyword;
-        item.detail     = 'SQL Keyword';
         item.sortText   = `2_${order.toString().padStart(5, '0')}`;
+        // dołączamy pełny opis (składnia, wyjaśnienie, przykłady) jeśli mamy go zdefiniowanego w sqlKeywords.ts
+        const kw = SQL_KEYWORDS.find(k => k.name === keyword);
+        if (kw) {
+            // brak item.detail celowo - z pełnym opisem markdown "SQL Keyword" tylko zbędnie odpychał nagłówek w dół
+            item.documentation = new vscode.MarkdownString(kw.documentation);
+        } else {
+            item.detail = 'SQL Keyword';
+        }
         return item;
     }
 
