@@ -65,6 +65,26 @@ export function makeFakeDb(overrides: Partial<FakeDb> = {}): FakeDb {
  * pobieranie kolumn (cache-warming) faktycznie obejmuje całe zapytanie jednym batchem,
  * niezależnie od tego, ile z tych tabel trafia ostatecznie do listy podpowiedzi.
  */
+// jeden, wielokrotnego użytku dokument sql, żeby testy nie tworzyły setek osobnych untitled dokumentów (to właśnie powodowało listener leak i spowalniało testy)
+let sharedSqlDocument: vscode.TextDocument | undefined;
+
+async function getSharedSqlDocument(content: string): Promise<vscode.TextDocument> {
+    if (!sharedSqlDocument) {
+        sharedSqlDocument = await vscode.workspace.openTextDocument({ language: 'sql', content });
+        return sharedSqlDocument;
+    }
+
+    // podmieniamy całą zawartość istniejącego dokumentu zamiast tworzyć nowy
+    const fullRange = new vscode.Range(
+        sharedSqlDocument.positionAt(0),
+        sharedSqlDocument.positionAt(sharedSqlDocument.getText().length),
+    );
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(sharedSqlDocument.uri, fullRange, content);
+    await vscode.workspace.applyEdit(edit);
+    return sharedSqlDocument;
+}
+
 export async function getCompletions(
     content:      string,
     cursorOffset: number,
@@ -98,10 +118,7 @@ export async function getCompletions(
     indexesServiceInstance.getCachedIndexesBatch = async () => indexesStub;
 
     try {
-        const document = await vscode.workspace.openTextDocument({
-            language: 'sql',
-            content,
-        });
+        const document = await getSharedSqlDocument(content);
         const position = document.positionAt(cursorOffset);
         const provider = new TableCompletionProvider();
         const token    = new vscode.CancellationTokenSource().token;
