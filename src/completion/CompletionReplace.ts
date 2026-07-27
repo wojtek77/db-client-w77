@@ -2,25 +2,56 @@ import * as vscode from 'vscode';
 import { Connection } from "../db/Connection.js";
 import { CompletionAbstract } from "./CompletionAbstract.js";
 import { CompletionInterface } from './CompletionInterface.js';
+import { tokenize } from '../sql/tokenizer.js';
+
+// modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie REPLACE, przed (opcjonalnym) INTO i nazwą tabeli - wzajemnie się wykluczają
+const REPLACE_MODIFIERS = ['LOW_PRIORITY', 'DELAYED'];
+
+// wspólny fragment źródłowy regexów poniżej - dopuszcza opcjonalny modyfikator i/lub INTO między słowem REPLACE a nazwą tabeli
+const REPLACE_PREFIX_SRC = '(?:replace(?:\\s+(?:low_priority|delayed))?(?:\\s+into)?|into)';
 
 // wyrażenia regularne zmodyfikowane o obsługę słowa kluczowego REPLACE
-const REGEX_REPLACE_SCHEMA_TABLE = /\b(?:replace(?:\s+into)?|into)\s+(\w+)\.(\w*)$/i;
-const REGEX_REPLACE_OBJECT = /\b(?:replace(?:\s+into)?|into)\s+(\w*)$/i;
+const REGEX_REPLACE_SCHEMA_TABLE = new RegExp(`\\b${REPLACE_PREFIX_SRC}\\s+(\\w+)\\.(\\w*)$`, 'i');
+const REGEX_REPLACE_OBJECT = new RegExp(`\\b${REPLACE_PREFIX_SRC}\\s+(\\w*)$`, 'i');
 
 // dopasowuje sytuację, gdzie po nazwie tabeli są wyłącznie białe znaki przed końcem linii/kursorem
-const REGEX_ALL_COLUMNS_TRIGGER = /\b(?:replace(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s+$/i;
+const REGEX_ALL_COLUMNS_TRIGGER = new RegExp(`\\b${REPLACE_PREFIX_SRC}\\s+(?:(\\w+)\\.)?(\\w+)\\s+$`, 'i');
 
 // wykrywa, czy kursor znajduje się wewnątrz bloku nawiasów definicji kolumn
-const REGEX_INSIDE_PARENTHESIS = /\b(?:replace(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s*\(([^)]*)$/i;
+const REGEX_INSIDE_PARENTHESIS = new RegExp(`\\b${REPLACE_PREFIX_SRC}\\s+(?:(\\w+)\\.)?(\\w+)\\s*\\(([^)]*)$`, 'i');
 
 // bezpieczny wzorzec do przeszukania całego zapytania przed kursem w celu znalezienia tabeli i nawiasu kolumn
-const REGEX_EXTRACT_TABLE_AND_COLUMNS = /\b(?:replace(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\s*\(([^)]+)\)\s*$/i;
+const REGEX_EXTRACT_TABLE_AND_COLUMNS = new RegExp(`\\b${REPLACE_PREFIX_SRC}\\s+(?:(\\w+)\\.)?(\\w+)\\s*\\(([^)]+)\\)\\s*$`, 'i');
 
 // bezpieczny wzorzec do przeszukania całego zapytania przed kursem w celu znalezienia samej tabeli (bez wymaganego nawiasu) - potrzebny dla składni SET
-const REGEX_GLOBAL_TABLE_EXTRACT = /\b(?:replace(?:\s+into)?|into)\s+(?:(\w+)\.)?(\w+)\b/i;
+const REGEX_GLOBAL_TABLE_EXTRACT = new RegExp(`\\b${REPLACE_PREFIX_SRC}\\s+(?:(\\w+)\\.)?(\\w+)\\b`, 'i');
 
 // NOWE: wykrywanie alternatywnej składni "REPLACE INTO tbl SET col1 = val1, col2 = val2" (bez listy kolumn i VALUES)
 const REGEX_SET_CONTEXT = /\bset\s+([\s\S]*)$/i;
+
+// sprawdza, czy kursor jest w "strefie modyfikatorów" REPLACE (między REPLACE a nazwą tabeli); null gdy pojawiło się już INTO albo nazwa tabeli
+function getReplaceModifierContext(sqlBeforeCursor: string): { used: Set<string>; filter: string } | null {
+    const tokens = tokenize(sqlBeforeCursor);
+    const used = new Set<string>();
+    let filter = '';
+
+    // pomijamy tokens[0], to samo słowo REPLACE
+    for (let i = 1; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.type === 'comment') { continue; }
+        if (t.type !== 'word') { return null; }
+
+        const isBeingTyped = i === tokens.length - 1 && t.start + t.value.length === sqlBeforeCursor.length;
+        if (isBeingTyped) { filter = t.value.toLowerCase(); break; }
+
+        const upper = t.value.toUpperCase();
+        if (upper === 'INTO') { return null; }
+        if (!REPLACE_MODIFIERS.includes(upper)) { return null; }
+        used.add(upper);
+    }
+
+    return { used, filter };
+}
 
 export class CompletionReplace extends CompletionAbstract implements CompletionInterface {
 
@@ -230,6 +261,19 @@ export class CompletionReplace extends CompletionAbstract implements CompletionI
         if (objectMatch) {
             const filter = objectMatch[1].toLowerCase();
             const result: vscode.CompletionItem[] = [];
+
+            // modyfikatory REPLACE (LOW_PRIORITY, DELAYED) - tylko dopóki nie pojawiła się jeszcze nazwa tabeli
+            const modifierContext = getReplaceModifierContext(sqlBeforeCursor);
+            if (modifierContext) {
+                let order = 0;
+                for (const modifier of REPLACE_MODIFIERS) {
+                    if (modifierContext.used.has(modifier)) { continue; }
+                    // LOW_PRIORITY i DELAYED wzajemnie się wykluczają - jeśli jeden już wpisany, drugi nie ma sensu
+                    if (modifierContext.used.size > 0) { continue; }
+                    if (modifierContext.filter && !modifier.toLowerCase().startsWith(modifierContext.filter)) { continue; }
+                    result.push(this.createKeywordItem(modifier, order++));
+                }
+            }
 
             if (defaultSchema && defaultSchema.trim() !== '') {
                 let tableOrder = 0;

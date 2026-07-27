@@ -200,6 +200,86 @@ suite('CompletionReplace — SET syntax (alternative to (columns) VALUES (...))'
     });
 });
 
+suite('CompletionReplace — LOW_PRIORITY / DELAYED modifiers', () => {
+
+    test('suggests both modifiers and tables together right after "REPLACE "', async () => {
+        const sql = 'REPLACE ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('LOW_PRIORITY'), 'missing LOW_PRIORITY right after REPLACE');
+        assert.ok(keywordLabels.includes('DELAYED'),      'missing DELAYED right after REPLACE');
+        assert.ok(items.map(labelOf).includes('users'),  'table suggestion should still be offered alongside modifiers');
+    });
+
+    test('filters modifiers by the word being typed', async () => {
+        const sql = 'REPLACE LOW_PRI';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(keywordLabels.includes('LOW_PRIORITY'), 'missing LOW_PRIORITY for filter "low_pri"');
+        assert.ok(!keywordLabels.includes('DELAYED'),     'DELAYED should not match filter "low_pri"');
+    });
+
+    test('hides both modifiers once one of them was already typed, since they are mutually exclusive', async () => {
+        const sql = 'REPLACE LOW_PRIORITY ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.ok(!keywordLabels.includes('LOW_PRIORITY'), 'LOW_PRIORITY should not be suggested twice');
+        assert.ok(!keywordLabels.includes('DELAYED'),      'DELAYED is mutually exclusive with LOW_PRIORITY');
+    });
+
+    test('stops suggesting modifiers once INTO has been typed', async () => {
+        const sql = 'REPLACE LOW_PRIORITY INTO ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:              () => 'public',
+            getDefaultDatabaseTables: () => ['users'],
+            getSchemas:               () => [],
+        });
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        assert.strictEqual(keywordLabels.length, 0, 'no more modifiers should be offered after INTO');
+        assert.ok(items.map(labelOf).includes('users'), 'table suggestion should still work after modifier + INTO');
+    });
+
+    test('stops suggesting modifiers once a table name has been typed', async () => {
+        const sql = 'REPLACE users ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        }, {
+            'public.users': [makeColumn('id', 'int', 'PRI')],
+        });
+        // uwaga: "SET" jest tu legalną, wcześniejszą podpowiedzią (alternatywna składnia REPLACE ... SET) - sprawdzamy tylko brak naszych modyfikatorów
+        const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+        for (const modifier of ['LOW_PRIORITY', 'DELAYED']) {
+            assert.ok(!keywordLabels.includes(modifier), `${modifier} should not be offered once the table name is already typed`);
+        }
+    });
+
+    test('still resolves individual columns inside parentheses for "REPLACE DELAYED INTO users (id, em" despite the modifier', async () => {
+        const sql = 'REPLACE DELAYED INTO users (id, em';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        }, {
+            'public.users': [
+                makeColumn('id',    'int', 'PRI'),
+                makeColumn('email', 'varchar'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('email'), 'missing email suggestion inside parentheses after modifier + INTO');
+    });
+});
+
 suite('CompletionReplace — safety', () => {
 
     test('suggests nothing while inside an unterminated string literal', async () => {

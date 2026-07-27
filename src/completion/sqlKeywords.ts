@@ -203,7 +203,7 @@ INSERT LOW_PRIORITY INTO logs (message) VALUES ('done')
 INSERT DELAYED INTO tbl_name [(col1, ...)] VALUES (...)
 \`\`\`
 
-Queues the row(s) and returns to the client immediately, letting the server insert them when the table is next free. Removed in MySQL 8.0 (silently treated as a no-op there), but still supported by MariaDB.
+Queues the row(s) and returns to the client immediately, letting the server insert them when the table is next free. Also valid on REPLACE. Removed in MySQL 8.0 (silently treated as a no-op there), but still supported by MariaDB.
 
 ## Full Syntax
 
