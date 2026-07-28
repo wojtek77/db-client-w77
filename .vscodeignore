@@ -4,7 +4,6 @@ out/**
 node_modules/**
 src/**
 media/**
-CHANGELOG.md
 images/**
 _TODO/**
 .gitignore
