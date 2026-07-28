@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { getCompletions, labelOf, makeColumn } from './testHelpers.js';
+import { getCompletions, labelOf, makeColumn, makeIndex } from './testHelpers.js';
 
 // CompletionDelete — podpowiedzi dla zapytań DELETE
 
@@ -296,6 +296,140 @@ suite('CompletionDelete — alias dot with a partially/fully typed column name',
         const labels = items.map(labelOf);
         assert.ok(labels.includes('id'),    'missing id after "u.id" in WHERE');
         assert.ok(!labels.includes('email'), 'email should not match "u.id" filter in WHERE');
+    });
+});
+
+suite('CompletionDelete — index hints (USE/FORCE/IGNORE INDEX)', () => {
+
+    // single-table DELETE ("DELETE FROM tbl ...") nie wspiera index hintów w MySQL - to błąd składni, więc podpowiedzi nie mogą się tu pojawić
+    test('does not suggest index hints in a single-table DELETE (DELETE FROM tbl)', async () => {
+        const sql = 'DELETE FROM users ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('USE INDEX'),    'USE INDEX should not be suggested in a single-table DELETE');
+        assert.ok(!labels.includes('FORCE INDEX'),  'FORCE INDEX should not be suggested in a single-table DELETE');
+        assert.ok(!labels.includes('IGNORE INDEX'), 'IGNORE INDEX should not be suggested in a single-table DELETE');
+    });
+
+    test('does not suggest index hints in a single-table DELETE with modifiers', async () => {
+        const sql = 'DELETE LOW_PRIORITY QUICK FROM users ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('USE INDEX'), 'USE INDEX should not be suggested in a single-table DELETE, even with modifiers');
+    });
+
+    // wielotabelowy DELETE ("DELETE o FROM orders o ...") WSPIERA index hinty w MySQL, bo klauzula FROM ma tam identyczną gramatykę table_references co w SELECT
+    test('suggests USE/FORCE/IGNORE INDEX right after the table name in a multi-table DELETE', async () => {
+        const sql = 'DELETE o FROM orders o ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'missing USE INDEX in a multi-table DELETE');
+        assert.ok(labels.includes('FORCE INDEX'),  'missing FORCE INDEX in a multi-table DELETE');
+        assert.ok(labels.includes('IGNORE INDEX'), 'missing IGNORE INDEX in a multi-table DELETE');
+    });
+
+    test('filters index hint keywords to the typed prefix in a multi-table DELETE', async () => {
+        const sql = 'DELETE o FROM orders o FOR';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('FORCE INDEX'),   'missing FORCE INDEX for "FOR"');
+        assert.ok(!labels.includes('USE INDEX'),    'USE INDEX should not match "FOR"');
+        assert.ok(!labels.includes('IGNORE INDEX'), 'IGNORE INDEX should not match "FOR"');
+    });
+
+    test('suggests USE/FORCE/IGNORE INDEX after a JOIN-ed table in a multi-table DELETE', async () => {
+        const sql = 'DELETE o FROM orders o INNER JOIN users u ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),   'missing USE INDEX after a JOIN-ed table');
+        assert.ok(labels.includes('FORCE INDEX'), 'missing FORCE INDEX after a JOIN-ed table');
+    });
+
+    test('suggests USE/FORCE/IGNORE INDEX after a comma-separated table in a multi-table DELETE', async () => {
+        const sql = 'DELETE client, student FROM client c, student s ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),   'missing USE INDEX after a comma-separated table');
+        assert.ok(labels.includes('FORCE INDEX'), 'missing FORCE INDEX after a comma-separated table');
+    });
+
+    test('suggests real index names inside USE INDEX (...) in a multi-table DELETE', async () => {
+        const sql = 'DELETE o FROM orders o USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.orders': [
+                makeIndex('PRIMARY'),
+                makeIndex('idx_created_at'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('PRIMARY'),        'missing PRIMARY index');
+        assert.ok(labels.includes('idx_created_at'), 'missing idx_created_at');
+    });
+
+    test('suggests real index names inside FORCE INDEX (...) after a JOIN-ed table in DELETE', async () => {
+        const sql = 'DELETE o FROM orders o INNER JOIN users u FORCE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.users': [makeIndex('idx_email')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_email'), 'missing idx_email for the JOIN-ed table (users)');
+    });
+
+    test('does not suggest index hints inside USE INDEX (...) for a single-table DELETE', async () => {
+        // to nie powinno się nigdy pojawić w edytorze (składniowo niepoprawne), ale sprawdzamy, że isMultiTableDelete blokuje to poprawnie
+        const sql = 'DELETE FROM orders USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.orders': [makeIndex('idx_x')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('idx_x'), 'index names should not be suggested in a single-table DELETE');
+    });
+
+    // regresja: gdy kilka tabel ma własny "USE INDEX (...)" naraz, wcześniejsze łączenie regexów przez ?? zawsze
+    // wygrywało dopasowanie dla PIERWSZEJ tabeli, nawet gdy kursor był w nawiasie kolejnej, dalszej tabeli
+    test('resolves the correct table when multiple comma-separated tables each have their own index hint', async () => {
+        const sql = 'DELETE aaa, bbb\nFROM aaa USE INDEX (), bbb USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.aaa': [makeIndex('idx_aaa')],
+            'public.bbb': [makeIndex('idx_bbb')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_bbb'), 'missing idx_bbb - cursor is inside the second table\'s parens');
+        assert.ok(!labels.includes('idx_aaa'), 'idx_aaa should not be suggested - cursor is not inside its parens');
+    });
+
+    test('does not suggest index hints once past WHERE in a multi-table DELETE', async () => {
+        const sql = 'DELETE o FROM orders o WHERE ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('USE INDEX'),   'USE INDEX should not be suggested once past WHERE');
+        assert.ok(!labels.includes('FORCE INDEX'), 'FORCE INDEX should not be suggested once past WHERE');
     });
 });
 

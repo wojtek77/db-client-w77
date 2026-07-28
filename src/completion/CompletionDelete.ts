@@ -5,6 +5,22 @@ import { CompletionInterface } from './CompletionInterface.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { tokenize, computeDepths, currentDepth } from '../sql/tokenizer.js';
+import {
+    INDEX_HINT_KEYWORDS,
+    REGEX_INDEX_LIST,
+    REGEX_FROM_JOIN_INDEX_HINT_KEYWORD,
+    REGEX_COMMA_INDEX_HINT_KEYWORD,
+    REGEX_FROM_JOIN_INDEX_HINT_TABLE,
+    REGEX_COMMA_INDEX_HINT_TABLE,
+    extractClosestPrecedingTableName,
+} from './indexHints.js';
+
+// index hinty (USE/FORCE/IGNORE INDEX) działają w MySQL WYŁĄCZNIE dla wielotabelowego DELETE (np. "DELETE o FROM orders o USE INDEX (...) WHERE ..."), nie dla zwykłego "DELETE FROM tbl WHERE ..." (single-table DELETE nie wspiera index hintów - to błąd składni)
+// odróżniamy oba warianty tym, czy po DELETE i modyfikatorach od razu pojawia się FROM (single-table) czy najpierw lista tabel do usunięcia (multi-table)
+const REGEX_DELETE_SINGLE_TABLE_FORM = /^\s*delete\s+(?:low_priority\s+)?(?:quick\s+)?(?:ignore\s+)?from\b/i;
+function isMultiTableDelete(fullText: string): boolean {
+    return !REGEX_DELETE_SINGLE_TABLE_FORM.test(fullText);
+}
 
 // modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie DELETE, przed klauzulą FROM - wszystkie niezależne od siebie (DELETE [LOW_PRIORITY] [QUICK] [IGNORE] FROM tbl_name ...)
 const DELETE_MODIFIERS = ['LOW_PRIORITY', 'QUICK', 'IGNORE'];
@@ -103,6 +119,29 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
 
         // określamy domyślny kontekst bazy danych
         const defaultSchema = db.getDatabase();
+
+        // USE/FORCE/IGNORE INDEX (xxx) - kursor wewnątrz nawiasu index hintu, tylko dla wielotabelowego DELETE; sprawdzane niezależnie od isInColumnContext, bo otwarty nawias podnosi głębokość zagnieżdżenia i WHERE dalej w tekście jeszcze nie jest "aktywne" na tej głębokości (analogicznie jak w CompletionSelect.ts)
+        if (this.tableIndexesService && isMultiTableDelete(fullText)) {
+            const indexListMatch = sqlBeforeCursor.match(REGEX_INDEX_LIST);
+            if (indexListMatch) {
+                const table = extractClosestPrecedingTableName(sqlBeforeCursor, [
+                    REGEX_FROM_JOIN_INDEX_HINT_TABLE,
+                    REGEX_COMMA_INDEX_HINT_TABLE,
+                ]);
+
+                if (table) {
+                    const filter = indexListMatch[1].toLowerCase();
+                    const tableRef = { schema: defaultSchema || db.findSchemaByTable(table) || '', table };
+                    const indexesMap = await this.tableIndexesService.getCachedIndexesBatch([tableRef]);
+                    const indexes = indexesMap[this.tableIndexesService.getTableRefKey(tableRef)] ?? [];
+
+                    return indexes
+                        .filter(index => !filter || index.name.toLowerCase().includes(filter))
+                        .sort((a, b) => a.columns.join(',').localeCompare(b.columns.join(',')))
+                        .map((index, order) => this.createIndexNameItem(table, index.name, index.type, index.columns, order));
+                }
+            }
+        }
 
         // sprawdzamy, w której sekcji zapytania znajduje się kursor
         const isInWhereClause = isInColumnContext(sqlBeforeCursor);
@@ -224,7 +263,20 @@ export class CompletionDelete extends CompletionAbstract implements CompletionIn
         }
 
         // 2. Obsługa klauzuli DELETE / FROM (Podpowiedzi TABEL i SCHEMATÓW przed klauzulą WHERE)
-        
+
+        // USE INDEX / FORCE INDEX / IGNORE INDEX - tuż po nazwie tabeli i opcjonalnym aliasie w klauzuli FROM (pierwsza tabela, po JOIN albo po przecinku), tylko dla wielotabelowego DELETE; sprawdzane PRZED przypadkami A/B poniżej, bo przypadek B (dopasowujący dowolne ostatnie słowo) inaczej zawsze złapałby to jako kolejną próbę podpowiedzi tabeli
+        if (isMultiTableDelete(fullText)) {
+            const deleteIndexHintFilter = sqlBeforeCursor.match(REGEX_FROM_JOIN_INDEX_HINT_KEYWORD)?.[3]
+                ?? sqlBeforeCursor.match(REGEX_COMMA_INDEX_HINT_KEYWORD)?.[3];
+
+            if (deleteIndexHintFilter !== undefined) {
+                const filter = deleteIndexHintFilter.toLowerCase();
+                return INDEX_HINT_KEYWORDS
+                    .filter(keyword => !filter || keyword.toLowerCase().startsWith(filter))
+                    .map((keyword, order) => this.createIndexHintKeywordItem(keyword, order));
+            }
+        }
+
         // przypadek A: kursor po kropce struktury bazy (`DELETE FROM zak_system.|`) – tu kropka zawsze oznacza `schema.tabela`, nigdy alias kolumny
         if (linePrefix.includes('.')) {
             const schemaTableMatch = linePrefix.match(REGEX_DELETE_SCHEMA_TABLE);

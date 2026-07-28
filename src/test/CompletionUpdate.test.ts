@@ -536,6 +536,22 @@ suite('CompletionUpdate — index hints (USE/FORCE/IGNORE INDEX)', () => {
     });
 
     // tak samo jak w SELECT, table_references w klauzuli FROM/JOIN pozwala na index hint dla każdej złączonej tabeli z osobna
+    // regresja: gdy kilka tabel ma własny "USE INDEX (...)" naraz, wcześniejsze łączenie regexów przez ?? zawsze
+    // wygrywało dopasowanie dla PIERWSZEJ tabeli, nawet gdy kursor był w nawiasie kolejnej, dalszej tabeli
+    test('resolves the correct table when multiple tables each have their own index hint', async () => {
+        const sql = 'UPDATE aaa USE INDEX (), bbb USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.aaa': [makeIndex('idx_aaa')],
+            'public.bbb': [makeIndex('idx_bbb')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_bbb'), 'missing idx_bbb - cursor is inside the second table\'s parens');
+        assert.ok(!labels.includes('idx_aaa'), 'idx_aaa should not be suggested - cursor is not inside its parens');
+    });
+
     test('suggests index hints after a JOIN-ed table in a multi-table UPDATE', async () => {
         const sql = 'UPDATE aaa s JOIN bbb c ';
         const items = await getCompletions(sql, sql.length, {

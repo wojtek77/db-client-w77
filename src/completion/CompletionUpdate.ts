@@ -10,7 +10,7 @@ import {
     REGEX_INDEX_LIST,
     REGEX_FROM_JOIN_INDEX_HINT_KEYWORD,
     REGEX_FROM_JOIN_INDEX_HINT_TABLE,
-    extractPrecedingFromJoinTableName,
+    extractClosestPrecedingTableName,
 } from './indexHints.js';
 
 // modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie UPDATE, przed nazwą (pierwszej) tabeli - oba niezależne od siebie (UPDATE [LOW_PRIORITY] [IGNORE] tbl_reference SET ...)
@@ -22,8 +22,8 @@ const UPDATE_MODIFIERS = ['LOW_PRIORITY', 'IGNORE'];
 // grupa 1: nazwa tabeli, grupa 2: opcjonalny alias, grupa 3: aktualnie pisane słowo (filtr podpowiedzi, może być puste)
 const REGEX_UPDATE_INDEX_HINT_KEYWORD = /^\s*update\s+(?:low_priority\s+)?(?:ignore\s+)?(?:`?\w+`?\s*\.\s*)?`?(?!low_priority\b|ignore\b)(\w+)`?(?:\s+(?:as\s+)?`?(\w+)`?)?\s+(\w*)$/i;
 
-// wykrywa tabelę, do której odnosi się otwarty nawias USE/FORCE/IGNORE INDEX ( gdy dotyczy pierwszej tabeli w UPDATE
-const REGEX_UPDATE_INDEX_HINT_TABLE = /^\s*update\s+(?:low_priority\s+)?(?:ignore\s+)?(?:`?\w+`?\s*\.\s*)?`?(?!low_priority\b|ignore\b)(\w+)`?(?:\s+(?:as\s+)?`?\w+`?)?\s+(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(/i;
+// wykrywa tabelę, do której odnosi się otwarty nawias USE/FORCE/IGNORE INDEX ( gdy dotyczy pierwszej tabeli w UPDATE - global, bo używane razem z innymi regexami w extractClosestPrecedingTableName
+const REGEX_UPDATE_INDEX_HINT_TABLE = /^\s*update\s+(?:low_priority\s+)?(?:ignore\s+)?(?:`?\w+`?\s*\.\s*)?`?(?!low_priority\b|ignore\b)(\w+)`?(?:\s+(?:as\s+)?`?\w+`?)?\s+(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(/gi;
 
 // tabela po przecinku w starym stylu multi-table UPDATE (np. "UPDATE client c, student s |") - komma niezanurzona w nawiasie, bo to sekcja przed SET
 const REGEX_UPDATE_COMMA_INDEX_HINT_KEYWORD = /,\s*(?:`?\w+`?\s*\.\s*)?`?(?!low_priority\b|ignore\b)(\w+)`?(?:\s+(?:as\s+)?`?(\w+)`?)?\s+(\w*)$/i;
@@ -104,9 +104,11 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
         if (this.tableIndexesService) {
             const indexListMatch = sqlBeforeCursor.match(REGEX_INDEX_LIST);
             if (indexListMatch) {
-                const table = sqlBeforeCursor.match(REGEX_UPDATE_INDEX_HINT_TABLE)?.[1]
-                    ?? extractPrecedingFromJoinTableName(sqlBeforeCursor)
-                    ?? [...sqlBeforeCursor.matchAll(REGEX_UPDATE_COMMA_INDEX_HINT_TABLE)].at(-1)?.[1];
+                const table = extractClosestPrecedingTableName(sqlBeforeCursor, [
+                    REGEX_UPDATE_INDEX_HINT_TABLE,
+                    REGEX_FROM_JOIN_INDEX_HINT_TABLE,
+                    REGEX_UPDATE_COMMA_INDEX_HINT_TABLE,
+                ]);
 
                 if (table) {
                     const filter = indexListMatch[1].toLowerCase();
