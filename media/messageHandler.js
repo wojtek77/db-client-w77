@@ -158,9 +158,10 @@ window.addEventListener('message', event => {
         cancelBtn.style.display = 'none';
         cancelBtn.classList.remove('cancelling');
         stopQueryTimer();
-        if (msg.connectionFailed) {
+        if (msg.errorMessage) {
             // przy błędzie chowamy spinner tutaj, bo 'appendData' (które normalnie go chowa) nie zostanie wysłane
             stopSpinner();
+            updateErrorMessage(msg.errorMessage);
         }
     }
     

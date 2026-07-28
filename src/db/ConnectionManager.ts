@@ -13,6 +13,7 @@ export class ConnectionManager {
     private connections: Record<string, Connection> = {};
     private configs: Record<string, string> = {};
     private currentNameConnection = '';
+    private lastShownConnectionError: Record<string, string> = {};
     private configDir = '';
     private configDirMissing = false;
     
@@ -73,12 +74,15 @@ export class ConnectionManager {
                 connection = await Connection.create(cnfFile);
             } catch (err: any) {
                 const errorMessage = err.message;
-                const editLabel = `Edit ${path.basename(cnfFile)}`;
-                vscode.window.showErrorMessage(errorMessage, editLabel).then((choice) => {
-                    if (choice === editLabel) {
-                        openConnectionFile(cnfFile);
-                    }
-                });
+                if (this.lastShownConnectionError[connectionName] !== errorMessage) {
+                    const editLabel = `Edit ${path.basename(cnfFile)}`;
+                    vscode.window.showErrorMessage(errorMessage, editLabel).then((choice) => {
+                        if (choice === editLabel) {
+                            openConnectionFile(cnfFile);
+                        }
+                    });
+                    this.lastShownConnectionError[connectionName] = errorMessage;
+                }
                 throw err;
             }
             this.connections[connectionName] = connection;

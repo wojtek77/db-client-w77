@@ -1107,7 +1107,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({
                 command: 'queryFinished',
                 // przy błędzie chowamy spinner tutaj, bo 'appendData' (które normalnie go chowa) nie zostanie wysłane
-                connectionFailed: !db
+                errorMessage: errorMessage
             });
         }
 
