@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.18
+
+### Fixed
+- `ConnectionManager.ts`: `stop()` (fired when the last SQL tab closes,
+  or on extension deactivate) now also resets `lastShownConnectionError`
+  along with the connection cache. Previously this map survived a
+  stop/restart cycle, so if a connection failed again with the same
+  error message after reconnecting, the friendly error popup could stay
+  suppressed even though it was effectively a new connection attempt.
+- `media/messageHandler.js`: on `queryFinished` with an error, the grid
+  container is now hidden (`stopGridContainer()`) in addition to the
+  loading spinner. Previously, if a prior query had already rendered
+  results, those stale rows stayed visible behind/alongside the new
+  error message instead of being cleared.
+
 ## 0.3.17
 
 ### Fixed
