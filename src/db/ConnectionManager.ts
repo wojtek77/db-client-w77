@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
+import { openConnectionFile } from '../commands/connectionSetupCommands.js';
 
 export class ConnectionManager {
     
@@ -59,15 +60,27 @@ export class ConnectionManager {
             connectionName = await RecentSqlFiles.getInstance().getConnectionName();
         }
         if (!this.connections[connectionName]) {
-            const path = this.configs[connectionName];
-            if (!path) {
+            const cnfFile = this.configs[connectionName];
+            if (!cnfFile) {
                 throw new Error(
                     this.configDirMissing
                         ? `No connection config directory found at "${this.configDir}". Run "DB client: Create Connection Config Directory" to get started.`
                         : `No connection configuration found for "${connectionName}". Add a .cnf file to "${this.configDir}" and run "DB client: Reload Connection Files".`
                 );
             }
-            const connection = await Connection.create(path);
+            let connection;
+            try {
+                connection = await Connection.create(cnfFile);
+            } catch (err: any) {
+                const errorMessage = err.message;
+                const editLabel = `Edit ${path.basename(cnfFile)}`;
+                vscode.window.showErrorMessage(errorMessage, editLabel).then((choice) => {
+                    if (choice === editLabel) {
+                        openConnectionFile(cnfFile);
+                    }
+                });
+                throw err;
+            }
             this.connections[connectionName] = connection;
         }
         this.currentNameConnection = connectionName;

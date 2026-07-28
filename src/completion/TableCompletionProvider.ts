@@ -86,7 +86,6 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         try {
             db = await ConnectionManager.getInstance().getDb();
         } catch (err) {
-            console.error('[TableCompletionProvider] Database connection error:', err);
             return [];
         }
 

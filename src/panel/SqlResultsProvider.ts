@@ -9,7 +9,6 @@ import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
 import { ConnectionColors } from '../db/ConnectionColors.js';
 import { TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatSqlValue } from '../sql/formatSqlValue.js';
-import { openConnectionFile } from '../commands/connectionSetupCommands.js';
 
 interface FileResultState {
     rows: any[][];
@@ -1102,21 +1101,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
         } catch (err: any) {
             errorMessage = err.message;
-
-            // znamy dBconnectionName, więc jeśli istnieje dla niego plik .cnf, oferujemy jego edycję
-            const configs = ConnectionManager.getInstance().getConfigs();
-            const cnfPath = configs[dBconnectionName];
-
-            if (cnfPath) {
-                const editLabel = `Edit ${path.basename(cnfPath)}`;
-                vscode.window.showErrorMessage(errorMessage, editLabel).then((choice) => {
-                    if (choice === editLabel) {
-                        openConnectionFile(cnfPath);
-                    }
-                });
-            } else {
-                vscode.window.showErrorMessage(errorMessage);
-            }
         } finally {
             // niezależnie od wyniku zapytania (nawet przy braku połączenia z bazą) spinner ładowania i przycisk 'cancel' muszą zawsze wrócić do stanu spoczynku
             this._queryRunning = false;
