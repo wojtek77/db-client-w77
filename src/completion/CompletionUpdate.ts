@@ -5,9 +5,31 @@ import { CompletionInterface } from './CompletionInterface.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { tokenize, computeDepths, currentDepth } from '../sql/tokenizer.js';
+import {
+    INDEX_HINT_KEYWORDS,
+    REGEX_INDEX_LIST,
+    REGEX_FROM_JOIN_INDEX_HINT_KEYWORD,
+    REGEX_FROM_JOIN_INDEX_HINT_TABLE,
+    extractPrecedingFromJoinTableName,
+} from './indexHints.js';
 
 // modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie UPDATE, przed nazwą (pierwszej) tabeli - oba niezależne od siebie (UPDATE [LOW_PRIORITY] [IGNORE] tbl_reference SET ...)
 const UPDATE_MODIFIERS = ['LOW_PRIORITY', 'IGNORE'];
+
+// index hinty (USE/FORCE/IGNORE INDEX) w UPDATE dotyczą każdej tabeli z osobna, tak jak w table_references klauzuli FROM w SELECT - stąd trzy warianty regexów niżej: pierwsza tabela (zakotwiczona do UPDATE), tabela po JOIN (reużywamy regex z indexHints.ts) i tabela po przecinku (stary styl multi-table UPDATE)
+
+// (?!low_priority\b|ignore\b) tuż przed nazwą tabeli - bez tego regex mógłby się cofnąć i błędnie potraktować sam modyfikator jako nazwę tabeli, gdy żadna tabela nie została jeszcze wpisana (np. "UPDATE LOW_PRIORITY IGNORE ")
+// grupa 1: nazwa tabeli, grupa 2: opcjonalny alias, grupa 3: aktualnie pisane słowo (filtr podpowiedzi, może być puste)
+const REGEX_UPDATE_INDEX_HINT_KEYWORD = /^\s*update\s+(?:low_priority\s+)?(?:ignore\s+)?(?:`?\w+`?\s*\.\s*)?`?(?!low_priority\b|ignore\b)(\w+)`?(?:\s+(?:as\s+)?`?(\w+)`?)?\s+(\w*)$/i;
+
+// wykrywa tabelę, do której odnosi się otwarty nawias USE/FORCE/IGNORE INDEX ( gdy dotyczy pierwszej tabeli w UPDATE
+const REGEX_UPDATE_INDEX_HINT_TABLE = /^\s*update\s+(?:low_priority\s+)?(?:ignore\s+)?(?:`?\w+`?\s*\.\s*)?`?(?!low_priority\b|ignore\b)(\w+)`?(?:\s+(?:as\s+)?`?\w+`?)?\s+(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(/i;
+
+// tabela po przecinku w starym stylu multi-table UPDATE (np. "UPDATE client c, student s |") - komma niezanurzona w nawiasie, bo to sekcja przed SET
+const REGEX_UPDATE_COMMA_INDEX_HINT_KEYWORD = /,\s*(?:`?\w+`?\s*\.\s*)?`?(?!low_priority\b|ignore\b)(\w+)`?(?:\s+(?:as\s+)?`?(\w+)`?)?\s+(\w*)$/i;
+
+// wykrywa tabelę po przecinku, do której odnosi się otwarty nawias USE/FORCE/IGNORE INDEX ( - global, bierzemy ostatnie wystąpienie najbliższe kursorowi
+const REGEX_UPDATE_COMMA_INDEX_HINT_TABLE = /,\s*(?:`?\w+`?\s*\.\s*)?`?(?!low_priority\b|ignore\b)(\w+)`?(?:\s+(?:as\s+)?`?\w+`?)?\s+(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(/gi;
 
 // uproszczone wyrażenia regularne dla sekcji tabel (operujące na linePrefix)
 const REGEX_UPDATE_SCHEMA_TABLE = /\b([\w]+)\.([\w]*)$/i;
@@ -77,6 +99,28 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
 
         // określamy domyślny kontekst bazy danych
         const defaultSchema = db.getDatabase();
+
+        // USE/FORCE/IGNORE INDEX (xxx) - kursor wewnątrz nawiasu index hintu, sprawdzane niezależnie od isInColumnContext, bo otwarty nawias podnosi głębokość zagnieżdżenia i SET/WHERE/ON dalej w tekście jeszcze nie są "aktywne" na tej głębokości (analogicznie jak w CompletionSelect.ts)
+        if (this.tableIndexesService) {
+            const indexListMatch = sqlBeforeCursor.match(REGEX_INDEX_LIST);
+            if (indexListMatch) {
+                const table = sqlBeforeCursor.match(REGEX_UPDATE_INDEX_HINT_TABLE)?.[1]
+                    ?? extractPrecedingFromJoinTableName(sqlBeforeCursor)
+                    ?? [...sqlBeforeCursor.matchAll(REGEX_UPDATE_COMMA_INDEX_HINT_TABLE)].at(-1)?.[1];
+
+                if (table) {
+                    const filter = indexListMatch[1].toLowerCase();
+                    const tableRef = { schema: defaultSchema || db.findSchemaByTable(table) || '', table };
+                    const indexesMap = await this.tableIndexesService.getCachedIndexesBatch([tableRef]);
+                    const indexes = indexesMap[this.tableIndexesService.getTableRefKey(tableRef)] ?? [];
+
+                    return indexes
+                        .filter(index => !filter || index.name.toLowerCase().includes(filter))
+                        .sort((a, b) => a.columns.join(',').localeCompare(b.columns.join(',')))
+                        .map((index, order) => this.createIndexNameItem(table, index.name, index.type, index.columns, order));
+                }
+            }
+        }
 
         // sprawdzamy, w której sekcji zapytania znajduje się kursor
         const isInColumnCtx = isInColumnContext(sqlBeforeCursor);
@@ -209,7 +253,19 @@ export class CompletionUpdate extends CompletionAbstract implements CompletionIn
         }
 
         // 2. Obsługa samej klauzuli UPDATE (Podpowiedzi TABEL i SCHEMATÓW przed klauzulą SET)
-        
+
+        // USE INDEX / FORCE INDEX / IGNORE INDEX - tuż po nazwie tabeli i opcjonalnym aliasie (pierwsza tabela, po JOIN albo po przecinku), przed SET; sprawdzane PRZED przypadkami A/B poniżej, bo przypadek B (dopasowujący dowolne ostatnie słowo) inaczej zawsze złapałby to jako kolejną próbę podpowiedzi tabeli
+        const updateIndexHintFilter = sqlBeforeCursor.match(REGEX_UPDATE_INDEX_HINT_KEYWORD)?.[3]
+            ?? sqlBeforeCursor.match(REGEX_FROM_JOIN_INDEX_HINT_KEYWORD)?.[3]
+            ?? sqlBeforeCursor.match(REGEX_UPDATE_COMMA_INDEX_HINT_KEYWORD)?.[3];
+
+        if (updateIndexHintFilter !== undefined) {
+            const filter = updateIndexHintFilter.toLowerCase();
+            return INDEX_HINT_KEYWORDS
+                .filter(keyword => !filter || keyword.toLowerCase().startsWith(filter))
+                .map((keyword, order) => this.createIndexHintKeywordItem(keyword, order));
+        }
+
         // przypadek A: kursor po kropce struktury bazy (`UPDATE zak_system.|`) – tu kropka zawsze oznacza `schema.tabela`, nigdy alias kolumny
         if (linePrefix.includes('.')) {
             const schemaTableMatch = linePrefix.match(REGEX_UPDATE_SCHEMA_TABLE);

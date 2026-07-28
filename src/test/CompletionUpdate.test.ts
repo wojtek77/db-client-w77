@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { getCompletions, labelOf, makeColumn } from './testHelpers.js';
+import { getCompletions, labelOf, makeColumn, makeIndex } from './testHelpers.js';
 
 // CompletionUpdate — podpowiedzi dla zapytań UPDATE
 
@@ -131,7 +131,10 @@ suite('CompletionUpdate — LOW_PRIORITY / IGNORE modifiers', () => {
         assert.ok(items.map(labelOf).includes('users'), 'table suggestion should still work after both modifiers');
     });
 
-    test('stops suggesting modifiers once a table name has been typed', async () => {
+    test('stops suggesting UPDATE modifiers once a table name has been typed', async () => {
+        // regresja: po nazwie tabeli w tym miejscu poprawnie pojawiają się teraz index hinty (USE/FORCE/IGNORE INDEX,
+        // patrz suite "index hints"), więc nie sprawdzamy już braku WSZYSTKICH podpowiedzi typu Keyword, tylko brak
+        // konkretnie modyfikatorów LOW_PRIORITY / IGNORE
         const sql = 'UPDATE users ';
         const items = await getCompletions(sql, sql.length, {
             getDatabase:              () => 'mydb',
@@ -139,7 +142,8 @@ suite('CompletionUpdate — LOW_PRIORITY / IGNORE modifiers', () => {
             getSchemas:               () => [],
         });
         const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
-        assert.strictEqual(keywordLabels.length, 0, 'no modifiers should be offered once the table name is already typed');
+        assert.ok(!keywordLabels.includes('LOW_PRIORITY'), 'LOW_PRIORITY should not be offered once the table name is already typed');
+        assert.ok(!keywordLabels.includes('IGNORE'),       'IGNORE should not be offered once the table name is already typed');
     });
 
     test('does not leak modifier suggestions into the JOIN section of a multi-table UPDATE', async () => {
@@ -415,6 +419,157 @@ suite('CompletionUpdate — alias dot with a partially/fully typed column name',
         assert.ok(!labels.includes('email'), 'email should not match "u.id" filter in WHERE');
     });
 });
+
+suite('CompletionUpdate — index hints (USE/FORCE/IGNORE INDEX)', () => {
+
+    test('suggests USE/FORCE/IGNORE INDEX right after the table name, before SET', async () => {
+        const sql = 'UPDATE users ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'missing USE INDEX');
+        assert.ok(labels.includes('FORCE INDEX'),  'missing FORCE INDEX');
+        assert.ok(labels.includes('IGNORE INDEX'), 'missing IGNORE INDEX');
+    });
+
+    test('suggests USE/FORCE/IGNORE INDEX right after the table alias, before SET', async () => {
+        const sql = 'UPDATE users u ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'missing USE INDEX after alias');
+        assert.ok(labels.includes('FORCE INDEX'),  'missing FORCE INDEX after alias');
+        assert.ok(labels.includes('IGNORE INDEX'), 'missing IGNORE INDEX after alias');
+    });
+
+    test('suggests USE/FORCE/IGNORE INDEX after LOW_PRIORITY/IGNORE modifiers and the table name', async () => {
+        const sql = 'UPDATE LOW_PRIORITY IGNORE users ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),   'missing USE INDEX after modifiers + table name');
+        assert.ok(labels.includes('FORCE INDEX'), 'missing FORCE INDEX after modifiers + table name');
+    });
+
+    test('filters index hint keywords to the typed prefix', async () => {
+        const sql = 'UPDATE users FOR';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('FORCE INDEX'),   'missing FORCE INDEX for "FOR"');
+        assert.ok(!labels.includes('USE INDEX'),    'USE INDEX should not match "FOR"');
+        assert.ok(!labels.includes('IGNORE INDEX'), 'IGNORE INDEX should not match "FOR"');
+    });
+
+    test('suggests real index names inside USE INDEX (...)', async () => {
+        const sql = 'UPDATE users USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.users': [
+                makeIndex('PRIMARY'),
+                makeIndex('idx_email'),
+                makeIndex('idx_created_at'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('PRIMARY'),        'missing PRIMARY index');
+        assert.ok(labels.includes('idx_email'),      'missing idx_email');
+        assert.ok(labels.includes('idx_created_at'), 'missing idx_created_at');
+    });
+
+    test('filters index names to the typed prefix inside FORCE INDEX (...)', async () => {
+        const sql = 'UPDATE users u FORCE INDEX (idx_e';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.users': [
+                makeIndex('idx_email'),
+                makeIndex('idx_created_at'),
+            ],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_email'),       'missing idx_email for "idx_e"');
+        assert.ok(!labels.includes('idx_created_at'), 'idx_created_at should not match "idx_e"');
+    });
+
+    // w MySQL index hint dotyczy KAŻDEJ tabeli osobno w table_references, więc w multi-table UPDATE po przecinku też jest poprawny składniowo (np. "UPDATE client c, student s USE INDEX (...) SET ...")
+    test('suggests index hints after the second table in a comma-separated multi-table UPDATE', async () => {
+        const sql = 'UPDATE client c, student s ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'USE INDEX should be suggested after the second comma-separated table');
+        assert.ok(labels.includes('FORCE INDEX'),  'FORCE INDEX should be suggested after the second comma-separated table');
+        assert.ok(labels.includes('IGNORE INDEX'), 'IGNORE INDEX should be suggested after the second comma-separated table');
+    });
+
+    test('suggests real index names inside USE INDEX (...) after a comma-separated table', async () => {
+        const sql = 'UPDATE client c, student s USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.student': [makeIndex('idx_name')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_name'), 'missing idx_name for the second comma-separated table (student)');
+    });
+
+    // regresja: REGEX_UPDATE_INDEX_HINT_KEYWORD mógł się cofnąć i błędnie potraktować sam modyfikator IGNORE
+    // jako nazwę tabeli, gdy żadna tabela nie została jeszcze wpisana
+    test('does not treat a bare IGNORE/LOW_PRIORITY modifier as a table name', async () => {
+        const sql = 'UPDATE LOW_PRIORITY IGNORE ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('USE INDEX'),   'USE INDEX should not be suggested when only modifiers are typed, no table yet');
+        assert.ok(!labels.includes('FORCE INDEX'), 'FORCE INDEX should not be suggested when only modifiers are typed, no table yet');
+    });
+
+    // tak samo jak w SELECT, table_references w klauzuli FROM/JOIN pozwala na index hint dla każdej złączonej tabeli z osobna
+    test('suggests index hints after a JOIN-ed table in a multi-table UPDATE', async () => {
+        const sql = 'UPDATE aaa s JOIN bbb c ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'USE INDEX should be suggested right after a JOIN-ed table');
+        assert.ok(labels.includes('FORCE INDEX'),  'FORCE INDEX should be suggested right after a JOIN-ed table');
+        assert.ok(labels.includes('IGNORE INDEX'), 'IGNORE INDEX should be suggested right after a JOIN-ed table');
+    });
+
+    test('suggests real index names inside FORCE INDEX (...) after a JOIN-ed table', async () => {
+        const sql = 'UPDATE aaa s JOIN bbb c FORCE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.bbb': [makeIndex('idx_bbb')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_bbb'), 'missing idx_bbb for the JOIN-ed table (bbb)');
+    });
+
+    test('does not suggest index hints while still inside the ON condition of a JOIN', async () => {
+        const sql = 'UPDATE orders o JOIN users u ON o.user_id = u.id SET ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(!labels.includes('USE INDEX'),   'USE INDEX should not be suggested once past SET');
+        assert.ok(!labels.includes('FORCE INDEX'), 'FORCE INDEX should not be suggested once past SET');
+    });
+});
+
 
 suite('CompletionUpdate — safety', () => {
 

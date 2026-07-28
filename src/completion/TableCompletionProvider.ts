@@ -28,7 +28,7 @@ export class TableCompletionProvider implements vscode.CompletionItemProvider {
         const tableIndexesCache = TableIndexesCache.getInstance();
         this.completionSelect = new CompletionSelect(tableColumnsCache, tableIndexesCache);
         this.completionInsert = new CompletionInsert(tableColumnsCache);
-        this.completionUpdate = new CompletionUpdate(tableColumnsCache);
+        this.completionUpdate = new CompletionUpdate(tableColumnsCache, tableIndexesCache);
         this.completionDelete = new CompletionDelete(tableColumnsCache);
         this.completionReplace = new CompletionReplace(tableColumnsCache);
     }

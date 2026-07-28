@@ -8,6 +8,12 @@ import { findCteDefinitions } from '../sql/findCteDefinitions.js';
 import { findDerivedTables } from '../sql/findDerivedTables.js';
 import { CompletionInterface } from './CompletionInterface.js';
 import { tokenize, computeDepths, currentDepth, Token } from '../sql/tokenizer.js';
+import {
+    INDEX_HINT_KEYWORDS,
+    REGEX_INDEX_LIST,
+    REGEX_FROM_JOIN_INDEX_HINT_KEYWORD as REGEX_INDEX_HINT_KEYWORD,
+    extractPrecedingFromJoinTableName,
+} from './indexHints.js';
 
 // `?` wokół identyfikatorów obsługuje cytowanie w backtickach (standard MySQL/MariaDB, np. `` `order` ``) - grupy przechwytują samą nazwę, bez backticków
 const REGEX_SCHEMA_TABLE = /\b(?:from|join)\s+`?(\w+)`?\s*\.\s*`?(\w*)$/i;
@@ -17,18 +23,6 @@ const REGEX_COMMA_SCHEMA_TABLE = /,\s*`?(\w+)`?\s*\.\s*`?(\w*)$/;
 const REGEX_COMMA_OBJECT = /,\s*`?(\w*)$/;
 // 3 grupy: segment1[.segment2] to alias albo schema.table, ostatnia grupa to filtr kolumny (obsługuje częściowo wpisaną nazwę, np. `l.date_ent|`); `?` obsługuje backticki
 const REGEX_ALIAS_DOT = /`?([a-zA-Z0-9_]+)`?(?:\s*\.\s*`?([a-zA-Z0-9_]+)`?)?\s*\.\s*`?(\w*)$/;
-
-// pozycja tuż po nazwie tabeli i opcjonalnym aliasie w FROM/JOIN (np. "FROM users u |" albo "FROM users |") - tu mogą pojawić się USE/FORCE/IGNORE INDEX
-// grupa 1: nazwa tabeli, grupa 2: opcjonalny alias, grupa 3: aktualnie pisane słowo (filtr podpowiedzi, może być puste)
-const REGEX_INDEX_HINT_KEYWORD = /\b(?:from|join)\s+(?:`?\w+`?\s*\.\s*)?`?(\w+)`?(?:\s+(?:as\s+)?`?(\w+)`?)?\s+(\w*)$/i;
-
-// kursor wewnątrz nawiasu USE/FORCE/IGNORE {INDEX|KEY} (...) - tu podpowiadamy realne nazwy indeksów; obsługuje już wpisane nazwy przed przecinkiem
-const REGEX_INDEX_LIST = /\b(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(\s*(?:`?\w+`?\s*,\s*)*`?(\w*)$/i;
-
-const INDEX_HINT_KEYWORDS = ['USE INDEX', 'FORCE INDEX', 'IGNORE INDEX'];
-
-// znajduje tabelę, do której odnosi się otwarty nawias USE/FORCE/IGNORE INDEX ( - global, bo interesuje nas ostatnie (najbliższe kursorowi) wystąpienie
-const REGEX_INDEX_HINT_TABLE = /\b(?:from|join)\s+(?:`?\w+`?\s*\.\s*)?`?(\w+)`?(?:\s+(?:as\s+)?`?\w+`?)?\s+(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(/gi;
 
 // modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie SELECT, przed listą wybieranych wyrażeń
 // (SELECT [ALL | DISTINCT | DISTINCTROW] [HIGH_PRIORITY] [STRAIGHT_JOIN] [SQL_SMALL_RESULT] [SQL_BIG_RESULT] [SQL_BUFFER_RESULT] [SQL_NO_CACHE] [SQL_CALC_FOUND_ROWS] ...)
@@ -127,12 +121,6 @@ export function detectCurrentClause(sqlBeforeCursor: string): DetectedClause | u
 
 export class CompletionSelect extends CompletionAbstract implements CompletionInterface {
 
-    // bierzemy ostatnie (najbliższe kursorowi) dopasowanie - w zapytaniu może być kilka JOIN-ów, każdy z własnym index hintem
-    private extractPrecedingTableName(fromClauseTail: string): string | undefined {
-        const matches = [...fromClauseTail.matchAll(REGEX_INDEX_HINT_TABLE)];
-        return matches.at(-1)?.[1];
-    }
-
     public async complete(
         linePrefix: string,
         fullText: string,
@@ -156,14 +144,11 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
 
         const defaultSchema = db.getDatabase();
 
-        /* USE/FORCE/IGNORE INDEX (xxx) - kursor wewnątrz nawiasu index hintu.
-           Sprawdzane NIEZALEŻNIE od detectCurrentClause/isInFromClause: otwarty nawias podnosi głębokość
-           zagnieżdżenia kursora, przez co FROM (na głębokości 0) przestałby być widoczny dla standardowej
-           detekcji klauzuli - dokładnie ten sam problem, który dla HAVING rozwiązuje isCursorInsideFunctionCall. */
+        // USE/FORCE/IGNORE INDEX (xxx) - kursor wewnątrz nawiasu index hintu, sprawdzane niezależnie od detectCurrentClause/isInFromClause, bo otwarty nawias podnosi głębokość zagnieżdżenia i FROM (na głębokości 0) przestałby być widoczny dla standardowej detekcji klauzuli - ten sam problem, który dla HAVING rozwiązuje isCursorInsideFunctionCall
         if (this.tableIndexesService) {
             const indexListMatch = sqlBeforeCursor.match(REGEX_INDEX_LIST);
             if (indexListMatch) {
-                const table = this.extractPrecedingTableName(sqlBeforeCursor);
+                const table = extractPrecedingFromJoinTableName(sqlBeforeCursor);
                 if (table) {
                     const filter = indexListMatch[1].toLowerCase();
                     const tableRef = { schema: defaultSchema || db.findSchemaByTable(table) || '', table };
@@ -281,8 +266,7 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             return result;
         }
 
-        /* Alias lub pełna nazwa tabeli (np. s. lub public.contacts.), opcjonalnie
-           z już częściowo wpisaną nazwą kolumny (np. s.na lub public.contacts.na) */
+        // alias lub pełna nazwa tabeli (np. s. lub public.contacts.), opcjonalnie z już częściowo wpisaną nazwą kolumny (np. s.na lub public.contacts.na)
         const aliasMatch = linePrefix.match(REGEX_ALIAS_DOT);
         if (aliasMatch) {
             // grupa 2 obecna tylko dla formy schema.table. - grupy nie zawierają backticków, nawet jeśli w tekście były
