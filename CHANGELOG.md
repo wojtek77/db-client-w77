@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.17
+
+### Fixed
+- `ConnectionManager.ts`: the friendly connection-error popup in `getDb()`
+  used to remember only whether it had already been shown for a given
+  connection name, not what the error actually was. This meant that
+  after the first shown error, any later, genuinely different error for
+  the same connection name (e.g. fixed the host but the user is still
+  wrong) was silently swallowed and never reached the user. Now tracks
+  the last shown error message per connection name and only skips
+  re-showing the popup when the message is identical to the previous
+  one - so real, changed errors always surface, while near-simultaneous
+  duplicate popups (e.g. autocomplete's auto-trigger and a manual
+  Ctrl+Space firing `getDb()` twice for the same failure) stay deduped.
+
 ## 0.3.16
 
 ### Changed
