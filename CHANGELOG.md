@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.20
+
+### Fixed
+- Restored `README.md`, `CHANGELOG.md`, and `LICENSE` in the packaged
+  `.vsix`. Excluding them broke the Marketplace page: vsce reads these
+  files locally at package time to populate the description, changelog
+  tab, and license tab - it doesn't fetch them from GitHub. `images/**`
+  stays excluded, since vsce rewrites its relative README/CHANGELOG
+  image links to GitHub raw URLs automatically.
+
 ## 0.3.19
 
 ### Changed
