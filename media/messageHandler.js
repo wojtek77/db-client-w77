@@ -161,6 +161,7 @@ window.addEventListener('message', event => {
         if (msg.errorMessage) {
             // przy błędzie chowamy spinner tutaj, bo 'appendData' (które normalnie go chowa) nie zostanie wysłane
             stopSpinner();
+            stopGridContainer();
             updateErrorMessage(msg.errorMessage);
         }
     }

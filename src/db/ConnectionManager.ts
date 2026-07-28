@@ -123,6 +123,7 @@ export class ConnectionManager {
         });
         this.connections = {};
         this.currentNameConnection = '';
+        this.lastShownConnectionError = {};
     }
     
     public getConfigs() {
