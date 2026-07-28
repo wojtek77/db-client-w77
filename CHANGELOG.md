@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.19
+
+### Changed
+- Reduced packaged extension size: `README.md`, `CHANGELOG.md`, `LICENSE`,
+  and `images/**` are no longer bundled into the `.vsix` - all of them
+  already live in the GitHub repository.
+
 ## 0.3.18
 
 ### Fixed
