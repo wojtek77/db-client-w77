@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.16
+
+### Changed
+- `ConnectionManager.ts`: moved the friendly connection-error handling
+  (native error popup with an "Edit X.cnf" action opening the config
+  file) from `SqlResultsProvider`'s query-execution flow directly into
+  `getDb()`. Every caller of `getDb()` now shows this same friendly
+  error consistently - most notably autocomplete
+  (`TableCompletionProvider`), which previously failed silently with
+  only a `console.error` and gave no feedback about a broken DB
+  connection while typing suggestions.
+- `SqlResultsProvider.ts`: removed the now-redundant error-popup logic
+  from the query-execution catch block. Plain SQL execution errors
+  (e.g. syntax errors) no longer show the "Edit .cnf" button, which
+  was misleading there - they still surface inline in the results
+  panel as before.
+
+### Fixed
+- `ConnectionManager.ts`: renamed the local `path` variable in `getDb()`
+  to `cnfFile`, since it shadowed the imported `path` module now needed
+  there for `path.basename()`.
+
 ## 0.3.15
 
 ### Added
