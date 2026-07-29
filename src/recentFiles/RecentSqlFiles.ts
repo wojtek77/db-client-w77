@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../db/ConnectionManager.js';
+import { ConnectionColors } from '../db/ConnectionColors.js';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -211,6 +212,7 @@ export class RecentSqlFiles {
                         description: `(${connectionName}) ${orderNumber}.`,                     // Opcjonalnie: podgląd pełnej ścieżki na dole
                         value: filePath,                     // Ukryta wartość, którą chcemy wyciągnąć
                         connectionName: connectionName,      // nazwa połączenia (potrzebna np. przy komunikacie o usunięciu z listy)
+                        iconPath: ConnectionColors.getInstance().getColorIconUri(connectionName), // kolorowa ikona zgodna z kolorem przypisanym do połączenia
                         buttons: [removeItemButton]          // ikona kosza przy tej pozycji - usuwa tylko ją
                     };
                 });
@@ -222,7 +224,7 @@ export class RecentSqlFiles {
             tooltip: 'Trim list (keep only N most recent files)'
         };
 
-        const quickPick = vscode.window.createQuickPick<{ label: string; description: string; value: string; connectionName: string; buttons?: readonly vscode.QuickInputButton[] }>();
+        const quickPick = vscode.window.createQuickPick<{ label: string; description: string; value: string; connectionName: string; iconPath?: vscode.Uri; buttons?: readonly vscode.QuickInputButton[] }>();
         quickPick.items = buildQuickPickItems();
         quickPick.placeholder = 'select SQL file(s)';
         quickPick.ignoreFocusOut = true;

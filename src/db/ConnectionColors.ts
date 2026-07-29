@@ -46,6 +46,18 @@ export class ConnectionColors {
         return this.colors[connectionName] ?? null;
     }
 
+    // buduje kolorową ikonę (kółko SVG jako data URI) dla danego połączenia, do użycia jako iconPath w QuickPickItem
+    public getColorIconUri(connectionName: string): vscode.Uri | undefined {
+        const color = this.getColor(connectionName);
+        if (!color) {
+            return undefined;
+        }
+
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="6" fill="${color}"/></svg>`;
+        const base64 = Buffer.from(svg).toString('base64');
+        return vscode.Uri.parse(`data:image/svg+xml;base64,${base64}`);
+    }
+
     public async pickColor(connectionName: string): Promise<string | null | undefined> {
         const currentColor = this.getColor(connectionName);
 
