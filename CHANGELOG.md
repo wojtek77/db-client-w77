@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.3.21
+
+### Added
+- `CompletionUpdate.ts`: suggests `USE INDEX` / `FORCE INDEX` /
+  `IGNORE INDEX` right after a table name (and optional alias) in
+  `UPDATE` statements, before `SET` - covers the single-table form,
+  comma-separated multi-table form (`UPDATE t1, t2 SET ...`), and
+  JOIN-based multi-table form (`UPDATE t1 JOIN t2 ... SET ...`), since
+  MySQL allows an index hint per table in all three.
+- `CompletionDelete.ts`: suggests `USE INDEX` / `FORCE INDEX` /
+  `IGNORE INDEX` in the `FROM` clause of multi-table `DELETE` statements
+  (`DELETE t1 FROM t1 ...` / `DELETE t1, t2 FROM t1, t2 ...`), including
+  after `JOIN`-ed and comma-separated tables. Deliberately excluded for
+  single-table `DELETE FROM tbl ...`, since MySQL rejects index hints
+  there (syntax error) - only the multi-table form supports them.
+- `CompletionSelect.ts`: suggests `USE INDEX` / `FORCE INDEX` /
+  `IGNORE INDEX` after comma-separated tables in the `FROM` clause
+  (`FROM t1, t2 USE INDEX (...)`), in addition to the previously
+  supported `FROM`/`JOIN` case.
+- New shared module `completion/indexHints.ts` consolidating the
+  regexes/constants used to detect and suggest index hints across
+  `CompletionSelect`, `CompletionUpdate`, and `CompletionDelete`.
+
+### Fixed
+- `CompletionUpdate.ts`: a bare `LOW_PRIORITY`/`IGNORE` modifier typed
+  before any table name (e.g. `UPDATE LOW_PRIORITY IGNORE `) could be
+  mistakenly parsed as if `IGNORE` were the table name, incorrectly
+  triggering index hint suggestions.
+- `CompletionUpdate.ts`, `CompletionDelete.ts`, `CompletionSelect.ts`:
+  when a query has several tables each with their own open index hint
+  parens at once (e.g. `FROM t1 USE INDEX (), t2 USE INDEX (`), the table
+  resolution used to combine multiple regexes with `??`, which always
+  picked the first *matching* pattern rather than the one actually
+  closest to the cursor - so suggestions could resolve to the wrong
+  table (e.g. `t1`'s indexes while the cursor was inside `t2`'s parens).
+  Replaced with `extractClosestPrecedingTableName()`, which considers
+  all candidate matches and picks the one ending closest to the cursor.
+- `CompletionSelect.ts`: verified and added regression test coverage for
+  index hint suggestions inside subqueries and derived tables (`FROM
+  (SELECT ...)`, correlated subqueries in `WHERE ... IN (...)`, and
+  nested subqueries) - already worked correctly thanks to the
+  tokenizer-based, depth-aware clause detection, no production code
+  change was needed there.
+
 ## 0.3.20
 
 ### Fixed
