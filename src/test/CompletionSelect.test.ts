@@ -1132,6 +1132,91 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(labels.includes('idx_email'), 'missing idx_email for schema.table');
     });
 
+    // ── index hints w podzapytaniach / derived tables ─────────────────────────
+    // krok 3: weryfikacja że USE/FORCE/IGNORE INDEX działa poprawnie także wewnątrz zagnieżdżonych FROM (SELECT ...) - dzięki temu, że detectCurrentClause liczy głębokość zagnieżdżenia tokenami, a nie surowym tekstem, to już działało poprawnie; te testy blokują to przed regresją
+
+    test('suggests index hint keywords right after a table inside a derived table (FROM subquery)', async () => {
+        const sql = 'SELECT * FROM (SELECT * FROM orders o ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'missing USE INDEX inside a derived table');
+        assert.ok(labels.includes('FORCE INDEX'),  'missing FORCE INDEX inside a derived table');
+        assert.ok(labels.includes('IGNORE INDEX'), 'missing IGNORE INDEX inside a derived table');
+    });
+
+    test('suggests real index names inside USE INDEX (...) within a derived table (FROM subquery)', async () => {
+        const sql = 'SELECT * FROM (SELECT * FROM orders o USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.orders': [makeIndex('idx_orders')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_orders'), 'missing idx_orders inside a derived table');
+    });
+
+    test('resolves the outer table for an index hint right after a closed derived table + JOIN', async () => {
+        // regresja: kursor tuż po "USE INDEX (" tworzy nowy, pusty nawias na tej samej głębokości co
+        // domknięty wcześniej subquery w FROM - sprawdzamy, że mimo to poprawnie rozwiązuje się do
+        // zewnętrznej tabeli ("users"), a nie do tabeli z wnętrza domkniętego subquery ("orders")
+        const sql = 'SELECT * FROM (SELECT * FROM orders o WHERE 1=1) sub JOIN users u USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.users':  [makeIndex('idx_users')],
+            'public.orders': [makeIndex('idx_orders')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_users'),   'missing idx_users - the hint belongs to the outer JOIN-ed table');
+        assert.ok(!labels.includes('idx_orders'), 'idx_orders should not leak from the closed derived table');
+    });
+
+    test('suggests index hint keywords right after a JOIN-ed table that follows a closed derived table', async () => {
+        const sql = 'SELECT * FROM (SELECT * FROM orders o WHERE 1=1) sub JOIN users u ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'), 'missing USE INDEX right after the outer JOIN-ed table');
+    });
+
+    test('suggests index hint keywords inside a correlated subquery in WHERE (IN)', async () => {
+        const sql = 'SELECT * FROM users u WHERE u.id IN (SELECT id FROM orders o ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'), 'missing USE INDEX inside a WHERE...IN subquery');
+    });
+
+    test('suggests real index names inside USE INDEX (...) within a correlated subquery in WHERE (IN)', async () => {
+        const sql = 'SELECT * FROM users u WHERE u.id IN (SELECT id FROM orders o USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.orders': [makeIndex('idx_orders')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_orders'), 'missing idx_orders inside a WHERE...IN subquery');
+    });
+
+    test('resolves the correct table in a doubly-nested derived table', async () => {
+        const sql = 'SELECT * FROM (SELECT * FROM (SELECT * FROM t3 o USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.t3': [makeIndex('idx_t3')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_t3'), 'missing idx_t3 in the innermost of two nested derived tables');
+    });
+
     // ── WHERE → kolumny przez alias ───────────────────────────────────────────
 
     test('suggests columns after alias in WHERE (u.)', async () => {
