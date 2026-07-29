@@ -9,14 +9,8 @@ export const REGEX_INDEX_LIST = /\b(?:use|force|ignore)\s+(?:index|key)\s*(?:for
 // pozycja tuż po nazwie tabeli i opcjonalnym aliasie w klauzuli FROM/JOIN (np. "FROM users u |") - używane przez SELECT i multi-table DELETE, bo tam gramatyka FROM jest identyczna; grupa 1: tabela, grupa 2: opcjonalny alias, grupa 3: aktualnie pisane słowo (filtr, może być puste)
 export const REGEX_FROM_JOIN_INDEX_HINT_KEYWORD = /\b(?:from|join)\s+(?:`?\w+`?\s*\.\s*)?`?(\w+)`?(?:\s+(?:as\s+)?`?(\w+)`?)?\s+(\w*)$/i;
 
-// znajduje tabelę, do której odnosi się otwarty nawias USE/FORCE/IGNORE INDEX ( po FROM/JOIN - global, bo interesuje nas ostatnie (najbliższe kursorowi) wystąpienie
+// znajduje tabelę, do której odnosi się otwarty nawias USE/FORCE/IGNORE INDEX ( po FROM/JOIN - global, może być wiele takich tabel w jednym zapytaniu
 export const REGEX_FROM_JOIN_INDEX_HINT_TABLE = /\b(?:from|join)\s+(?:`?\w+`?\s*\.\s*)?`?(\w+)`?(?:\s+(?:as\s+)?`?\w+`?)?\s+(?:use|force|ignore)\s+(?:index|key)\s*(?:for\s+(?:join|order\s+by|group\s+by)\s*)?\(/gi;
-
-// bierze ostatnie (najbliższe kursorowi) dopasowanie global regexu REGEX_FROM_JOIN_INDEX_HINT_TABLE - w zapytaniu może być kilka JOIN-ów, każdy z własnym index hintem
-export function extractPrecedingFromJoinTableName(fromClauseTail: string): string | undefined {
-    const matches = [...fromClauseTail.matchAll(REGEX_FROM_JOIN_INDEX_HINT_TABLE)];
-    return matches.at(-1)?.[1];
-}
 
 // tabela po przecinku w liście table_references (np. "FROM client c, student s |") - dotyczy zarówno SELECT/DELETE (przecinek = CROSS JOIN), grupa 1: tabela, grupa 2: opcjonalny alias, grupa 3: aktualnie pisane słowo (filtr, może być puste)
 export const REGEX_COMMA_INDEX_HINT_KEYWORD = /,\s*(?:`?\w+`?\s*\.\s*)?`?(\w+)`?(?:\s+(?:as\s+)?`?(\w+)`?)?\s+(\w*)$/i;

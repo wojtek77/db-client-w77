@@ -1217,6 +1217,69 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
         assert.ok(labels.includes('idx_t3'), 'missing idx_t3 in the innermost of two nested derived tables');
     });
 
+    // ── index hints dla tabel po przecinku w FROM (stary styl "FROM t1, t2") ──
+    // krok 4: w MySQL index hint dotyczy każdej tabeli osobno w table_references, więc dotyczy to też tabel
+    // rozdzielonych przecinkiem, dokładnie tak samo jak już wcześniej dodaliśmy dla UPDATE i DELETE
+
+    test('suggests USE/FORCE/IGNORE INDEX after a comma-separated table in FROM', async () => {
+        const sql = 'SELECT * FROM client c, student s ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'),    'missing USE INDEX after a comma-separated table');
+        assert.ok(labels.includes('FORCE INDEX'),  'missing FORCE INDEX after a comma-separated table');
+        assert.ok(labels.includes('IGNORE INDEX'), 'missing IGNORE INDEX after a comma-separated table');
+    });
+
+    test('filters index hint keywords to the typed prefix after a comma-separated table', async () => {
+        const sql = 'SELECT * FROM client c, student s FOR';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('FORCE INDEX'),   'missing FORCE INDEX for "FOR"');
+        assert.ok(!labels.includes('USE INDEX'),    'USE INDEX should not match "FOR"');
+        assert.ok(!labels.includes('IGNORE INDEX'), 'IGNORE INDEX should not match "FOR"');
+    });
+
+    test('suggests real index names inside USE INDEX (...) after a comma-separated table', async () => {
+        const sql = 'SELECT * FROM client c, student s USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.student': [makeIndex('idx_name')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_name'), 'missing idx_name for the second comma-separated table (student)');
+    });
+
+    // regresja: gdy kilka tabel ma własny "USE INDEX (...)" naraz, wcześniejsze łączenie regexów przez ??
+    // zawsze wygrywało dopasowanie dla PIERWSZEJ tabeli, nawet gdy kursor był w nawiasie kolejnej, dalszej tabeli
+    test('resolves the correct table when multiple comma-separated tables each have their own index hint', async () => {
+        const sql = 'SELECT * FROM client c USE INDEX (), student s USE INDEX (';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase:       () => 'public',
+            findSchemaByTable: () => 'public',
+        }, {}, undefined, {
+            'public.client':  [makeIndex('idx_client')],
+            'public.student': [makeIndex('idx_student')],
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('idx_student'), 'missing idx_student - cursor is inside the second table\'s parens');
+        assert.ok(!labels.includes('idx_client'), 'idx_client should not be suggested - cursor is not inside its parens');
+    });
+
+    test('suggests index hints after a comma-separated table that follows a JOIN', async () => {
+        const sql = 'SELECT * FROM a JOIN b ON 1=1, c ';
+        const items = await getCompletions(sql, sql.length, {
+            getDatabase: () => 'public',
+        });
+        const labels = items.map(labelOf);
+        assert.ok(labels.includes('USE INDEX'), 'missing USE INDEX after a comma-separated table following a JOIN');
+    });
+
     // ── WHERE → kolumny przez alias ───────────────────────────────────────────
 
     test('suggests columns after alias in WHERE (u.)', async () => {

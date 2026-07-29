@@ -11,8 +11,11 @@ import { tokenize, computeDepths, currentDepth, Token } from '../sql/tokenizer.j
 import {
     INDEX_HINT_KEYWORDS,
     REGEX_INDEX_LIST,
-    REGEX_FROM_JOIN_INDEX_HINT_KEYWORD as REGEX_INDEX_HINT_KEYWORD,
-    extractPrecedingFromJoinTableName,
+    REGEX_FROM_JOIN_INDEX_HINT_KEYWORD,
+    REGEX_FROM_JOIN_INDEX_HINT_TABLE,
+    REGEX_COMMA_INDEX_HINT_KEYWORD,
+    REGEX_COMMA_INDEX_HINT_TABLE,
+    extractClosestPrecedingTableName,
 } from './indexHints.js';
 
 // `?` wokół identyfikatorów obsługuje cytowanie w backtickach (standard MySQL/MariaDB, np. `` `order` ``) - grupy przechwytują samą nazwę, bez backticków
@@ -148,7 +151,10 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         if (this.tableIndexesService) {
             const indexListMatch = sqlBeforeCursor.match(REGEX_INDEX_LIST);
             if (indexListMatch) {
-                const table = extractPrecedingFromJoinTableName(sqlBeforeCursor);
+                const table = extractClosestPrecedingTableName(sqlBeforeCursor, [
+                    REGEX_FROM_JOIN_INDEX_HINT_TABLE,
+                    REGEX_COMMA_INDEX_HINT_TABLE,
+                ]);
                 if (table) {
                     const filter = indexListMatch[1].toLowerCase();
                     const tableRef = { schema: defaultSchema || db.findSchemaByTable(table) || '', table };
@@ -346,9 +352,11 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 .map((column: TableColumn) => this.createColumnItem(tableRef!.table, column));
         }
 
-        /* USE INDEX / FORCE INDEX / IGNORE INDEX - tuż po nazwie tabeli (i opcjonalnym aliasie) w FROM/JOIN */
+        /* USE INDEX / FORCE INDEX / IGNORE INDEX - tuż po nazwie tabeli (i opcjonalnym aliasie) w FROM/JOIN/przecinku */
         if (isInFromClause) {
-            const indexHintMatch = linePrefix.match(REGEX_INDEX_HINT_KEYWORD) ?? fromClauseTail.match(REGEX_INDEX_HINT_KEYWORD);
+            const indexHintMatch = linePrefix.match(REGEX_FROM_JOIN_INDEX_HINT_KEYWORD)
+                ?? fromClauseTail.match(REGEX_FROM_JOIN_INDEX_HINT_KEYWORD)
+                ?? fromClauseTail.match(REGEX_COMMA_INDEX_HINT_KEYWORD);
             if (indexHintMatch) {
                 const filter = indexHintMatch[3].toLowerCase();
                 return INDEX_HINT_KEYWORDS
