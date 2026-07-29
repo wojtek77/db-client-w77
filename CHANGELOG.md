@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.23
+
+### Added
+- Recent SQL files list (F3) now supports multi-select: check multiple files with checkboxes and open them all at once with Enter.
+
+### Changed
+- Recent SQL files list (F3) highlights the first item by default; pressing Enter without checking any checkbox opens the currently highlighted file, just like before.
+
 ## 0.3.22
 
 ### Changed
