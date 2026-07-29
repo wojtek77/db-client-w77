@@ -30,7 +30,7 @@ export function closeSqlFile(filePath: string) {
     }
 }
 
-export async function startExtension(context: vscode.ExtensionContext) {
+export async function startExtension() {
     // już uruchomione - nic do zrobienia
     if (extensionRunning) {
         return;
@@ -72,9 +72,9 @@ export async function startExtension(context: vscode.ExtensionContext) {
  * konfiguracji (patrz checkFirstRunConfig poniżej, wołane tylko raz z
  * extension.ts/activate).
  */
-export async function safeStartExtension(context: vscode.ExtensionContext) {
+export async function safeStartExtension() {
     try {
-        await startExtension(context);
+        await startExtension();
     } catch (err: any) {
         console.error('Failed to start DB client extension:', err);
 

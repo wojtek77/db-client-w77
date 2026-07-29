@@ -3,10 +3,10 @@ import { SqlResultsProvider } from '../panel/SqlResultsProvider.js';
 import { findCurrentQuery } from "../sql/findCurrentQuery.js";
 import { isExtensionRunning, safeStartExtension } from '../lifecycle/extensionLifecycle.js';
 
-export async function runSQLCommand(context: vscode.ExtensionContext) {
+export async function runSQLCommand() {
     // zabezpieczenie przed wyścigiem: handler startowy mógł nie zdążyć ustawić 'dbClientActive' przed Ctrl+Enter, więc jawnie czekamy na start
     if (!isExtensionRunning()) {
-        await safeStartExtension(context);
+        await safeStartExtension();
     }
 
     const editor = vscode.window.activeTextEditor;

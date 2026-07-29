@@ -2,10 +2,10 @@ import * as vscode from 'vscode';
 import { SqlResultsProvider } from '../panel/SqlResultsProvider.js';
 import { isExtensionRunning, safeStartExtension } from '../lifecycle/extensionLifecycle.js';
 
-export async function runSqlWholeFileCommand(context: vscode.ExtensionContext) {
+export async function runSqlWholeFileCommand() {
     // patrz komentarz w runSqlCommand.ts – to samo zabezpieczenie przed wyścigiem z ustawieniem kontekstu 'dbClientActive'
     if (!isExtensionRunning()) {
-        await safeStartExtension(context);
+        await safeStartExtension();
     }
 
     const editor = vscode.window.activeTextEditor;

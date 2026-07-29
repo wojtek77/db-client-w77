@@ -1,14 +1,13 @@
 import * as vscode from 'vscode';
 import { SqlResultsProvider } from './panel/SqlResultsProvider.js';
 import { RecentSqlFiles } from './recentFiles/RecentSqlFiles.js';
-import { checkFirstRunConfig, closeSqlFile, isExtensionRunning, safeStartExtension, startExtension, stopExtension } from './lifecycle/extensionLifecycle.js';
+import { checkFirstRunConfig, closeSqlFile, isExtensionRunning, safeStartExtension, stopExtension } from './lifecycle/extensionLifecycle.js';
 import { TableCompletionProvider } from './completion/TableCompletionProvider.js';
 import { runSQLCommand } from './commands/runSqlCommand.js';
 import { openRecentFilesCommand } from './commands/openRecentFilesCommand.js';
 import { formatSqlCommand } from './commands/formatSqlCommand.js';
 import { runSqlWholeFileCommand } from './commands/runSqlWholeFileCommand.js';
 import { ConnectionColors } from './db/ConnectionColors.js';
-import { ConnectionManager } from './db/ConnectionManager.js';
 import {
     createConfigDirCommand,
     reloadConnectionsCommand,
@@ -41,7 +40,7 @@ let previousOpenSqlFiles = new Set<string>();
 
 // reaguje na zmiany zakładek – jedyne miejsce, które może wywołać stop; dokument rejestruje się przed powstaniem zakładki, więc bez opóźnienia
 // uruchamia rozszerzenie, a w razie błędu (np. brak katalogu konfiguracji) pokazuje przyjazny ekran zamiast surowego błędu aktywacji
-async function handleTabsChanged(context: vscode.ExtensionContext) {
+async function handleTabsChanged() {
     const currentOpenSqlFiles = getOpenSqlTabFiles();
     const sqlTabOpen = currentOpenSqlFiles.size > 0;
 
@@ -55,7 +54,7 @@ async function handleTabsChanged(context: vscode.ExtensionContext) {
 
     // otwarto pierwszy SQL editor
     if (sqlTabOpen && !isExtensionRunning()) {
-        await safeStartExtension(context);
+        await safeStartExtension();
     }
 
     // zamknięto ostatni SQL editor
@@ -65,26 +64,26 @@ async function handleTabsChanged(context: vscode.ExtensionContext) {
 }
 
 // reaguje na otwarcie dokumentu, nigdy nie wywołuje stopu – ufa argumentowi `doc`, bo zakładka mogłaby jeszcze nie być zarejestrowana w tabGroups
-async function handleDocumentOpened(context: vscode.ExtensionContext, doc: vscode.TextDocument) {
+async function handleDocumentOpened(doc: vscode.TextDocument) {
     if (doc.languageId !== 'sql') {
         return;
     }
 
     if (!isExtensionRunning()) {
-        await safeStartExtension(context);
+        await safeStartExtension();
     }
 }
 
 export async function activate(context: vscode.ExtensionContext) {
     // komendy - MUSZĄ być zarejestrowane PRZED jakimkolwiek wywołaniem
     const runSQL = vscode.commands.registerCommand('db-client.runSQL', async () => {
-        await runSQLCommand(context);
+        await runSQLCommand();
     });
     const openRecentFiles = vscode.commands.registerCommand('db-client.openRecentFiles', async () => {
         await openRecentFilesCommand();
     });
     const runSqlWholeFile = vscode.commands.registerCommand('db-client.runSqlWholeFile', async () => {
-        await runSqlWholeFileCommand(context);
+        await runSqlWholeFileCommand();
     });
     const formatSQL = vscode.commands.registerCommand('db-client.formatSQL', async () => {
         await formatSqlCommand();
@@ -108,19 +107,19 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // start tylko gdy przy aktywacji jakiś plik SQL jest już otwarty, inaczej rozszerzenie startuje dopiero przez handleTabsChanged/handleDocumentOpened
     if (previousOpenSqlFiles.size > 0) {
-        await safeStartExtension(context);
+        await safeStartExtension();
     }
 
     // sprawdzenie braku konfiguracji (prompt o połączeniu) celowo tylko tutaj, raz na sesję VS Code, żeby otwieranie/zamykanie plików .sql go nie powtarzało
     await checkFirstRunConfig();
 
     context.subscriptions.push(
-        vscode.window.tabGroups.onDidChangeTabs(() => handleTabsChanged(context))
+        vscode.window.tabGroups.onDidChangeTabs(() => handleTabsChanged())
     );
 
     // zakładka może pojawić się w tabGroups zanim languageId się załaduje, więc onDidOpenTextDocument to drugi trigger na wypadek zbyt wczesnego eventu
     context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(doc => handleDocumentOpened(context, doc))
+        vscode.workspace.onDidOpenTextDocument(doc => handleDocumentOpened(doc))
     );
     
     SqlResultsProvider.initialize(context);
