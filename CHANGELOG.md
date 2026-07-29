@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.22
+
+### Changed
+- `extension.ts`: removed unused imports (`startExtension`, `ConnectionManager`).
+- `extensionLifecycle.ts`: removed the unused `context` parameter from
+  `startExtension()` and `safeStartExtension()`, since it was never
+  actually read inside the function body.
+- `runSqlCommand.ts`, `runSqlWholeFileCommand.ts`: removed the `context`
+  parameter, which was only being forwarded to `safeStartExtension()`
+  and is no longer needed after the change above.
+
 ## 0.3.21
 
 ### Added
