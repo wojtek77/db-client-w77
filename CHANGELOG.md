@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.24
+
+### Added
+- Recent SQL files list (F3): each entry now shows a colored icon
+  matching the connection's color defined in `ConnectionColors`,
+  making it easier to tell connections apart at a glance.
+
 ## 0.3.23
 
 ### Added
