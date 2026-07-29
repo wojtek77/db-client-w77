@@ -224,9 +224,13 @@ export class RecentSqlFiles {
 
         const quickPick = vscode.window.createQuickPick<{ label: string; description: string; value: string; connectionName: string; buttons?: readonly vscode.QuickInputButton[] }>();
         quickPick.items = buildQuickPickItems();
-        quickPick.placeholder = 'select SQL file';
+        quickPick.placeholder = 'select SQL file(s)';
         quickPick.ignoreFocusOut = true;
         quickPick.buttons = [trimButton];
+        quickPick.canSelectMany = true; // pozwala zaznaczyć checkboxami wiele plików naraz i otworzyć je jednym Enterem
+        if (quickPick.items.length > 0) {
+            quickPick.activeItems = [quickPick.items[0]]; // domyślnie podświetlony pierwszy element, tak jak dawniej przy pojedynczym wyborze
+        }
 
         // obsługa kliknięcia przycisku przycinania listy
         quickPick.onDidTriggerButton(async (button) => {
@@ -292,21 +296,26 @@ export class RecentSqlFiles {
             }
         });
 
-        // wyświetlenie menu użytkownikowi
-        const selectedItem = await new Promise<{ label: string; description: string; value: string; connectionName: string } | undefined>(res => {
-            quickPick.onDidAccept(() => { res(quickPick.selectedItems[0]); quickPick.hide(); });
-            quickPick.onDidHide(() => { res(undefined); quickPick.dispose(); });
+        // wyświetlenie menu użytkownikowi - teraz zwracamy całą tablicę zaznaczonych elementów, nie tylko pierwszy
+        const selectedItems = await new Promise<ReadonlyArray<{ label: string; description: string; value: string; connectionName: string }>>(res => {
+            quickPick.onDidAccept(() => {
+                // jeśli nic nie zaznaczono checkboxem, otwieramy po prostu podświetloną (aktywną) pozycję - jak w trybie pojedynczego wyboru
+                const items = quickPick.selectedItems.length > 0 ? quickPick.selectedItems : quickPick.activeItems;
+                res(items);
+                quickPick.hide();
+            });
+            quickPick.onDidHide(() => { res([]); quickPick.dispose(); });
             quickPick.show();
         });
-        
-        // OTWARCIE PLIKU W EDYTORZE
-        if (selectedItem) {
+
+        // OTWARCIE WSZYSTKICH ZAZNACZONYCH PLIKÓW W EDYTORZE, w kolejności w jakiej były na liście
+        for (const selectedItem of selectedItems) {
             const sqlFile = selectedItem.value;
-            
+
             try {
                 // zamiana ścieżki tekstowej na obiekt Uri wymagany przez VS Code
                 const fileUri = vscode.Uri.file(sqlFile);
-                
+
                 await vscode.window.showTextDocument(fileUri, {
                     preview: false,       // pełne otwarcie, nie preview
                     preserveFocus: false  // opcjonalnie: od razu aktywuje edytor
