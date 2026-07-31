@@ -9,6 +9,7 @@ import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
 import { ConnectionColors } from '../db/ConnectionColors.js';
 import { TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatSqlValue } from '../sql/formatSqlValue.js';
+import { resolvePrimaryKeyColumns, resolveTableColumns } from '../sql/resolvePrimaryKeyColumns.js';
 
 interface FileResultState {
     rows: any[][];
@@ -469,10 +470,19 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const columnsMap = await tableColumnsService.getCachedColumnsBatch([{schema, table: tableName}]);
             const tableColumns = columnsMap[tableColumnsService.getTableRefKey({schema, table: tableName})] ?? [];
 
-            const primaryKeys = tableColumns.filter((c: any) => c.columnKey === 'PRI');
+            const primaryKeyNames = tableColumns.filter((c: any) => c.columnKey === 'PRI').map((c: any) => c.name);
 
-            if (primaryKeys.length === 0) {
+            if (primaryKeyNames.length === 0) {
                 vscode.window.showErrorMessage(`Table ${tableName} does not have a PRIMARY KEY`);
+                return;
+            }
+
+            const { found: primaryKeys, missingNames } = resolvePrimaryKeyColumns(this._meta, tableName, primaryKeyNames);
+
+            if (missingNames.length > 0) {
+                vscode.window.showErrorMessage(
+                    `Missing PRIMARY KEY '${missingNames[0]}' in the SELECT results`
+                );
                 return;
             }
 
@@ -480,22 +490,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const whereValues: any[] = [];
 
             for (const pk of primaryKeys) {
-                const pkIndex = this._meta.findIndex((m: any) => {
-                    return (
-                        m.orgTable?.() === tableName &&
-                        m.orgName?.() === pk.name
-                    );
-                });
-
-                if (pkIndex === -1) {
-                    vscode.window.showErrorMessage(
-                        `Missing PRIMARY KEY '${pk.name}' in the SELECT results`
-                    );
-                    return;
-                }
-
                 whereParts.push(`\`${pk.name}\` = ?`);
-                whereValues.push(row[pkIndex]);
+                whereValues.push(row[pk.index]);
             }
 
             const qualifiedTable = db.getDatabase()
@@ -575,35 +571,24 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const columnsMap = await tableColumnsService.getCachedColumnsBatch([{schema, table: tableName}]);
             const tableColumns = columnsMap[tableColumnsService.getTableRefKey({schema, table: tableName})] ?? [];
 
-            const primaryKeys = tableColumns.filter((c: any) => c.columnKey === 'PRI');
+            const primaryKeyNames = tableColumns.filter((c: any) => c.columnKey === 'PRI').map((c: any) => c.name);
 
-            if (primaryKeys.length === 0) {
+            if (primaryKeyNames.length === 0) {
                 vscode.window.showErrorMessage(`Table ${tableName} does not have a PRIMARY KEY`);
                 return;
             }
 
-            // indeks każdej kolumny PK w obrębie wyników SELECT (this._meta / wiersz danych)
-            const pkIndexes: number[] = [];
-            for (const pk of primaryKeys) {
-                const pkIndex = this._meta.findIndex((m: any) => {
-                    return (
-                        m.orgTable?.() === tableName &&
-                        m.orgName?.() === pk.name
-                    );
-                });
+            const { found: primaryKeys, missingNames } = resolvePrimaryKeyColumns(this._meta, tableName, primaryKeyNames);
 
-                if (pkIndex === -1) {
-                    vscode.window.showErrorMessage(
-                        `Missing PRIMARY KEY '${pk.name}' in the SELECT results`
-                    );
-                    return;
-                }
-
-                pkIndexes.push(pkIndex);
+            if (missingNames.length > 0) {
+                vscode.window.showErrorMessage(
+                    `Missing PRIMARY KEY '${missingNames[0]}' in the SELECT results`
+                );
+                return;
             }
 
             // wartości PK dla każdego zaznaczonego wiersza, w tej samej kolejności co primaryKeys
-            const pkValueTuples = rows.map((row) => pkIndexes.map((idx) => row[idx]));
+            const pkValueTuples = rows.map((row) => primaryKeys.map((pk) => row[pk.index]));
 
             const db = await ConnectionManager.getInstance().getDb();
 
@@ -862,28 +847,27 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         const qualifiedTable = await this.qualifyTableName(schema, tableName);
 
-        // tylko kolumny faktycznie należące do tej tabeli (bez wyliczanych, np. COUNT(*))
-        const columns = this._meta
-            .map((m: any, index: number) => ({ index, name: m.orgName?.(), field: m }))
-            .filter((c) => c.name && c.field.orgTable?.() === tableName);
+        // tylko kolumny faktycznie należące do tej tabeli (bez wyliczanych, np. COUNT(*)), każda nazwa raz - nawet jeśli SELECT ją duplikuje (np. f.id, f.*)
+        const columns = resolveTableColumns(this._meta, tableName);
 
         const tableColumnsService = TableColumnsCache.getInstance();
         const columnsMap = await tableColumnsService.getCachedColumnsBatch([{schema, table: tableName}]);
         const tableColumns = columnsMap[tableColumnsService.getTableRefKey({schema, table: tableName})] ?? [];
 
-        const primaryKeyNames = new Set(
-            tableColumns.filter((c: any) => c.columnKey === 'PRI').map((c: any) => c.name)
-        );
+        const primaryKeyNames = tableColumns.filter((c: any) => c.columnKey === 'PRI').map((c: any) => c.name);
 
-        if (primaryKeyNames.size === 0) {
+        if (primaryKeyNames.length === 0) {
             vscode.window.showErrorMessage(`Table ${tableName} does not have a PRIMARY KEY`);
             return null;
         }
 
-        const primaryKeys = columns.filter((c) => primaryKeyNames.has(c.name));
+        // ta sama logika co przy edycji pojedynczej komórki i bezpośrednim kasowaniu wierszy - jedno (pierwsze) wystąpienie każdej kolumny PK w wynikach SELECT
+        const { found: primaryKeys, missingNames } = resolvePrimaryKeyColumns(this._meta, tableName, primaryKeyNames);
 
-        if (primaryKeys.length !== primaryKeyNames.size) {
-            vscode.window.showErrorMessage(`Not all PRIMARY KEY columns are present in the SELECT results`);
+        if (missingNames.length > 0) {
+            vscode.window.showErrorMessage(
+                `Missing PRIMARY KEY column(s) in the SELECT results: ${missingNames.join(', ')}`
+            );
             return null;
         }
 
