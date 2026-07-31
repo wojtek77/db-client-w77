@@ -172,9 +172,27 @@ export class RecentSqlFiles {
             tooltip: 'Remove this file from the list'
         };
 
+        // null = brak filtra (pokazujemy wszystkie połączenia), w przeciwnym razie zbiór wybranych nazw połączeń
+        let filterConnections: Set<string> | null = null;
+
+        // true tylko wtedy, gdy aktualny filtr został ustawiony skrótem-gwiazdką (a nie przez lejek) - dzięki temu ikona lejka nie zmienia się przy klikaniu gwiazdki
+        let isQuickCurrentConnectionFilter = false;
+
+        // true, gdy główny QuickPick jest chwilowo chowany, bo otwieramy nad nim inny quick input (filtr / trim) - wtedy "onDidHide" nie powinno traktować tego jako anulowanie przez użytkownika
+        let isShowingSubPicker = false;
+
         // funkcja pomocnicza (lokalna) budująca elementy QuickPick na podstawie aktualnego stanu sqlFiles
         const buildQuickPickItems = () => {
             const sqlFiles = RecentSqlFiles.getInstance().getSqlFiles();
+
+            // jeśli aktywny jest filtr połączeń, usuwamy z kopii listy wpisy spoza wybranych połączeń
+            if (filterConnections) {
+                for (const [filePath, connectionName] of Array.from(sqlFiles.entries())) {
+                    if (!filterConnections.has(connectionName)) {
+                        sqlFiles.delete(filePath);
+                    }
+                }
+            }
 
             // zbierz ścieżki wszystkich otwartych dokumentów w edytorze
             const openFilePaths = new Set<string>();
@@ -219,28 +237,151 @@ export class RecentSqlFiles {
         };
 
         // przycisk (ikona kosza w prawym górnym rogu QuickPick) do przycinania listy
-        const trimButton: vscode.QuickInputButton = {
-            iconPath: new vscode.ThemeIcon('trash'),
-            tooltip: 'Trim list (keep only N most recent files)'
+        const TRIM_TOOLTIP = 'Trim list (keep only N most recent files)';
+        // tooltip przycisku filtra zmienia się w zależności od stanu - jasno mówi, co zrobi kliknięcie
+        const FILTER_TOOLTIP = 'Filter by connection(s)';
+        const CLEAR_FILTER_TOOLTIP = 'Clear connection filter';
+        const CURRENT_CONNECTION_TOOLTIP = 'Filter by current connection';
+        const CLEAR_CURRENT_CONNECTION_TOOLTIP = 'Show all connections';
+
+        // buduje aktualny zestaw przycisków - skrót do aktualnego połączenia (gwiazdka), filtr (lejek) i przycinanie listy (kosz)
+        const buildButtons = (): vscode.QuickInputButton[] => {
+            const currentConnectionName = ConnectionManager.getInstance().getCurrentNameConnection();
+            // gwiazdka jest "aktywna" tylko wtedy, gdy filtr zawęża listę dokładnie do aktualnie aktywnego połączenia
+            const isCurrentConnectionFilterActive = !!currentConnectionName &&
+                !!filterConnections && filterConnections.size === 1 && filterConnections.has(currentConnectionName);
+
+            // lejek reaguje tylko na filtr ustawiony przez siebie - filtr ustawiony gwiazdką nie zmienia jego ikony ani zachowania
+            const isFunnelFilterActive = !!filterConnections && !isQuickCurrentConnectionFilter;
+
+            return [
+                {
+                    iconPath: new vscode.ThemeIcon(isCurrentConnectionFilterActive ? 'star-full' : 'star-empty'),
+                    tooltip: isCurrentConnectionFilterActive ? CLEAR_CURRENT_CONNECTION_TOOLTIP : CURRENT_CONNECTION_TOOLTIP
+                },
+                {
+                    iconPath: new vscode.ThemeIcon(isFunnelFilterActive ? 'filter-filled' : 'filter'),
+                    // gdy filtr ustawiony przez lejek jest aktywny, ten sam przycisk od razu go czyści zamiast otwierać picker - eliminuje osobny, dwuznaczny przycisk "x"
+                    tooltip: isFunnelFilterActive ? CLEAR_FILTER_TOOLTIP : FILTER_TOOLTIP
+                },
+                {
+                    iconPath: new vscode.ThemeIcon('trash'),
+                    tooltip: TRIM_TOOLTIP
+                }
+            ];
         };
+
+        // zwraca tekst placeholdera, uwzględniając aktualnie aktywny filtr połączeń
+        const buildPlaceholder = () => filterConnections
+            ? `select SQL file(s) - filtered by: ${Array.from(filterConnections).join(', ')}`
+            : 'select SQL file(s)';
 
         const quickPick = vscode.window.createQuickPick<{ label: string; description: string; value: string; connectionName: string; iconPath?: vscode.Uri; buttons?: readonly vscode.QuickInputButton[] }>();
         quickPick.items = buildQuickPickItems();
-        quickPick.placeholder = 'select SQL file(s)';
+        quickPick.placeholder = buildPlaceholder();
         quickPick.ignoreFocusOut = true;
-        quickPick.buttons = [trimButton];
+        quickPick.buttons = buildButtons();
         quickPick.canSelectMany = true; // pozwala zaznaczyć checkboxami wiele plików naraz i otworzyć je jednym Enterem
         if (quickPick.items.length > 0) {
             quickPick.activeItems = [quickPick.items[0]]; // domyślnie podświetlony pierwszy element, tak jak dawniej przy pojedynczym wyborze
         }
 
-        // obsługa kliknięcia przycisku przycinania listy
+        // obsługa kliknięcia przycisków (filtr połączeń / skrót do aktualnego połączenia / przycinanie listy) - rozpoznajemy przycisk po tooltipie, bo przyciski są tworzone od nowa przy każdym buildButtons()
         quickPick.onDidTriggerButton(async (button) => {
-            if (button !== trimButton) {
+            if (button.tooltip === CLEAR_CURRENT_CONNECTION_TOOLTIP) {
+                // gwiazdka jest już aktywna - drugie kliknięcie w nią czyści filtr i pokazuje znów wszystkie połączenia
+                filterConnections = null;
+                isQuickCurrentConnectionFilter = false;
+                quickPick.items = buildQuickPickItems();
+                quickPick.placeholder = buildPlaceholder();
+                quickPick.buttons = buildButtons();
+                return;
+            }
+
+            if (button.tooltip === CURRENT_CONNECTION_TOOLTIP) {
+                const currentConnectionName = ConnectionManager.getInstance().getCurrentNameConnection();
+                if (!currentConnectionName) {
+                    vscode.window.showInformationMessage('No active DB connection');
+                    return;
+                }
+
+                // od razu, bez otwierania jakiegokolwiek pickera, filtrujemy do aktualnie aktywnego połączenia
+                filterConnections = new Set([currentConnectionName]);
+                isQuickCurrentConnectionFilter = true;
+                quickPick.items = buildQuickPickItems();
+                quickPick.placeholder = buildPlaceholder();
+                quickPick.buttons = buildButtons();
+                return;
+            }
+
+            if (button.tooltip === CLEAR_FILTER_TOOLTIP) {
+                // filtr ustawiony przez lejek jest już aktywny - to samo kliknięcie od razu go czyści, bez otwierania pickera
+                filterConnections = null;
+                quickPick.items = buildQuickPickItems();
+                quickPick.placeholder = buildPlaceholder();
+                quickPick.buttons = buildButtons();
+                return;
+            }
+
+            if (button.tooltip === FILTER_TOOLTIP) {
+                const instance = RecentSqlFiles.getInstance();
+
+                // unikalne nazwy połączeń zebrane z całej (niefiltrowanej) listy ostatnich plików
+                const uniqueConnectionNames = Array.from(new Set(instance.getSqlFiles().values())).sort();
+
+                if (uniqueConnectionNames.length === 0) {
+                    vscode.window.showInformationMessage('No connections in the recent files list');
+                    return;
+                }
+
+                const filterPick = vscode.window.createQuickPick<{ label: string; iconPath?: vscode.Uri }>();
+                filterPick.items = uniqueConnectionNames.map(name => ({
+                    label: name,
+                    iconPath: ConnectionColors.getInstance().getColorIconUri(name) // ta sama kolorowa ikona co przy plikach danego połączenia
+                }));
+                filterPick.canSelectMany = true;
+                filterPick.placeholder = 'select connection(s) to filter by (leave empty to show all)';
+                filterPick.ignoreFocusOut = true;
+                // domyślnie zaznaczone są połączenia z aktualnie aktywnego filtra
+                filterPick.selectedItems = filterPick.items.filter(item => filterConnections?.has(item.label));
+
+                // sygnalizujemy, że chowanie głównego QuickPicka teraz jest tylko chwilowe (pod filterPick), a nie anulowaniem przez użytkownika
+                isShowingSubPicker = true;
+
+                const chosenNames = await new Promise<string[] | undefined>(res => {
+                    filterPick.onDidAccept(() => {
+                        res(filterPick.selectedItems.map(item => item.label));
+                        filterPick.hide();
+                    });
+                    filterPick.onDidHide(() => { res(undefined); filterPick.dispose(); });
+                    filterPick.show();
+                });
+
+                isShowingSubPicker = false;
+
+                if (chosenNames === undefined) {
+                    quickPick.show(); // anulowano wybór filtra (Esc) - przywracamy główną listę bez zmian
+                    return;
+                }
+
+                // pusty wybór oznacza wyłączenie filtra (pokazujemy wszystkie połączenia)
+                filterConnections = chosenNames.length > 0 ? new Set(chosenNames) : null;
+                isQuickCurrentConnectionFilter = false; // ten filtr został teraz ustawiony przez lejek, nie przez gwiazdkę
+
+                quickPick.items = buildQuickPickItems();
+                quickPick.placeholder = buildPlaceholder();
+                quickPick.buttons = buildButtons(); // odświeżamy przyciski - ikona lejka i ewentualny przycisk "x" muszą odzwierciedlać nowy stan filtra
+                // filterPick.hide() nie przywraca automatycznie głównego QuickPicka na ekranie - trzeba pokazać go ponownie ręcznie
+                quickPick.show();
+                return;
+            }
+
+            if (button.tooltip !== TRIM_TOOLTIP) {
                 return;
             }
 
             // pole input z domyślną wartością 0 (0 = wyczyść całą listę)
+            isShowingSubPicker = true;
             const input = await vscode.window.showInputBox({
                 title: 'Trim recent SQL files list',
                 prompt: 'Enter the number of most recent files to keep (0 = clear the whole list)',
@@ -254,9 +395,10 @@ export class RecentSqlFiles {
                     return undefined;
                 }
             });
+            isShowingSubPicker = false;
 
             if (input === undefined) {
-                // anulowano - wracamy do listy bez zmian
+                quickPick.show(); // anulowano - wracamy do listy bez zmian
                 return;
             }
 
@@ -271,6 +413,7 @@ export class RecentSqlFiles {
 
             // odśwież listę widoczną w otwartym QuickPicku
             quickPick.items = buildQuickPickItems();
+            quickPick.show();
             vscode.window.showInformationMessage(`Recent SQL files list trimmed - kept ${trimmedEntries.length} most recent entries`);
         });
 
@@ -306,7 +449,14 @@ export class RecentSqlFiles {
                 res(items);
                 quickPick.hide();
             });
-            quickPick.onDidHide(() => { res([]); quickPick.dispose(); });
+            quickPick.onDidHide(() => {
+                // jeśli chowanie jest tylko tymczasowe (bo otwarty jest filtr lub input przycinania na wierzchu), to nie jest to anulowanie przez użytkownika
+                if (isShowingSubPicker) {
+                    return;
+                }
+                res([]);
+                quickPick.dispose();
+            });
             quickPick.show();
         });
 
