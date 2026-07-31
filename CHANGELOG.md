@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.25
+
+### Added
+- Recent SQL files list (F3): added a filter button that narrows the
+  list down to one or more selected connections, with matching
+  colored icons in the picker.
+- Recent SQL files list (F3): added a quick-filter button that
+  instantly filters the list to the currently active connection with
+  a single click.
+
 ## 0.3.24
 
 ### Added
