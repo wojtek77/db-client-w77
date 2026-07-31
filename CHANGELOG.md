@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0
+
+### Fixed
+- SQL results: generating INSERT/UPDATE/DELETE for a selected row no
+  longer fails with "Not all PRIMARY KEY columns are present" when
+  the SELECT list duplicates a column (e.g. `SELECT f.id, f.name,
+  u.username, f.*`).
+
+### Changed
+- SQL results: cell editing, row deletion, and SQL generation now
+  share the same primary-key column resolution logic, so they can no
+  longer drift apart in how they locate PK columns in the result set.
+
 ## 0.3.25
 
 ### Added
