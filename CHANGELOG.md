@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+### Fixed
+- SQL results: when "Require Connection Name Confirmation" is
+  enabled and a destructive column edit is confirmed with a wrong
+  connection name, the input box no longer closes and cancels the
+  operation immediately — it now stays open and shows a validation
+  error, letting the user correct the typed name before retrying.
+
 ## 1.0.0
 
 ### Fixed
