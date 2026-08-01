@@ -299,10 +299,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         if (requireTypedName) {
             const connectionName = db.getConnectionName();
+            // validateInput trzyma pole otwarte i pokazuje czerwony błąd dopóki nazwa się nie zgadza, zamiast od razu anulować całą operację
             const typed = await vscode.window.showInputBox({
                 prompt: `Type the connection name "${connectionName}" to confirm`,
                 placeHolder: connectionName,
                 ignoreFocusOut: true,
+                validateInput: (value) =>
+                    value === connectionName ? null : `Connection name doesn't match "${connectionName}"`,
             });
             if (typed !== connectionName) {
                 return false;
