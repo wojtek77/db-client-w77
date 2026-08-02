@@ -3,18 +3,41 @@ import { State } from '../state.js';
 import { renderHeaders, initializeGrid, renderPage } from '../tableRenderer.js';
 
 // minimalny szkielet HTML odpowiadający strukturze z src/panel/html.ts – tylko elementy, na których operuje media/*.js
+// (uwaga: sekcja toolbar/pagination/loadingOverlay jest tu potrzebna tylko dla messageHandler.js - patrz messageHandler.test.js)
 const BASE_HTML = `<!doctype html>
 <html>
 <body>
+    <div class="toolbar" id="connectionColor">
+        <span id="connectionName">-------</span>
+        <span id="connectionTime">---</span>
+        <span id="queryTime">---</span>
+        <span id="queryTimeUnit">ms</span>
+        <span id="cancelQuery" class="cancel-query"></span>
+        <span id="infoMessage"></span>
+        <span id="flashMessage"></span>
+        <span id="generateInsertBtn" class="tools-btn generate-insert-btn"></span>
+        <span id="generateUpdateBtn" class="tools-btn generate-update-btn"></span>
+        <span id="generateDeleteBtn" class="tools-btn generate-delete-btn"></span>
+        <span id="deleteRowsBtn" class="tools-btn delete-rows-btn"></span>
+        <span id="saveColumnEditsBtn" class="tools-btn save-column-edits-btn"></span>
+    </div>
+    <div class="pagination">
+        <button class="btn" id="firstBtn"></button>
+        <button class="btn" id="prevBtn"></button>
+        <span id="currentPage">1</span>
+        <span id="totalPages">1</span>
+        <button class="btn" id="nextBtn"></button>
+        <button class="btn" id="lastBtn"></button>
+    </div>
+    <p id="errorDisplay" class="error-message"></p>
     <div id="gridContainer" class="grid-container" tabindex="-1">
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="spinner"></div>
+            <div class="loading-text">Loading data...</div>
+        </div>
         <div id="gridHeader" class="grid-header"></div>
         <div id="gridBody" class="grid-body"></div>
     </div>
-    <span id="generateInsertBtn" class="tools-btn generate-insert-btn"></span>
-    <span id="generateUpdateBtn" class="tools-btn generate-update-btn"></span>
-    <span id="generateDeleteBtn" class="tools-btn generate-delete-btn"></span>
-    <span id="deleteRowsBtn" class="tools-btn delete-rows-btn"></span>
-    <span id="saveColumnEditsBtn" class="tools-btn save-column-edits-btn"></span>
 </body>
 </html>`;
 

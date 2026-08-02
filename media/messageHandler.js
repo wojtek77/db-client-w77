@@ -271,6 +271,8 @@ window.addEventListener('message', event => {
                 // jeśli są niezapisane edycje kolumn, trzeba ponownie nałożyć ich podgląd, bo renderPage() nadpisał komórki wartościami z backendu
                 reapplyAllColumnEdits();
             } else {
+                // inny SQL niż poprzednio (isSameQuery już to uwzględnia razem ze zmianą gridShape) -> stare zaznaczenie wierszy odnosi się do poprzedniej siatki, więc trzeba je wyczyścić
+                clearRowSelection();
                 stopToolsBtn();
             }
         }
