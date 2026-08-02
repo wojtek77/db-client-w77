@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.2
+
+### Fixed
+- SQL results: row selection from a previous query result could
+  incorrectly persist after running a different SQL query on the same
+  file. A subsequent click on the row at the same page-relative index
+  was misread as deselecting an already-selected row instead of
+  selecting it. Row selection is now cleared whenever the query
+  actually changes, while still being preserved when the exact same
+  query is re-run (e.g. a refresh).
+
 ## 1.0.1
 
 ### Fixed
