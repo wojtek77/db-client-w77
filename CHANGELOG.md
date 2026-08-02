@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3
+
+### Fixed
+- Fixed `cursor: pointer` disappearing on a table row after it was selected (it only worked on hover, which was excluded for selected rows). The pointer cursor is now applied consistently to the whole row, except for the row-number ("#") column, which is not clickable.
+
 ## 1.0.2
 
 ### Fixed
