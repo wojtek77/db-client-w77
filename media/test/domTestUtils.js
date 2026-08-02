@@ -1,6 +1,12 @@
 import { JSDOM } from 'jsdom';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { State } from '../state.js';
 import { renderHeaders, initializeGrid, renderPage } from '../tableRenderer.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STYLES_PATH = path.join(__dirname, '..', 'styles.css');
 
 // minimalny szkielet HTML odpowiadający strukturze z src/panel/html.ts – tylko elementy, na których operuje media/*.js
 // (uwaga: sekcja toolbar/pagination/loadingOverlay jest tu potrzebna tylko dla messageHandler.js - patrz messageHandler.test.js)
@@ -110,6 +116,18 @@ export function keydown(target, { key, ctrlKey = false, metaKey = false } = {}) 
         ctrlKey,
         metaKey,
     }));
+}
+
+/**
+ * Wstrzykuje prawdziwy plik media/styles.css do bieżącego dokumentu jsdom (jako <style> w <head>),
+ * żeby getComputedStyle() liczył się z realną kaskadą CSS (np. dziedziczenie cursor między .grid-row a .lp-cell).
+ * Wywołaj po setupDom(), przed sprawdzaniem computed style.
+ */
+export function loadStylesheet() {
+    const css = fs.readFileSync(STYLES_PATH, 'utf8');
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
 }
 
 /** Zwraca komórkę LP (numer wiersza) dla danego page-relative indexu wiersza. */

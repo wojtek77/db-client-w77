@@ -88,6 +88,11 @@ html, body {
     text-align: center;
 }
 
+/* nagłówek "#" (header-cell + lp-cell) nie jest klikalny, w odróżnieniu od komórek z liczbą porządkową w wierszach */
+.header-cell.lp-cell {
+    cursor: default;
+}
+
 /* Płynność przewijania Chromium */
 .grid-row {
     display: grid;
@@ -97,6 +102,9 @@ html, body {
     
     /* 🚀 Klucz do powrotu do < 50ms */
     content-visibility: auto; 
+
+    /* pointer ustawiony tu na stałe, żeby nie znikał po zaznaczeniu wiersza; wyłączony osobno dla nagłówka # w .header-cell.lp-cell */
+    cursor: pointer;
 }
 
 /* Styl dla zaznaczonego wiersza */
@@ -111,7 +119,6 @@ html, body {
 /* 🚀 Dodatkowy bonus wizualny: Podświetlenie wiersza po najechaniu myszką (Hover) */
 .grid-row:hover:not(.selected-row) {
     background-color: var(--vscode-list-hoverBackground);
-    cursor: pointer;
 }
 
 /* Zmusza pierwszą kolumnę (LP) do zmiany tła, gdy wiersz jest zaznaczony */
