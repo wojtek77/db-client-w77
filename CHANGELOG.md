@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.4
+
+### Fixed
+- SQL results: the row-number ("#") cell appeared visibly darker than the rest of the row on hover and on selection. The LP cell has its own opaque background, and the fix for it was re-applying the same theme color on top of the row's already-colored background — on themes where that color has alpha transparency, this double layering made it darker than the single layer used by the other cells. The LP cell now goes transparent in these states instead, letting the row's background show through consistently.
+
 ## 1.0.3
 
 ### Fixed
