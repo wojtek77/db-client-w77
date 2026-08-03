@@ -121,15 +121,15 @@ html, body {
     background-color: var(--vscode-list-hoverBackground);
 }
 
-/* Zmusza pierwszą kolumnę (LP) do zmiany tła, gdy wiersz jest zaznaczony */
+/* komórka LP ma własne, kryjące tło (patrz reguła .lp-cell), więc nie może dostać drugi raz tego samego koloru co wiersz - przy motywach z półprzezroczystym tłem zaznaczenia dawałoby to podwójne, ciemniejsze nałożenie; zamiast tego robimy ją przezroczystą, żeby przebijało przez nią tło wiersza (dokładnie ten sam odcień co reszta komórek) */
 .grid-row.selected-row .lp-cell {
-    background-color: var(--vscode-list-activeSelectionBackground) !important;
+    background-color: transparent !important;
     color: var(--vscode-list-activeSelectionForeground) !important;
 }
 
-/* 🚀 Dodatkowo: Podświetlenie pierwszej kolumny podczas najechania myszką (Hover) */
+/* 🚀 Dodatkowo: Podświetlenie pierwszej kolumny podczas najechania myszką (Hover), z tego samego powodu co wyżej - transparent zamiast powielania koloru */
 .grid-row:hover:not(.selected-row) .lp-cell {
-    background-color: var(--vscode-list-hoverBackground) !important;
+    background-color: transparent !important;
 }
 
 /* Styl dla zaznaczonej kolumny (nagłówek + komórki danych) */
