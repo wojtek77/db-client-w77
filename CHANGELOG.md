@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.5
+
+### Fixed
+- SQL results panel stayed visible and fully interactive (editing cells,
+  deleting rows, generating INSERT/UPDATE/DELETE, changing connection)
+  after switching to a new empty tab (Ctrl+N) or to a file that isn't
+  SQL, since it only updated when a *SQL* editor became active. The
+  panel now clears itself as soon as the active editor is not a `.sql`
+  file, and no longer lets you act on results that no longer correspond
+  to any visible SQL tab.
+- The list of recent SQL files could get polluted with a non-SQL file
+  path (e.g. an empty untitled tab), because the fallback used to
+  determine "the current SQL file" read the active editor without
+  checking its language, so any action taken while a non-SQL tab was
+  focused (such as the panel's own "change connection" button) could
+  register that file as if it were a SQL file.
+- Actions that write to the database from the results panel (editing a
+  cell, deleting rows, bulk column edits, changing connection) could
+  resolve the database connection from whatever editor happened to be
+  active at the moment the action ran, instead of the connection that
+  actually produced the results being edited. They now always use the
+  connection saved together with the displayed file's results.
+
 ## 1.0.4
 
 ### Fixed
