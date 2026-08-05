@@ -491,8 +491,8 @@ export class RecentSqlFiles {
         }
     }
     
-    public async changeConnectionName() {
-        return await this.getConnectionName(true);
+    public async changeConnectionName(sqlFileOverride?: string) {
+        return await this.getConnectionName(true, sqlFileOverride);
     }
     
     private get(sqlFile: string) {

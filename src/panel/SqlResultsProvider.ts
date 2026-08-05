@@ -435,9 +435,23 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    /**
+     * Zwraca połączenie do bazy powiązane z aktualnie wyświetlanym plikiem (this._currentSqlFile), a NIE z tym,
+     * jaki edytor akurat ma fokus w VS Code w chwili wywołania. Dzięki temu operacje modyfikujące dane
+     * (UPDATE/DELETE z widoku wyników) zawsze trafiają na bazę, która faktycznie wygenerowała widoczne w
+     * panelu wyniki - nawet gdyby użytkownik zdążył w międzyczasie przełączyć się na inną/nie-SQL zakładkę.
+     */
+    private async getDbForCurrentFile(): Promise<Connection> {
+        const fileState = this._fileStates.get(this._currentSqlFile);
+        if (!fileState) {
+            throw new Error('No active SQL file - run a query first');
+        }
+        return ConnectionManager.getInstance().getDb(fileState.connectionName);
+    }
+
     private async updateCellInDB(rowIndex: number, columnIndex: number, value: any) {
         try {
-            const db = await ConnectionManager.getInstance().getDb();
+            const db = await this.getDbForCurrentFile();
 
             // rowIndex przychodzi z webview jako indeks w obrębie wyrenderowanej strony – doliczamy offset, żeby trafić we właściwy wiersz w this._allRows
             const globalIndex = (this._currentPage - 1) * this.ROWS_PER_PAGE + rowIndex;
@@ -593,7 +607,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // wartości PK dla każdego zaznaczonego wiersza, w tej samej kolejności co primaryKeys
             const pkValueTuples = rows.map((row) => primaryKeys.map((pk) => row[pk.index]));
 
-            const db = await ConnectionManager.getInstance().getDb();
+            const db = await this.getDbForCurrentFile();
 
             const confirmed = await this.confirmDestructiveOperation(
                 `Delete ${rows.length} row(s) from "${tableName}"? This cannot be undone.`,
@@ -770,7 +784,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             const recordCount = this._allRows.length;
 
-            const db = await ConnectionManager.getInstance().getDb();
+            const db = await this.getDbForCurrentFile();
 
             const confirmed = await this.confirmDestructiveOperation(
                 `Change ${changesPreview} for ${recordCount} record(s) matching the current SQL results in table "${tableName}"? ` +
@@ -884,7 +898,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
      * jest zbędny i tylko zaśmieca wygenerowany/wykonywany SQL).
      */
     private async qualifyTableName(schema: string, tableName: string): Promise<string> {
-        const db = await ConnectionManager.getInstance().getDb();
+        const db = await this.getDbForCurrentFile();
         const connectionDatabase = db.getDatabase();
 
         return connectionDatabase
@@ -1229,17 +1243,32 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
     
     private async changeConnection() {
+        // brak aktywnego pliku SQL (panel wyczyszczony przez clearActiveFile) - nie ma dla czego zmieniać połączenia
+        if (!this._currentSqlFile) {
+            return;
+        }
 
-        const connectionName = await RecentSqlFiles.getInstance().changeConnectionName();
+        // jawnie podajemy plik, którego dotyczy widoczny w panelu stan - zamiast pozwolić na odczyt activeTextEditor na nowo (użytkownik mógł już przełączyć zakładkę)
+        const connectionName = await RecentSqlFiles.getInstance().changeConnectionName(this._currentSqlFile);
 
         // utworzenia nowego połączenia z bozą aby uzyskać czas łaczenia
-        const db = await ConnectionManager.getInstance().getDb();
+        const db = await ConnectionManager.getInstance().getDb(connectionName);
 
         this._connectionName = connectionName;
         this._connectionTime = db.getConnectionTime();
         this._connectionColor = ConnectionColors.getInstance().getColor(this._connectionName);
         this._isProduction = db.isProductionConnection();
         this._isReadOnly = db.isReadOnlyConnection();
+
+        // zapisany stan pliku też musi znać nowe połączenie - inaczej kolejna akcja (np. edycja komórki) użyłaby starego connectionName z _fileStates
+        const fileState = this._fileStates.get(this._currentSqlFile);
+        if (fileState) {
+            fileState.connectionName = this._connectionName;
+            fileState.connectionTime = this._connectionTime;
+            fileState.connectionColor = this._connectionColor;
+            fileState.isProduction = this._isProduction;
+            fileState.isReadOnly = this._isReadOnly;
+        }
 
         if (this._view) {
             this._view.webview.postMessage({
