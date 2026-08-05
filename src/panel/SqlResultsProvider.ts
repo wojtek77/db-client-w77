@@ -1159,6 +1159,26 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this.sendPage(this._currentPage, false, isSameQueryAsBefore);
     }
     
+    /**
+     * wołane, gdy aktywny edytor przestaje być plikiem .sql (np. nowa pusta zakładka, plik innego typu, brak edytora) -
+     * zapomina aktualny plik i czyści widoczną siatkę, żeby panel nie zostawał "przyklejony" do poprzedniego pliku SQL
+     * i nie dało się przez niego edytować/usuwać danych, które nie są już powiązane z żadną widoczną zakładką SQL
+     */
+    public clearActiveFile() {
+        this._currentSqlFile = '';
+        this._allRows = [];
+        this._headers = [];
+        this._meta = [];
+        this._columnTypes = [];
+
+        if (this._view) {
+            this._view.webview.postMessage({
+                command: 'showEmpty',
+                sentAt: Date.now() // znacznik czasu w ms
+            });
+        }
+    }
+
     public showResultsForFile(sqlFile: string) {
         if (!this._view) {
             return;

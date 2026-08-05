@@ -151,6 +151,9 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.onDidChangeActiveTextEditor(editor => {
             if (editor && editor.document.languageId === 'sql') {
                 sqlResultsProvider.showResultsForFile(editor.document.fileName);
+            } else {
+                // nowa zakładka (np. Ctrl+N) albo plik innego typu - panel nie może zostać "przyklejony" do poprzedniego pliku SQL
+                sqlResultsProvider.clearActiveFile();
             }
         })
     );
