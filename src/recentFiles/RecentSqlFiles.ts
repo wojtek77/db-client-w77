@@ -98,6 +98,10 @@ export class RecentSqlFiles {
             if (!editor) {
                 throw new Error("no editor is currently active");
             }
+            // bez tego sprawdzenia plik nie-SQL (np. nowa pusta zakładka) mógłby trafić do listy ostatnich plików SQL
+            if (editor.document.languageId !== 'sql') {
+                throw new Error("the active editor is not an SQL file");
+            }
             sqlFile = editor.document.fileName;
         }
         let connectionName = this.get(sqlFile);
