@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.7
+
+### Fixed
+- The SQL results panel stayed open at the bottom of the screen after
+  switching to a non-SQL file (or a new empty tab), covering part of
+  the editor, because clearing the active file only cleared its
+  content without actually closing the panel. Switching to a
+  different file now closes the panel; switching back to a SQL file
+  that already has tracked results reopens it automatically.
+
 ## 1.0.6
 
 ### Fixed
