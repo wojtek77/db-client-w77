@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.6
+
+### Fixed
+- The results panel's "change connection" action refused to do
+  anything if no SQL results were currently loaded (e.g. right after
+  starting the extension, before running any query), because it
+  required an already-tracked results file. It now falls back to the
+  active SQL editor in that case, matching the connection to whichever
+  file the change should apply to.
+
 ## 1.0.5
 
 ### Fixed
