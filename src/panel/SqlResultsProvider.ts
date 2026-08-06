@@ -1243,42 +1243,41 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
     
     private async changeConnection() {
-        // brak aktywnego pliku SQL (panel wyczyszczony przez clearActiveFile) - nie ma dla czego zmieniać połączenia
-        if (!this._currentSqlFile) {
-            return;
-        }
+        try {
+            // gdy jest aktywny plik w panelu, podajemy go jawnie - zamiast pozwolić na odczyt activeTextEditor na nowo (użytkownik mógł już przełączyć zakładkę); w przeciwnym razie (np. świeżo uruchomione rozszerzenie, panel jeszcze pusty) przekazujemy undefined, a RecentSqlFiles samo sięgnie po activeTextEditor
+            const connectionName = await RecentSqlFiles.getInstance().changeConnectionName(this._currentSqlFile || undefined);
 
-        // jawnie podajemy plik, którego dotyczy widoczny w panelu stan - zamiast pozwolić na odczyt activeTextEditor na nowo (użytkownik mógł już przełączyć zakładkę)
-        const connectionName = await RecentSqlFiles.getInstance().changeConnectionName(this._currentSqlFile);
+            // utworzenia nowego połączenia z bozą aby uzyskać czas łaczenia
+            const db = await ConnectionManager.getInstance().getDb(connectionName);
 
-        // utworzenia nowego połączenia z bozą aby uzyskać czas łaczenia
-        const db = await ConnectionManager.getInstance().getDb(connectionName);
+            this._connectionName = connectionName;
+            this._connectionTime = db.getConnectionTime();
+            this._connectionColor = ConnectionColors.getInstance().getColor(this._connectionName);
+            this._isProduction = db.isProductionConnection();
+            this._isReadOnly = db.isReadOnlyConnection();
 
-        this._connectionName = connectionName;
-        this._connectionTime = db.getConnectionTime();
-        this._connectionColor = ConnectionColors.getInstance().getColor(this._connectionName);
-        this._isProduction = db.isProductionConnection();
-        this._isReadOnly = db.isReadOnlyConnection();
+            // zapisany stan pliku też musi znać nowe połączenie - inaczej kolejna akcja (np. edycja komórki) użyłaby starego connectionName z _fileStates
+            const fileState = this._fileStates.get(this._currentSqlFile);
+            if (fileState) {
+                fileState.connectionName = this._connectionName;
+                fileState.connectionTime = this._connectionTime;
+                fileState.connectionColor = this._connectionColor;
+                fileState.isProduction = this._isProduction;
+                fileState.isReadOnly = this._isReadOnly;
+            }
 
-        // zapisany stan pliku też musi znać nowe połączenie - inaczej kolejna akcja (np. edycja komórki) użyłaby starego connectionName z _fileStates
-        const fileState = this._fileStates.get(this._currentSqlFile);
-        if (fileState) {
-            fileState.connectionName = this._connectionName;
-            fileState.connectionTime = this._connectionTime;
-            fileState.connectionColor = this._connectionColor;
-            fileState.isProduction = this._isProduction;
-            fileState.isReadOnly = this._isReadOnly;
-        }
-
-        if (this._view) {
-            this._view.webview.postMessage({
-                command: 'changeConnection',
-                connectionName: this._connectionName,
-                connectionTime: this._connectionTime,
-                connectionColor: this._connectionColor,
-                isProduction: this._isProduction,
-                isReadOnly: this._isReadOnly,
-            });
+            if (this._view) {
+                this._view.webview.postMessage({
+                    command: 'changeConnection',
+                    connectionName: this._connectionName,
+                    connectionTime: this._connectionTime,
+                    connectionColor: this._connectionColor,
+                    isProduction: this._isProduction,
+                    isReadOnly: this._isReadOnly,
+                });
+            }
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`❌ Change connection error: ${err.message}`);
         }
     }
     
