@@ -1178,7 +1178,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
      * zapomina aktualny plik i czyści widoczną siatkę, żeby panel nie zostawał "przyklejony" do poprzedniego pliku SQL
      * i nie dało się przez niego edytować/usuwać danych, które nie są już powiązane z żadną widoczną zakładką SQL
      */
-    public clearActiveFile() {
+    public async clearActiveFile() {
         this._currentSqlFile = '';
         this._allRows = [];
         this._headers = [];
@@ -1191,6 +1191,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 sentAt: Date.now() // znacznik czasu w ms
             });
         }
+
+        // zwalniamy miejsce na ekranie - samo showEmpty nie chowa panelu, on nadal zajmuje dolny obszar
+        await vscode.commands.executeCommand('workbench.action.closePanel');
+    }
+
+    // pozwala wywołującemu (np. extension.ts) sprawdzić, czy dany plik ma już zapisane wyniki, zanim zdecyduje o pokazaniu panelu
+    public hasResultsForFile(sqlFile: string): boolean {
+        return this._fileStates.has(sqlFile);
     }
 
     public showResultsForFile(sqlFile: string) {
@@ -1231,7 +1239,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private async show(options?: { preserveFocus?: boolean }) {
+    public async show(options?: { preserveFocus?: boolean }) {
         const preserveFocus = options?.preserveFocus ?? true;
         
         if (this._view) {
