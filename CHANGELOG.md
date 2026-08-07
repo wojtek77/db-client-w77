@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.8
+
+### Fixed
+- Switching to a non-SQL file (or a new empty tab) unconditionally
+  closed the bottom panel, even when the SQL results panel wasn't
+  actually open there. This could force-close unrelated content
+  docked in the same area, such as the terminal, whenever it happened
+  to be open. The panel is now closed only when it was the extension
+  itself that last opened it.
+
 ## 1.0.7
 
 ### Fixed
