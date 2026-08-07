@@ -114,6 +114,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
         });
 
+        // user może schować/pokazać panel ręcznie (X na zakładce, przełączenie na inną zakładkę w tym samym obszarze jak Terminal, przeciągnięcie) bez zmiany aktywnego edytora - onDidChangeActiveTextEditor się wtedy nie odpali, więc hasOpenPanel trzeba synchronizować też stąd, inaczej zostaje przekłamana
+        webviewView.onDidChangeVisibility(() => {
+            // ta sama zasada co przy onDidDispose - ignorujemy zdarzenia ze starej 'zombie' instancji
+            if (this._view === webviewView) {
+                this.hasOpenPanel = webviewView.visible;
+            }
+        });
+
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             if (!SqlResultsProvider.isValidWebviewMessage(msg)) {
                 console.error('Ignored malformed message from webview:', msg);
