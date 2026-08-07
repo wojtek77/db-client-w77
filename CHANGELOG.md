@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.9
+
+### Fixed
+- hasOpenPanel could go stale when the panel was shown or hidden
+  manually (closing it, reopening it, or switching the bottom panel
+  to another view such as the terminal) without changing the active
+  editor, since it was only updated by the extension's own actions.
+  This could cause an unrelated view docked in the same panel area to
+  be force-closed on the next file switch. The panel's visibility
+  state is now tracked directly, so it always reflects whether the
+  SQL results view is the one currently showing.
+
 ## 1.0.8
 
 ### Fixed
