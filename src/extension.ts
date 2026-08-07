@@ -151,15 +151,21 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.onDidChangeActiveTextEditor(async editor => {
             if (!editor) {
                 // editor === undefined: fokus poszedł gdzie indziej (np. w sam panel albo w Terminal) - celowo ignorujemy, żeby nie zamykać panelu spod klikającego w niego usera; przypadek "zamknięto ostatnią zakładkę SQL" i tak obsługuje stopExtension w extensionLifecycle.ts
-            } else if (editor.document.languageId === 'sql') {
+                return;
+            }
+            if (editor.document.languageId === 'sql') {
                 // panel wracamy tylko dla plików, na których wcześniej faktycznie odpalono SQL - inaczej otwieranie dowolnego .sql wymuszałoby panel bez wyników
                 if (sqlResultsProvider.hasResultsForFile(editor.document.fileName)) {
                     sqlResultsProvider.showResultsForFile(editor.document.fileName);
                     await sqlResultsProvider.show({ preserveFocus: true });
+                    sqlResultsProvider.hasOpenPanel = true;
                 }
             } else {
                 // realne przejście na plik innego typu (nie samo zniknięcie fokusu, patrz komentarz niżej) - panel zasłaniałby edytor, więc go zamykamy
-                await sqlResultsProvider.clearActiveFile();
+                if (sqlResultsProvider.hasOpenPanel) {
+                    await sqlResultsProvider.clearActiveFile();
+                    sqlResultsProvider.hasOpenPanel = false;
+                }
             }
         })
     );

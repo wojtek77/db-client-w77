@@ -50,6 +50,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         return SqlResultsProvider.instance;
     }
     
+    public hasOpenPanel = false;
     
     private _view?: vscode.WebviewView;
     
@@ -1069,6 +1070,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         
         // pokazujemy widok – obsługuje 'widoku jeszcze nie było' (nowy kontener, resolveWebviewView()) i 'widok już istnieje' (zwykłe show())
         await this.show({ preserveFocus: true });
+        this.hasOpenPanel = true;
 
         // czekamy, aż webview zasygnalizuje gotowość (patrz _viewReady) – samo this._view nie wystarczy, strona może się jeszcze ładować
         if (!this._viewReady) {
