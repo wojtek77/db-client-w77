@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.12
+
+### Fixed
+- Switching to a `.sql` file that had never had a query run on it kept
+  the results panel open with a cleared grid instead of closing it,
+  because the active-editor listener treated any `.sql` file as a
+  case to keep the panel around, with `hasResultsForFile` only
+  deciding whether to also refresh its content. Simplified the
+  listener's condition so a `.sql` file without existing results is
+  now treated the same as switching to any non-SQL file, closing the
+  panel.
+
 ## 1.0.11
 
 ### Fixed
