@@ -159,6 +159,9 @@ export async function activate(context: vscode.ExtensionContext) {
                     sqlResultsProvider.showResultsForFile(editor.document.fileName);
                     await sqlResultsProvider.show({ preserveFocus: true });
                     sqlResultsProvider.hasOpenPanel = true;
+                } else {
+                    // ten plik .sql nie ma jeszcze żadnych wyników - trzeba wyczyścić siatkę, inaczej zostają "przyklejone" wyniki z poprzednio aktywnego pliku
+                    sqlResultsProvider.clearActiveFile();
                 }
             } else {
                 sqlResultsProvider.clearActiveFile();
