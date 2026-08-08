@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.11
+
+### Fixed
+- Switching to a `.sql` file that had never had a query run on it left
+  the results panel showing data from the previously active file. The
+  active-editor listener only handled the case of switching to a file
+  with existing results or to a non-SQL file; a `.sql` file with no
+  results yet fell through both branches and did nothing. The panel is
+  now cleared in that case as well.
+
 ## 1.0.10
 
 ### Fixed
