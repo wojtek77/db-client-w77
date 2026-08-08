@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.10
+
+### Fixed
+- hasOpenPanel could be incorrectly set to true as soon as the results
+  view container became visible, even if no SQL query had ever been
+  run. This happened because visibility was tracked via a separate
+  event listener that couldn't distinguish an empty view being shown
+  from actual results being displayed. Panel visibility is now checked
+  directly at the point the panel would be closed, instead of being
+  tracked as a standalone flag.
+- Clearing the active file on every switch to a non-SQL file no longer
+  unconditionally triggers closePanel; the panel is now closed only
+  when it was actually open and currently visible.
+
 ## 1.0.9
 
 ### Fixed
