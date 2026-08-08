@@ -114,14 +114,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
         });
 
-        // user może schować/pokazać panel ręcznie (X na zakładce, przełączenie na inną zakładkę w tym samym obszarze jak Terminal, przeciągnięcie) bez zmiany aktywnego edytora - onDidChangeActiveTextEditor się wtedy nie odpali, więc hasOpenPanel trzeba synchronizować też stąd, inaczej zostaje przekłamana
-        webviewView.onDidChangeVisibility(() => {
-            // ta sama zasada co przy onDidDispose - ignorujemy zdarzenia ze starej 'zombie' instancji
-            if (this._view === webviewView) {
-                this.hasOpenPanel = webviewView.visible;
-            }
-        });
-
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             if (!SqlResultsProvider.isValidWebviewMessage(msg)) {
                 console.error('Ignored malformed message from webview:', msg);
@@ -201,6 +193,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 await this.pickConnectionColor();
             }
         });
+    }
+    
+    public isFocusSqlTab() {
+        return this._view?.visible;
     }
     
     /**
@@ -1188,7 +1184,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
      * zapomina aktualny plik i czyści widoczną siatkę, żeby panel nie zostawał "przyklejony" do poprzedniego pliku SQL
      * i nie dało się przez niego edytować/usuwać danych, które nie są już powiązane z żadną widoczną zakładką SQL
      */
-    public async clearActiveFile() {
+    public clearActiveFile() {
         this._currentSqlFile = '';
         this._allRows = [];
         this._headers = [];
@@ -1201,9 +1197,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 sentAt: Date.now() // znacznik czasu w ms
             });
         }
-
-        // zwalniamy miejsce na ekranie - samo showEmpty nie chowa panelu, on nadal zajmuje dolny obszar
-        await vscode.commands.executeCommand('workbench.action.closePanel');
     }
 
     // pozwala wywołującemu (np. extension.ts) sprawdzić, czy dany plik ma już zapisane wyniki, zanim zdecyduje o pokazaniu panelu

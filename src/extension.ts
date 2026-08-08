@@ -161,11 +161,12 @@ export async function activate(context: vscode.ExtensionContext) {
                     sqlResultsProvider.hasOpenPanel = true;
                 }
             } else {
-                // realne przejście na plik innego typu (nie samo zniknięcie fokusu, patrz komentarz niżej) - panel zasłaniałby edytor, więc go zamykamy
-                if (sqlResultsProvider.hasOpenPanel) {
-                    await sqlResultsProvider.clearActiveFile();
-                    sqlResultsProvider.hasOpenPanel = false;
+                sqlResultsProvider.clearActiveFile();
+                // zamknięcie panelu
+                if (sqlResultsProvider.hasOpenPanel && sqlResultsProvider.isFocusSqlTab()) {
+                    await vscode.commands.executeCommand('workbench.action.closePanel');
                 }
+                sqlResultsProvider.hasOpenPanel = false;
             }
         })
     );
