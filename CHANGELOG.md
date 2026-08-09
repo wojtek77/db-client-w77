@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.13
+
+### Fixed
+- Closing the last open `.sql` tab unconditionally closed the bottom
+  panel, even when the SQL results panel wasn't the one actually
+  showing there. This could force-close unrelated content docked in
+  the same area, such as the terminal, whenever it happened to be
+  open at that moment. The panel is now closed only when the SQL
+  results view was actually open and visible, matching the same
+  guard already used when switching editors.
+
 ## 1.0.12
 
 ### Fixed
