@@ -150,7 +150,11 @@ export async function stopExtension(all = false) {
 
         stoppingAllPromise = (async () => {
             // zamknięcie panelu na dole
-            await vscode.commands.executeCommand('workbench.action.closePanel');
+            const sqlResultsProvider = SqlResultsProvider.getInstance();
+            if (sqlResultsProvider.hasOpenPanel && sqlResultsProvider.isFocusSqlTab()) {
+                await vscode.commands.executeCommand('workbench.action.closePanel');
+            }
+            sqlResultsProvider.hasOpenPanel = false;
 
             // ⭐ UKRYJ ZAKŁADKĘ
             await vscode.commands.executeCommand('setContext', 'dbClientActive', false);
