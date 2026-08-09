@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.14
+
+### Fixed
+- Switching to a `.sql` file with existing results always force-showed
+  the SQL results panel, even if the user had manually switched the
+  bottom panel to something else, such as the terminal. This happened
+  because `hasOpenPanel` was reset to false whenever the active editor
+  changed away, regardless of whether the panel was actually closed,
+  desyncing the flag from the real panel state. `hasOpenPanel` is now
+  only updated when the panel is actually closed, and the results view
+  is only re-shown when the panel isn't open yet or the results view
+  is the one currently focused.
+
 ## 1.0.13
 
 ### Fixed
