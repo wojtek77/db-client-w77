@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.15
+
+### Reverted
+- Reverted the 1.0.14 fix for `hasOpenPanel` being reset whenever the
+  active editor changed away from a `.sql` file. The change is being
+  rolled back and will be revisited in a future release.
+
 ## 1.0.14
 
 ### Fixed
