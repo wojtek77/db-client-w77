@@ -156,15 +156,18 @@ export async function activate(context: vscode.ExtensionContext) {
             if (editor.document.languageId === 'sql' && sqlResultsProvider.hasResultsForFile(editor.document.fileName)) {
                 // panel wracamy tylko dla plików, na których wcześniej faktycznie odpalono SQL
                 sqlResultsProvider.showResultsForFile(editor.document.fileName);
-                await sqlResultsProvider.show({ preserveFocus: true });
-                sqlResultsProvider.hasOpenPanel = true;
+                if (sqlResultsProvider.hasOpenPanel !== null) {
+                    // hasOpenPanel === null oznacza, że w panelu aktywna jest zakładka "Terminal" - wtedy nie podbijamy z powrotem zakładki "SQL"
+                    await sqlResultsProvider.show({ preserveFocus: true });
+                    sqlResultsProvider.hasOpenPanel = true;
+                }
             } else {
                 sqlResultsProvider.clearActiveFile();
                 // zamknięcie panelu
                 if (sqlResultsProvider.hasOpenPanel && sqlResultsProvider.isFocusSqlTab()) {
                     await vscode.commands.executeCommand('workbench.action.closePanel');
+                    sqlResultsProvider.hasOpenPanel = false;
                 }
-                sqlResultsProvider.hasOpenPanel = false;
             }
         })
     );

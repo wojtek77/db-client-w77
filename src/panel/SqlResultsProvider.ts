@@ -50,7 +50,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         return SqlResultsProvider.instance;
     }
     
-    public hasOpenPanel = false;
+    public hasOpenPanel: boolean | null = false;
     
     private _view?: vscode.WebviewView;
     
@@ -103,7 +103,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         };
 
         this.updateHtml();
-        
+
         // ⭐ REWELACYJNE ZABEZPIECZENIE:
         webviewView.onDidDispose(() => {
             // sprawdzamy tożsamość – dispose starej 'zombie' instancji mógłby odpalić się po utworzeniu nowego widoku i wyzerować this._view
@@ -112,6 +112,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 this._viewReady = false;
                 console.log('WEBVIEW_CLOSE');
             }
+        });
+        
+        webviewView.onDidChangeVisibility(() => {
+            // zmiana zakładki w panelu z "SQL" na np. "Terminal" spowoduje, że this.hasOpenPanel = null
+            this.hasOpenPanel = webviewView.visible ? true : null;
         });
 
         webviewView.webview.onDidReceiveMessage(async (msg) => {
