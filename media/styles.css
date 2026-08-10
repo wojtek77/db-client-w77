@@ -10,16 +10,8 @@ html, body {
     flex-direction: column;
 }
 
-/* Twój istniejący pasek narzędzi (załóżmy, że ma określoną wysokość) */
-.toolbar {
-    flex-shrink: 0; /* Blokuje kurczenie się toolbara */
-    padding: 8px;
-    background: var(--vscode-merge-editor-header-background, #252526);
-}
-
 /* POPRAWIONY GŁÓWNY KONTENER TABELI */
 .grid-container {
-    margin-top: 1em;
     display: flex;
     flex-direction: column;
     flex-grow: 1;       /* Zmusza tabelę do zajęcia 100% pozostałej wysokości ekranu */
@@ -197,9 +189,8 @@ html, body {
 }
 
 .toolbar {
-    padding: 8px;
+    padding: 0px 8px 2px 8px;
     background: var(--vscode-editor-background);
-    border-bottom: 1px solid var(--vscode-panel-border);
     display: flex;
     gap: 10px;
     align-items: center;
