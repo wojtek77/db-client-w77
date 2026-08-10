@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.16
+
+### Fixed
+- Switching the bottom panel's active tab from "SQL" to something
+  else, such as the terminal, no longer gets undone by clicking
+  between open editor files. Previously, `hasOpenPanel` couldn't tell
+  "panel open, but on another tab" apart from "panel actually
+  closed", so switching files would either force the panel back to
+  the SQL results tab or close the panel outright, stealing focus
+  from the tab the user had manually selected. `hasOpenPanel` is now
+  `boolean | null`, with `null` tracking the "on another tab" case via
+  a new `onDidChangeVisibility` listener, and both the active-editor
+  handler and `stopExtension` only act on the panel when it's
+  genuinely open and focused on the SQL results tab.
+
 ## 1.0.15
 
 ### Reverted
