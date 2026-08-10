@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.17
+
+### Changed
+- Reduced vertical whitespace in the results panel toolbar to reclaim
+  screen space: removed the gap above the toolbar content (connection
+  name, timers, buttons), removed the gap between the toolbar and the
+  results table below it, and removed the separator line that used to
+  sit between them. The two duplicate `.toolbar` rule definitions in
+  `styles.css` were also merged into one.
+
 ## 1.0.16
 
 ### Fixed
