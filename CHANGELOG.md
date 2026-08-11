@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.19
+
+### Fixed
+- Replaced the 1.0.18 fix, which detected a cancelled connection
+  change by matching the error message text
+  ("No DB connection selected"), a fragile check that would break
+  silently if that string ever changed. `RecentSqlFiles` now uses
+  the existing `isOnlyUpdate` flag to tell an in-place connection
+  change apart from an initial selection: cancelling (ESC) while
+  changing an already-selected connection returns the previous
+  connection name directly instead of throwing, so
+  `SqlResultsProvider.changeConnection()` no longer needs to inspect
+  the error message at all.
+
 ## 1.0.18
 
 ### Fixed
