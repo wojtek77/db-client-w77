@@ -49,6 +49,7 @@ describe('zaznaczenie wiersza między różnymi zapytaniami na tym samym pliku S
         click(lpCellOf(state, 2)); // zaznaczamy 3-ci wiersz
         assert.deepEqual([...state.selectedRowIndexes], [2]);
         assert.equal(state.cachedGridHtml[2].classList.contains('selected-row'), true);
+        assert.equal(document.getElementById('generateInsertBtn').style.display, 'inline-block', 'przyciski narzędziowe muszą być widoczne po zaznaczeniu wiersza');
 
         // QueryB: inny SQL, inny kształt wyniku (więcej kolumn, inna kolejność wierszy) -> backend zawsze wysyła isSameQuery=false
         sendAppendData({
@@ -60,6 +61,10 @@ describe('zaznaczenie wiersza między różnymi zapytaniami na tym samym pliku S
 
         // stary indeks (2) nie powinien przetrwać zmiany zapytania, mimo że siatka mogła zostać przebudowana
         assert.equal(State.getInstance().selectedRowIndexes.size, 0);
+
+        // przyciski (kosz, generowanie SQL) muszą realnie zniknąć z DOM, nie tylko z State - tu właśnie występował bug
+        assert.equal(document.getElementById('generateInsertBtn').style.display, 'none', 'przyciski narzędziowe muszą zniknąć po uruchomieniu innego SQL-a');
+        assert.equal(document.getElementById('deleteRowsBtn').style.display, 'none');
 
         // QueryA ponownie: ten sam tekst co za pierwszym razem, ale inny niż poprzedni (QueryB) -> znowu isSameQuery=false
         sendAppendData({

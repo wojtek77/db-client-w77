@@ -259,21 +259,22 @@ window.addEventListener('message', event => {
         }
 
         if (msg.clearSelection) {
-            clearRowSelection();
-
             // dane odświeżone z backendu -> znika podświetlenie i przycisk zapisu
             // musi być wywołane przed stopToolsBtn(), bo cancelAllColumnEdits() korzysta z jeszcze niewyczyszczonego State.pendingColumnEdits
             cancelAllColumnEdits();
 
+            // stopToolsBtn() musi zajrzeć do selectedRowIndexes zanim clearRowSelection() je wyczyści, inaczej zawsze widzi puste zaznaczenie i pomija ukrycie przycisków
             stopToolsBtn();
+            clearRowSelection();
         } else {
             if (isSameQuery) {
                 // jeśli są niezapisane edycje kolumn, trzeba ponownie nałożyć ich podgląd, bo renderPage() nadpisał komórki wartościami z backendu
                 reapplyAllColumnEdits();
             } else {
                 // inny SQL niż poprzednio (isSameQuery już to uwzględnia razem ze zmianą gridShape) -> stare zaznaczenie wierszy odnosi się do poprzedniej siatki, więc trzeba je wyczyścić
-                clearRowSelection();
+                // kolejność jak wyżej: najpierw stopToolsBtn() (widzi jeszcze pełne selectedRowIndexes), dopiero potem clearRowSelection()
                 stopToolsBtn();
+                clearRowSelection();
             }
         }
         
