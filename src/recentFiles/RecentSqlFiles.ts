@@ -140,6 +140,7 @@ export class RecentSqlFiles {
             quickPick.placeholder = 'select DB connection';
             quickPick.ignoreFocusOut = true;
             quickPick.activeItems = quickPick.items.filter(item => item.label === defaultConnectionName);
+            const connectionNameOrigin = connectionName; // zapamiętujemy oryginalne połączenie, aby przywrócić je gdy zmiana zostanie anulowana (ESC)
             connectionName = await new Promise(res => {
                 quickPick.onDidAccept(() => { res(quickPick.selectedItems[0]?.label); quickPick.hide(); });
                 quickPick.onDidHide(() => { res(undefined); quickPick.dispose(); });
@@ -147,6 +148,9 @@ export class RecentSqlFiles {
             });
 
             if (!connectionName) {
+                if (isOnlyUpdate && connectionNameOrigin) { // to tylko zmiana istniejącego połączenia, więc anulowanie (ESC) wraca do poprzedniego, bez błędu (connectionNameOrigin musi istnieć, bo inaczej zwrócilibyśmy "string | undefined")
+                    return connectionNameOrigin;
+                }
                 throw new Error("No DB connection selected");
             }
             this.set(sqlFile, connectionName);
