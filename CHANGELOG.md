@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.18
+
+### Fixed
+- Cancelling a connection change (pressing ESC in the connection
+  picker) no longer shows a "Change connection error: No DB
+  connection selected" error message. This was a deliberate user
+  action, not an actual error, so the panel now just silently
+  keeps the previous connection.
+
 ## 1.0.17
 
 ### Changed
