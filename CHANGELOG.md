@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.20
+
+### Fixed
+- Running a different SQL query in the same file no longer leaves
+  the row tools buttons (generate INSERT/UPDATE/DELETE, delete rows)
+  visible from the previous selection. `stopToolsBtn()` was called
+  after `clearRowSelection()` had already emptied the selection Set,
+  so its "nothing is selected, nothing to hide" check always fired
+  and skipped hiding the buttons in the DOM.
+
 ## 1.0.19
 
 ### Fixed
