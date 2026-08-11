@@ -1293,6 +1293,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 });
             }
         } catch (err: any) {
+            // użytkownik anulował wybór (ESC) - to świadoma decyzja, nie błąd, więc nic nie pokazujemy
+            if (err.message === "No DB connection selected") {
+                return;
+            }
             vscode.window.showErrorMessage(`❌ Change connection error: ${err.message}`);
         }
     }

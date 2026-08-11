@@ -147,7 +147,6 @@ export class RecentSqlFiles {
             });
 
             if (!connectionName) {
-                // vscode.window.showErrorMessage('No DB connection selected');
                 throw new Error("No DB connection selected");
             }
             this.set(sqlFile, connectionName);
