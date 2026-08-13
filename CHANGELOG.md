@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.21
+
+### Fixed
+- Running a different SQL query in the same file, then re-running an
+  earlier query, no longer requires clicking a column header or cell
+  twice to select it. The grid rebuild only cleared the row selection
+  Set (`selectedRowIndexes`), leaving stale entries in
+  `selectedColIndexes`/`selectedCellPositions` that didn't match the
+  freshly rebuilt DOM (no `selected-col`/`selected-cell` class), so
+  the first click was interpreted as deselecting an already-selected
+  column/cell instead of selecting it. Added `clearColumnSelection()`
+  and `clearCellSelection()`, called alongside `clearRowSelection()`
+  whenever the grid is rebuilt for a new/different query.
+
 ## 1.0.20
 
 ### Fixed
