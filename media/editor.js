@@ -274,6 +274,34 @@ export function clearRowSelection() {
     State.getInstance().selectedRowIndexes.clear();
 }
 
+// odznacza wszystkie aktualnie zaznaczone kolumny na podstawie Setu, bez przeszukiwania DOM
+export function clearColumnSelection() {
+    const headerCells = State.getInstance().cachedHeaderHtml || [];
+    const rows = State.getInstance().cachedGrid || [];
+    State.getInstance().selectedColIndexes.forEach(colIndex => {
+        // +1 bo indeks 0 w cachedHeaderHtml/cachedGrid to kolumna LP
+        const headerCell = headerCells[colIndex + 1];
+        if (headerCell) {headerCell.classList.remove('selected-col');}
+        rows.forEach(rowCells => {
+            const cell = rowCells[colIndex + 1];
+            if (cell) {cell.classList.remove('selected-col');}
+        });
+    });
+    State.getInstance().selectedColIndexes.clear();
+}
+
+// odznacza wszystkie aktualnie zaznaczone komórki na podstawie Setu, bez przeszukiwania DOM
+export function clearCellSelection() {
+    const rows = State.getInstance().cachedGrid || [];
+    State.getInstance().selectedCellPositions.forEach(key => {
+        const [r, c] = key.split('-').map(Number);
+        // +1 bo indeks 0 w wierszu to kolumna LP
+        const cell = rows[r]?.[c + 1];
+        if (cell) {cell.classList.remove('selected-cell');}
+    });
+    State.getInstance().selectedCellPositions.clear();
+}
+
 export function initRowSelection() {
 
     const gridBody = document.getElementById('gridBody');

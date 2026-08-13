@@ -1,14 +1,16 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { setupDom, click, lpCellOf } from './domTestUtils.js';
+import { setupDom, click, lpCellOf, headerCellOf, dataCellOf } from './domTestUtils.js';
 import { State } from '../state.js';
-import { initRowSelection } from '../editor.js';
+import { initRowSelection, initColumnSelection, initCellSelection } from '../editor.js';
 
 // messageHandler.js czyta DOM już w momencie importu, więc setupDom() musi być przed dynamicznym importem, nie statycznym na górze pliku
 // listener 'message' jest podpięty pod to konkretne `dom.window` – testy muszą dispatchować eventy na tym samym obiekcie
 const dom = setupDom();
 await import('../messageHandler.js');
 initRowSelection();
+initColumnSelection();
+initCellSelection();
 
 /** Symuluje wiadomość 'appendData' z backendu (SqlResultsProvider.sendPage), tak jak naprawdę leci przez postMessage do webview. */
 function sendAppendData({ sqlFile, headers, rows, isSameQuery, clearSelection = false }) {
@@ -106,5 +108,95 @@ describe('zaznaczenie wiersza między różnymi zapytaniami na tym samym pliku S
         });
 
         assert.deepEqual([...State.getInstance().selectedRowIndexes], [0], 'odświeżenie tego samego zapytania nie powinno gubić zaznaczenia');
+    });
+});
+
+describe('zaznaczenie kolumny między różnymi zapytaniami na tym samym pliku SQL', () => {
+
+    test('uruchomienie innego SQL-a, a potem powrót do poprzedniego, nie zostawia "widmowego" zaznaczenia kolumny', () => {
+        const sqlFile = 'cross-query-cols-1.sql';
+
+        // SQL1
+        sendAppendData({
+            sqlFile,
+            headers: ['sku', 'price'],
+            rows: [['A100', 10], ['B200', 20], ['C300', 30]],
+            isSameQuery: false,
+        });
+
+        const state = State.getInstance();
+        click(headerCellOf(state, 0)); // zaznaczamy kolumnę 'sku'
+        assert.deepEqual([...state.selectedColIndexes], [0]);
+        assert.equal(headerCellOf(state, 0).classList.contains('selected-col'), true);
+
+        // SQL2 - inny kształt wyniku, jak w prawdziwym backendzie zawsze isSameQuery=false
+        sendAppendData({
+            sqlFile,
+            headers: ['sku', 'price', 'warehouse'],
+            rows: [['C300', 30, 'EU'], ['B200', 20, 'US'], ['A100', 10, 'EU']],
+            isSameQuery: false,
+        });
+        assert.equal(State.getInstance().selectedColIndexes.size, 0);
+
+        // SQL1 ponownie - ten sam kształt co za pierwszym razem
+        sendAppendData({
+            sqlFile,
+            headers: ['sku', 'price'],
+            rows: [['A100', 10], ['B200', 20], ['C300', 30]],
+            isSameQuery: false,
+        });
+
+        const stateAfterRerun = State.getInstance();
+        assert.equal(stateAfterRerun.selectedColIndexes.size, 0, 'nie ma żadnego "widmowego" zaznaczenia kolumny z poprzednich wyników');
+
+        // pierwszy klik na kolumnę musi ją ZAZNACZYĆ za jednym razem, a nie wymagać drugiego kliknięcia
+        click(headerCellOf(stateAfterRerun, 0));
+        assert.deepEqual([...stateAfterRerun.selectedColIndexes], [0]);
+        assert.equal(headerCellOf(stateAfterRerun, 0).classList.contains('selected-col'), true);
+    });
+});
+
+describe('zaznaczenie komórki między różnymi zapytaniami na tym samym pliku SQL', () => {
+
+    test('uruchomienie innego SQL-a, a potem powrót do poprzedniego, nie zostawia "widmowego" zaznaczenia komórki', () => {
+        const sqlFile = 'cross-query-cells-1.sql';
+
+        // SQL1
+        sendAppendData({
+            sqlFile,
+            headers: ['sku', 'price'],
+            rows: [['A100', 10], ['B200', 20], ['C300', 30]],
+            isSameQuery: false,
+        });
+
+        const state = State.getInstance();
+        click(dataCellOf(state, 1, 0)); // zaznaczamy komórkę (wiersz 1, kolumna 'sku')
+        assert.deepEqual([...state.selectedCellPositions], ['1-0']);
+        assert.equal(dataCellOf(state, 1, 0).classList.contains('selected-cell'), true);
+
+        // SQL2 - inny kształt wyniku, jak w prawdziwym backendzie zawsze isSameQuery=false
+        sendAppendData({
+            sqlFile,
+            headers: ['sku', 'price', 'warehouse'],
+            rows: [['C300', 30, 'EU'], ['B200', 20, 'US'], ['A100', 10, 'EU']],
+            isSameQuery: false,
+        });
+        assert.equal(State.getInstance().selectedCellPositions.size, 0);
+
+        // SQL1 ponownie - ten sam kształt co za pierwszym razem
+        sendAppendData({
+            sqlFile,
+            headers: ['sku', 'price'],
+            rows: [['A100', 10], ['B200', 20], ['C300', 30]],
+            isSameQuery: false,
+        });
+
+        const stateAfterRerun = State.getInstance();
+        assert.equal(stateAfterRerun.selectedCellPositions.size, 0, 'nie ma żadnego "widmowego" zaznaczenia komórki z poprzednich wyników');
+
+        // pierwszy klik na komórkę musi ją ZAZNACZYĆ za jednym razem, a nie wymagać drugiego kliknięcia
+        click(dataCellOf(stateAfterRerun, 1, 0));
+        assert.deepEqual([...stateAfterRerun.selectedCellPositions], ['1-0']);
+        assert.equal(dataCellOf(stateAfterRerun, 1, 0).classList.contains('selected-cell'), true);
     });
 });

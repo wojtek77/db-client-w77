@@ -1,6 +1,6 @@
 import { State } from './state.js';
 import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage } from './tableRenderer.js';
-import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, clearRowSelection, hideToolsButtons } from './editor.js';
+import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, clearRowSelection, clearColumnSelection, clearCellSelection, hideToolsButtons } from './editor.js';
 
 let sqlFile;
 let queryTimer = null;
@@ -266,15 +266,19 @@ window.addEventListener('message', event => {
             // stopToolsBtn() musi zajrzeć do selectedRowIndexes zanim clearRowSelection() je wyczyści, inaczej zawsze widzi puste zaznaczenie i pomija ukrycie przycisków
             stopToolsBtn();
             clearRowSelection();
+            clearColumnSelection();
+            clearCellSelection();
         } else {
             if (isSameQuery) {
                 // jeśli są niezapisane edycje kolumn, trzeba ponownie nałożyć ich podgląd, bo renderPage() nadpisał komórki wartościami z backendu
                 reapplyAllColumnEdits();
             } else {
-                // inny SQL niż poprzednio (isSameQuery już to uwzględnia razem ze zmianą gridShape) -> stare zaznaczenie wierszy odnosi się do poprzedniej siatki, więc trzeba je wyczyścić
-                // kolejność jak wyżej: najpierw stopToolsBtn() (widzi jeszcze pełne selectedRowIndexes), dopiero potem clearRowSelection()
+                // inny SQL niż poprzednio (isSameQuery już to uwzględnia razem ze zmianą gridShape) -> stare zaznaczenie odnosi się do poprzedniej siatki (inne węzły DOM po renderHeaders/initializeGrid), więc trzeba je wyczyścić
+                // kolejność jak wyżej: najpierw stopToolsBtn() (widzi jeszcze pełne selectedRowIndexes), dopiero potem czyszczenie zaznaczeń
                 stopToolsBtn();
                 clearRowSelection();
+                clearColumnSelection();
+                clearCellSelection();
             }
         }
         
