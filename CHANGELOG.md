@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.0.22
+
+### Added
+- "Format SQL" (`Ctrl+Shift+F` with a selection, or the command
+  palette) now also supports formatting the whole file when nothing
+  is selected, and formatting a selection that spans multiple SQL
+  statements. Each statement is formatted independently, and the
+  original number of blank lines between statements (and before/after
+  the whole block) is preserved. Formatting a single selected
+  statement is unchanged.
+
+### Changed
+- `executeQueryWholeFile` (used by "Run SQL Whole File") now shares
+  its statement-splitting logic with the new multi-statement SQL
+  formatting via a new `findAllQueries()` helper, instead of having
+  its own separate loop. No behavior change for running queries.
+
 ## 1.0.21
 
 ### Fixed
