@@ -1,19 +1,42 @@
 import * as vscode from 'vscode';
 import { Token, tokenize, computeDepths, extractParenGroup, splitTopLevelByComma } from '../sql/tokenizer.js';
+import { findAllQueries } from '../sql/findCurrentQuery.js';
 
 export async function formatSqlCommand(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (!editor) { return; }
 
     const selection = editor.selection;
+
+    // brak zaznaczenia - formatuj cały plik
     if (selection.isEmpty) {
-        vscode.window.showWarningMessage('Select a SQL fragment to format.');
+        const fullText = editor.document.getText();
+        const fullRange = new vscode.Range(editor.document.positionAt(0), editor.document.positionAt(fullText.length));
+        await editor.edit(eb => eb.replace(fullRange, formatSqlText(fullText)));
         return;
     }
 
-    const formatted = formatSql(editor.document.getText(selection));
+    await editor.edit(eb => eb.replace(selection, formatSqlText(editor.document.getText(selection))));
+}
 
-    await editor.edit(eb => eb.replace(selection, formatted));
+// formatuje tekst z jednym lub wieloma SQL-ami - przy wielu zachowuje oryginalną liczbę pustych linii między nimi (patrz findAllQueries)
+export function formatSqlText(text: string): string {
+    const queries = findAllQueries(text);
+    // pojedynczy SQL (albo brak rozpoznanych granic) - stare zachowanie, bez zachowania otaczających pustych linii
+    if (queries.length <= 1) { return formatSql(text); }
+
+    const lines = text.split('\n');
+    let out = '\n'.repeat(queries[0].startLine);
+
+    queries.forEach((q, idx) => {
+        out += formatSql(q.sql);
+        const isLast = idx === queries.length - 1;
+        // liczba pustych linii odtworzona 1:1 z oryginału - do kolejnego zapytania albo do końca tekstu
+        const blankLines = isLast ? lines.length - 1 - q.endLine : queries[idx + 1].startLine - q.endLine - 1;
+        out += '\n'.repeat(isLast ? blankLines : blankLines + 1);
+    });
+
+    return out;
 }
 
 // słowa zastrzeżone są zawsze wielkimi literami, bez kontekstowości - nieocudzysłowione słowo zastrzeżone jako nazwa kolumny/tabeli i tak nie jest poprawnym SQL-em (wymagałoby `` `backtickow` ``)

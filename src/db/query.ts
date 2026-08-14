@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from './ConnectionManager.js';
 import { Connection } from './Connection.js';
 import { SqlUtil } from '../sql/SqlUtil.js';
-import { findCurrentQuery } from '../sql/findCurrentQuery.js';
+import { findAllQueries } from '../sql/findCurrentQuery.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { TableIndex, TableIndexType } from '../cache/TableIndexesCache.js';
 
@@ -74,32 +74,16 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
     let headers: string[] = [];
     let meta: any;
     let updatedRows = 0;
-    
-    const lines = fullText.split('\n');
 
     let executedSqlCount = 0;
     let executedSelectCount = 0;
     let containsDDL = false;
 
-    let lineIndex = 0;
-    
     let startQuery = performance.now();
 
     await db.startTransaction();
-    while (lineIndex < lines.length) {
-        // pomijamy puste linie
-        if (lines[lineIndex].trim() === '') {
-            lineIndex++;
-            continue;
-        }
-
-        // używamy findCurrentQuery, żeby znaleźć zapytanie zaczynające się od tej linii
-        const query = findCurrentQuery(fullText, lineIndex);
-        if (!query) {
-            lineIndex++;
-            continue;
-        }
-
+    // granice zapytań wyznacza findAllQueries, ta pętla odpowiada tylko za samo wykonanie
+    for (const query of findAllQueries(fullText)) {
         const sql = query.sql;
 
         if (SqlUtil.isDDL(sql)) {
@@ -124,9 +108,6 @@ export async function executeQueryWholeFile(db: Connection, fullText: string) {
             ++executedSqlCount;
             updatedRows += noSelectRows[0][1];
         }
-
-        // przeskocz do linii po końcu znalezionego zapytania
-        lineIndex = query.endLine + 1;
     }
     
     if (success) {

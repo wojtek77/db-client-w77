@@ -73,3 +73,28 @@ export function findCurrentQuery(
         endLine
     };
 }
+
+// zwraca wszystkie zapytania w tekście, pomijając puste linie pomiędzy nimi - wspólna logika dla Run Whole File i formatowania całego pliku/wielu zaznaczonych SQL-i
+export function findAllQueries(text: string): CurrentQuery[] {
+    const lines = text.split('\n');
+    const queries: CurrentQuery[] = [];
+    let lineIndex = 0;
+
+    while (lineIndex < lines.length) {
+        if (lines[lineIndex].trim() === '') {
+            lineIndex++;
+            continue;
+        }
+
+        const query = findCurrentQuery(text, lineIndex);
+        if (!query) {
+            lineIndex++;
+            continue;
+        }
+
+        queries.push(query);
+        lineIndex = query.endLine + 1;
+    }
+
+    return queries;
+}

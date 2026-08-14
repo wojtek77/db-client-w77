@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { formatSql } from '../commands/formatSqlCommand.js';
+import { formatSql, formatSqlText } from '../commands/formatSqlCommand.js';
 
 suite('formatSql - ASC/DESC casing', () => {
     test('uppercases lowercase asc/desc in ORDER BY', () => {
@@ -628,5 +628,49 @@ suite('formatSql - subquery line wrapping (over 160 chars)', () => {
             + '\t\t\tAND a.id = b.a_id\n\t\t\tAND a.id = b.a_id\n\t\t\tAND a.id = b.a_id\n\t)\nFROM tab_b b',
         );
         result.split('\n').forEach((line) => assert.ok(line.length <= 160));
+    });
+});
+
+suite('formatSqlText - formatting multiple SQL statements (whole file / multi-selection)', () => {
+    test('a single query behaves exactly like formatSql, without adding surrounding blank lines', () => {
+        assert.strictEqual(
+            formatSqlText('\n\nselect id from t\n\n'),
+            formatSql('\n\nselect id from t\n\n'),
+        );
+    });
+
+    test('formats two queries separated by one blank line, keeping that one blank line', () => {
+        assert.strictEqual(
+            formatSqlText('select id from t;\n\nselect name from u;'),
+            'SELECT id\nFROM t;\n\nSELECT name\nFROM u;',
+        );
+    });
+
+    test('preserves two blank lines between queries', () => {
+        assert.strictEqual(
+            formatSqlText('select id from t;\n\n\nselect name from u;'),
+            'SELECT id\nFROM t;\n\n\nSELECT name\nFROM u;',
+        );
+    });
+
+    test('preserves leading blank lines before the first of several queries', () => {
+        assert.strictEqual(
+            formatSqlText('\n\nselect id from t;\n\nselect name from u;'),
+            '\n\nSELECT id\nFROM t;\n\nSELECT name\nFROM u;',
+        );
+    });
+
+    test('preserves trailing blank lines after the last of several queries', () => {
+        assert.strictEqual(
+            formatSqlText('select id from t;\n\nselect name from u;\n\n'),
+            'SELECT id\nFROM t;\n\nSELECT name\nFROM u;\n\n',
+        );
+    });
+
+    test('formats three queries with different blank-line gaps between each pair', () => {
+        assert.strictEqual(
+            formatSqlText('select 1;\n\nselect 2;\n\n\nselect 3;'),
+            'SELECT 1;\n\nSELECT 2;\n\n\nSELECT 3;',
+        );
     });
 });
