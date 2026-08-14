@@ -60,7 +60,7 @@ export class SqlUtil {
     ): string {
         const needsLimit = this.hasNoLimit(sql);
         if (needsLimit) {
-            return sql
+            return sql.trimEnd()
                 .replace(REGEX_TRAILING_SEMICOLON, '') + `\nLIMIT ${limit}`;
         }
         return sql;

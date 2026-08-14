@@ -4,13 +4,18 @@ export interface CurrentQuery {
     endLine: number;
 }
 
+// dzieli tekst na linie obsługując CRLF (Windows), CR (stary Mac) i LF (Linux/nowy Mac) - bez + w regexie, żeby dwa kolejne końce linii (pusta linia) nie zostały zjedzone jako jeden separator
+export function splitLines(text: string): string[] {
+    return text.split(/\r\n|\r|\n/);
+}
+
 export function findCurrentQuery(
     text: string,
     currentLine: number
 ): CurrentQuery | null {
 
     const lines =
-        text.split('\n');
+        splitLines(text);
 
     if (
         currentLine < 0 ||
@@ -76,7 +81,7 @@ export function findCurrentQuery(
 
 // zwraca wszystkie zapytania w tekście, pomijając puste linie pomiędzy nimi - wspólna logika dla Run Whole File i formatowania całego pliku/wielu zaznaczonych SQL-i
 export function findAllQueries(text: string): CurrentQuery[] {
-    const lines = text.split('\n');
+    const lines = splitLines(text);
     const queries: CurrentQuery[] = [];
     let lineIndex = 0;
 

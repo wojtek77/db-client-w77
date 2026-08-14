@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { Token, tokenize, computeDepths, extractParenGroup, splitTopLevelByComma } from '../sql/tokenizer.js';
-import { findAllQueries } from '../sql/findCurrentQuery.js';
+import { findAllQueries, splitLines } from '../sql/findCurrentQuery.js';
 
 export async function formatSqlCommand(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
@@ -19,24 +19,37 @@ export async function formatSqlCommand(): Promise<void> {
     await editor.edit(eb => eb.replace(selection, formatSqlText(editor.document.getText(selection))));
 }
 
+// wykrywa styl EOL wejściowego tekstu - CRLF sprawdzane przed samym CR, bo \r z CRLF też pasowałby do samego /\r/
+function detectEol(text: string): string {
+    if (text.includes('\r\n')) { return '\r\n'; }
+    if (text.includes('\r')) { return '\r'; }
+    return '\n';
+}
+
 // formatuje tekst z jednym lub wieloma SQL-ami - przy wielu zachowuje oryginalną liczbę pustych linii między nimi (patrz findAllQueries)
 export function formatSqlText(text: string): string {
+    const eol = detectEol(text);
     const queries = findAllQueries(text);
+
+    let out: string;
     // pojedynczy SQL (albo brak rozpoznanych granic) - stare zachowanie, bez zachowania otaczających pustych linii
-    if (queries.length <= 1) { return formatSql(text); }
+    if (queries.length <= 1) {
+        out = formatSql(text);
+    } else {
+        const lines = splitLines(text);
+        out = '\n'.repeat(queries[0].startLine);
 
-    const lines = text.split('\n');
-    let out = '\n'.repeat(queries[0].startLine);
+        queries.forEach((q, idx) => {
+            out += formatSql(q.sql);
+            const isLast = idx === queries.length - 1;
+            // liczba pustych linii odtworzona 1:1 z oryginału - do kolejnego zapytania albo do końca tekstu
+            const blankLines = isLast ? lines.length - 1 - q.endLine : queries[idx + 1].startLine - q.endLine - 1;
+            out += '\n'.repeat(isLast ? blankLines : blankLines + 1);
+        });
+    }
 
-    queries.forEach((q, idx) => {
-        out += formatSql(q.sql);
-        const isLast = idx === queries.length - 1;
-        // liczba pustych linii odtworzona 1:1 z oryginału - do kolejnego zapytania albo do końca tekstu
-        const blankLines = isLast ? lines.length - 1 - q.endLine : queries[idx + 1].startLine - q.endLine - 1;
-        out += '\n'.repeat(isLast ? blankLines : blankLines + 1);
-    });
-
-    return out;
+    // formatSql/tokenizer wewnętrznie zawsze łączy przez \n, więc na końcu odtwarzamy oryginalny EOL wejścia (Windows/stary Mac)
+    return eol === '\n' ? out : out.replace(/\n/g, eol);
 }
 
 // słowa zastrzeżone są zawsze wielkimi literami, bez kontekstowości - nieocudzysłowione słowo zastrzeżone jako nazwa kolumny/tabeli i tak nie jest poprawnym SQL-em (wymagałoby `` `backtickow` ``)

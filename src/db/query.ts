@@ -15,7 +15,7 @@ export async function executeQuery(db: Connection, sql: string) {
     let meta: any;
     
     try {
-        // wcześniej na SQL był TRIM
+        // koniec sql (białe znaki/CRLF) nie jest tu trimowany celowo - findCurrentQuery robi tylko trimStart(), bo końcówka jest potrzebna np. CompletionInsert; appendLimit sam robi trimEnd() przed doklejeniem LIMIT
         sql = SqlUtil.appendLimit(sql);
 
         if (SqlUtil.isUpdateOrDelete(sql) && !SqlUtil.hasWhereClause(sql)) {

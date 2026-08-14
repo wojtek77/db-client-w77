@@ -674,3 +674,32 @@ suite('formatSqlText - formatting multiple SQL statements (whole file / multi-se
         );
     });
 });
+
+suite('formatSqlText - preserves the original EOL style of the input', () => {
+    test('Windows (CRLF): output for multiple queries has only \\r\\n, no lone \\n', () => {
+        const result = formatSqlText('select 1;\r\n\r\nselect 2;');
+        assert.strictEqual(result, 'SELECT 1;\r\n\r\nSELECT 2;');
+    });
+
+    test('old Mac (lone CR): output for multiple queries has only \\r, no \\n at all', () => {
+        const result = formatSqlText('select 1;\r\rselect 2;');
+        assert.strictEqual(result, 'SELECT 1;\r\rSELECT 2;');
+        assert.strictEqual(result.includes('\n'), false);
+    });
+
+    test('Linux/new Mac (LF): unchanged behavior compared to the existing tests', () => {
+        const result = formatSqlText('select 1;\n\nselect 2;');
+        assert.strictEqual(result, 'SELECT 1;\n\nSELECT 2;');
+    });
+
+    test('Windows (CRLF): a single query whose own formatting splits into several lines (SELECT/FROM/WHERE)', () => {
+        const result = formatSqlText('select id from users where id = 1;\r\n');
+        assert.strictEqual(result, 'SELECT id\r\nFROM users\r\nWHERE id = 1;');
+        assert.strictEqual(result.includes('\n') && !result.includes('\r\n'), false);
+    });
+
+    test('old Mac (CR): a single query split into several lines also gets CR back instead of LF', () => {
+        const result = formatSqlText('select id from users where id = 1;\r');
+        assert.strictEqual(result, 'SELECT id\rFROM users\rWHERE id = 1;');
+    });
+});
