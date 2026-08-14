@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.0.23
+
+### Fixed
+- Running a SQL query ending in `;` followed by a Windows-style
+  line ending (CRLF) appended `LIMIT 200` after the semicolon
+  instead of replacing it, producing a syntax error. `select 1;`
+  worked fine, but the same query with a trailing CRLF (common in
+  Windows-saved files) did not. `SqlUtil.appendLimit` now trims
+  trailing whitespace before removing the semicolon.
+- Query-boundary detection (`findCurrentQuery`/`findAllQueries`) and
+  multi-statement "Format SQL" now correctly split on CRLF (Windows)
+  and CR (old Mac) line endings, not just LF, so running or
+  formatting SQL files is no longer Linux-only in behavior.
+- "Format SQL" no longer converts the whole file to LF line endings;
+  it now preserves the original CRLF/CR/LF style of the file/
+  selection being formatted.
+
 ## 1.0.22
 
 ### Added
