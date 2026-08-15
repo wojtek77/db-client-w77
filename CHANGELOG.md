@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.24
+
+### Changed
+- The data grid (`#gridContainer`) now uses a monospace font instead
+  of the default UI font. It reads `--vscode-editor-font-family` so
+  it matches the user's editor font settings, with Consolas, Ubuntu
+  Mono, DejaVu Sans Mono, Menlo, and Monaco as fallbacks for
+  Windows/Linux/macOS, and a generic `monospace` as last resort.
+
 ## 1.0.23
 
 ### Fixed
