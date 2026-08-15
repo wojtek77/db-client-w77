@@ -19,6 +19,8 @@ html, body {
     overflow: hidden;   /* sam nie przewija - przewija #gridScroll w środku */
     position: relative; /* punkt odniesienia dla loadingOverlay (inset: 0) */
     border: 0px solid var(--vscode-panel-border);
+    /* zmienna edytora VS Code jako pierwsza, potem fallbacki natywne dla Windows/Linux/macOS, na końcu ogólny monospace */
+    font-family: var(--vscode-editor-font-family, Consolas, 'Ubuntu Mono', 'DejaVu Sans Mono', Menlo, Monaco, monospace);
 }
 
 /* Jedyny faktycznie przewijany element - dzięki temu, że loadingOverlay
