@@ -1,6 +1,7 @@
 import { State } from './state.js';
 import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage } from './tableRenderer.js';
 import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, clearRowSelection, clearColumnSelection, clearCellSelection, hideToolsButtons } from './editor.js';
+import { restoreSearchUI, resetSearch } from './search.js';
 
 let sqlFile;
 let queryTimer = null;
@@ -200,6 +201,10 @@ window.addEventListener('message', event => {
         State.getInstance().isReadOnly = msg.isReadOnly ?? false;
         State.getInstance().infoMessage = msg.infoMessage;
         State.getInstance().errorMessage = msg.errorMessage;
+        // backend jest źródłem prawdy dla frazy wyszukiwania - wpisana fraza i liczby wierszy zawsze odzwierciedlają to, co faktycznie wysłał
+        State.getInstance().searchQuery = typeof msg.searchQuery === 'string' ? msg.searchQuery : '';
+        State.getInstance().totalRows = msg.totalRows ?? 0;
+        State.getInstance().totalRowsUnfiltered = msg.totalRowsUnfiltered ?? msg.totalRows ?? 0;
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
         updateInfoMessage(State.getInstance().infoMessage);
         updateErrorMessage(State.getInstance().errorMessage);
@@ -256,6 +261,9 @@ window.addEventListener('message', event => {
         const rowEntries = currentRows.map((data, i) => ({ key: rowKeys[i], data }));
         renderPage(rowEntries);
         console.timeEnd("⏱️ renderPage time");
+
+        // dociąga podświetlenie dopasowanego tekstu na właśnie wyrenderowaną stronę (i przywraca frazę/licznik, gdyby to był powrót do innego pliku)
+        restoreSearchUI();
         
         if (msg.isLast) {
             // ew. logika na koniec
@@ -304,6 +312,8 @@ window.addEventListener('message', event => {
         State.getInstance().connectionColor = msg.connectionColor ?? null;
         State.getInstance().isProduction = msg.isProduction ?? false;
         State.getInstance().isReadOnly = msg.isReadOnly ?? false;
+        // backend przywrócił zapamiętaną dla tego pliku frazę wyszukiwania (patrz FileResultState.searchQuery) - to on jest źródłem prawdy, nie lokalny cache State
+        State.getInstance().searchQuery = typeof msg.searchQuery === 'string' ? msg.searchQuery : '';
         
         startGridContainer();
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
@@ -320,6 +330,9 @@ window.addEventListener('message', event => {
         console.time("⏱️ restoreGridFromCache time");
         restoreGridFromCache();
         console.timeEnd("⏱️ restoreGridFromCache time");
+
+        // powrót do zakładki tego pliku -> przywróć jego własną frazę wyszukiwania i dociągnij podświetlenie na przywróconą z cache siatkę
+        restoreSearchUI();
     }
     
     if (msg.command === 'showEmpty') {
@@ -339,6 +352,7 @@ window.addEventListener('message', event => {
         updatePagination();
         hideToolsButtons();
         updateSaveColumnEditsButtonVisibility(true); // tylko ukrywa
+        resetSearch(); // pusty ekran nie powinien pokazywać frazy wyszukiwania z poprzednio oglądanego pliku
     }
     
     if (msg.command === 'changeConnection') {

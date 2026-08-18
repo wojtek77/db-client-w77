@@ -360,6 +360,44 @@ button.btn:disabled {
     align-items: center;
 }
 
+.search-box {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.search-input {
+    width: 140px;
+    padding: 2px 5px;
+    border: 1px solid gray;
+    border-radius: 6px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font: inherit;
+    font-weight: normal;
+    outline: none;
+}
+.search-input:focus {
+    border-color: var(--vscode-focusBorder);
+}
+
+.search-count {
+    font-size: 11px;
+    font-weight: normal;
+    min-width: 3.5em;
+    text-align: center;
+    color: var(--vscode-descriptionForeground, gray);
+    white-space: nowrap;
+}
+
+/* podświetlenie fragmentu tekstu pasującego do frazy wyszukiwania - te same zmienne, których używa wbudowane "Find" w edytorze VS Code, więc wygląda spójnie z resztą UI */
+mark.search-match {
+    background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+    color: inherit;
+    border-radius: 2px;
+    padding: 0;
+}
+
 .page-info {
     font-size: 11px;
     /* margin: 0 10px; */

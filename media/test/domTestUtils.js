@@ -27,6 +27,10 @@ const BASE_HTML = `<!doctype html>
         <span id="deleteRowsBtn" class="tools-btn delete-rows-btn"></span>
         <span id="saveColumnEditsBtn" class="tools-btn save-column-edits-btn"></span>
     </div>
+    <div class="search-box">
+        <input type="text" id="searchInput" class="search-input">
+        <span id="searchCount" class="search-count"></span>
+    </div>
     <div class="pagination">
         <button class="btn" id="firstBtn"></button>
         <button class="btn" id="prevBtn"></button>

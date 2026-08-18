@@ -34,6 +34,7 @@ interface FileResultState {
     isProduction: boolean;
     isReadOnly: boolean;
     currentPage: number;
+    searchQuery: string;
 }
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
@@ -83,6 +84,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _flashMessage = '';
     private _errorMessage = '';
     private readonly ROWS_PER_PAGE = 200;
+    // pusty string = brak aktywnego wyszukiwania; niepusty = aktywna fraza (patrz applySearchFilter/performSearch)
+    private _searchQuery = '';
+    // podzbiór this._allRows pasujący do _searchQuery, w kolejności wyświetlania; null = brak aktywnego filtra (wtedy sendPage używa całego _allRows).
+    // Trzymamy same RowEntry (z ich .key), nie osobne indeksy - dzięki temu updateCellInDB/deleteRowsInDB/resolveSelectedRows w ogóle nie muszą wiedzieć,
+    // czy filtr jest aktywny: zawsze adresują wiersz przez .key w this._allRows, niezależnie od tego, co jest akurat wyświetlane.
+    private _filteredEntries: RowEntry[] | null = null;
     private _context?: vscode.ExtensionContext;
     // _viewReady === true oznacza, że skrypt JS w webview się załadował i zarejestrował listener – samo `this._view` tego nie gwarantuje
     private _viewReady = false;
@@ -149,15 +156,17 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
 
             if (msg.command === 'loadPage') {
-                this._currentPage = msg.page;
-                
-                // zapamiętaj aktualną stronę w stanie tego pliku, żeby po ponownym uruchomieniu tego samego SQL-a można było na nią wrócić
+                this.sendPage(msg.page);
+
+                // zapamiętaj aktualną stronę w stanie tego pliku (po ewentualnym przycięciu w sendPage) - żeby po powrocie do pliku/rerunie tego samego SQL-a wrócić na właściwą
                 const fileState = this._fileStates.get(this._currentSqlFile);
                 if (fileState) {
-                    fileState.currentPage = msg.page;
+                    fileState.currentPage = this._currentPage;
                 }
-                
-                this.sendPage(msg.page);
+            }
+
+            if (msg.command === 'search') {
+                this.performSearch(msg.query);
             }
             
             if (msg.command === 'updateCell') {
@@ -251,6 +260,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         switch (msg.command) {
             case 'loadPage':
                 return typeof msg.page === 'number' && msg.page > 0;
+
+            case 'search':
+                return typeof msg.query === 'string';
 
             case 'updateCell':
                 return typeof msg.rowKey === 'number' && typeof msg.rowIndex === 'number' && typeof msg.columnIndex === 'number';
@@ -354,6 +366,60 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    /**
+     * Przelicza this._filteredEntries na podstawie this._searchQuery i AKTUALNEJ zawartości
+     * this._allRows. Wywoływana zarówno przy wpisaniu nowej frazy, jak i po każdej operacji,
+     * która zmienia dane pod spodem (delete, bulk column edit, ponowne uruchomienie tego
+     * samego SQL-a) - dzięki temu przefiltrowany widok zawsze odzwierciedla to, co faktycznie
+     * jest w wynikach. Filtrujemy całe RowEntry (nie same indeksy) - każdy wpis niesie swój
+     * .key, więc żadna inna metoda nigdy nie musi tłumaczyć pozycji na stronie na cokolwiek.
+     */
+    private applySearchFilter() {
+        const query = this._searchQuery.trim();
+
+        if (!query) {
+            this._filteredEntries = null;
+            return;
+        }
+
+        // wyszukiwanie bez rozróżniania wielkości liter, tak jak filtr w większości narzędzi tabelarycznych
+        const needle = query.toLowerCase();
+        const columnCount = this._headers.length;
+
+        this._filteredEntries = this._allRows.filter((entry) => {
+            for (let j = 0; j < columnCount; j++) {
+                const value = entry.data[j];
+                // null/undefined renderują się jako 'NULL' w siatce, więc szukanie 'null' też powinno je znaleźć
+                const text = (value === null || value === undefined) ? 'NULL' : String(value);
+
+                if (text.toLowerCase().includes(needle)) {
+                    return true; // wystarczy jedno trafienie w wierszu - liczy się CAŁY wiersz, nie konkretna kolumna
+                }
+            }
+            return false;
+        });
+    }
+
+    /**
+     * Obsługa komendy 'search' z webview: ustawia nową frazę, przelicza filtr i wysyła
+     * stronę 1 przefiltrowanych wyników - identycznie jak zwykłe 'appendData', więc webview
+     * nie potrzebuje żadnej osobnej ścieżki renderowania dla wyszukiwania.
+     */
+    private performSearch(rawQuery: string) {
+        if (!this._view) {return;}
+
+        this._searchQuery = rawQuery;
+        this.applySearchFilter();
+
+        const fileState = this._fileStates.get(this._currentSqlFile);
+        if (fileState) {
+            fileState.searchQuery = this._searchQuery;
+        }
+
+        // nowe wyszukiwanie zawsze wraca na stronę 1 - poprzednia strona mogła nie istnieć w przefiltrowanym zbiorze
+        this.sendPage(1, true, false);
+    }
+
     private updateHtml() {
         if (!this._view) {throw new Error("missing webview");}
         
@@ -369,14 +435,22 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
     private sendPage(pageNumber: number, clearSelection = false, isSameQuery = true) {
         if (!this._view) {return;}
-        
-        const start = (pageNumber - 1) * this.ROWS_PER_PAGE;
+
+        // gdy wyszukiwanie jest aktywne, paginujemy po przefiltrowanym podzbiorze zamiast po całym _allRows
+        const source = this._filteredEntries ?? this._allRows;
+        const totalRows = source.length;
+        const totalPages = Math.max(1, Math.ceil(totalRows / this.ROWS_PER_PAGE));
+
+        // pageNumber mogło zostać policzone dla innego (większego) zbioru wierszy niż aktualny - przycinamy, żeby nie wysłać pustej/nieistniejącej strony
+        const clampedPage = Math.min(Math.max(1, pageNumber), totalPages);
+        this._currentPage = clampedPage;
+
+        const start = (clampedPage - 1) * this.ROWS_PER_PAGE;
         const end = start + this.ROWS_PER_PAGE;
-        const pageEntries = this._allRows.slice(start, end);
+        const pageEntries = source.slice(start, end);
         const pageRows = pageEntries.map((entry) => entry.data);
         // stabilne identyfikatory wierszy tej strony - webview odsyła je z powrotem przy edycji/usuwaniu zamiast liczyć page-relative -> global offset
         const rowKeys = pageEntries.map((entry) => entry.key);
-        const totalPages = Math.ceil(this._allRows.length / this.ROWS_PER_PAGE);
         
         // 1. Konwertujemy wiersze na string JSON
         const rowsJsonString = JSON.stringify(pageRows);
@@ -393,9 +467,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 rowKeys, // mała tablica liczb - nie wymaga binarnego kodowania jak rows
                 headers: this._headers,
                 columnTypes: this._columnTypes,
-                totalRows: this._allRows.length,
-                isLast: (pageNumber === totalPages),
-                currentPage: pageNumber,
+                totalRows,
+                // pełna (nieprzefiltrowana) liczba wierszy w wynikach - webview używa jej do etykiety "X z Y" obok pola wyszukiwania
+                totalRowsUnfiltered: this._allRows.length,
+                // backend jest źródłem prawdy dla frazy wyszukiwania - webview synchronizuje z tym pole inputu
+                searchQuery: this._searchQuery,
+                isLast: (clampedPage === totalPages),
+                currentPage: clampedPage,
                 totalPages: totalPages,
                 connectionName: this._connectionName,
                 connectionTime: this._connectionTime,
@@ -684,11 +762,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const deletedKeys = new Set(rowKeys);
             this._allRows = this._allRows.filter((entry) => !deletedKeys.has(entry.key));
 
-            // jeśli usunięto ostatnie wiersze na ostatniej stronie, cofamy się do istniejącej strony
-            const totalPages = Math.max(1, Math.ceil(this._allRows.length / this.ROWS_PER_PAGE));
-            if (this._currentPage > totalPages) {
-                this._currentPage = totalPages;
-            }
+            // wiersze zniknęły z this._allRows - przeliczamy filtr wyszukiwania na nowo (sendPage sam przytnie stronę, jeśli trzeba)
+            this.applySearchFilter();
 
             this.sendPage(this._currentPage, true);
 
@@ -764,8 +839,17 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            // ID (wartości PK) wszystkich wierszy z bieżących wyników (this._allRows), nie tylko z wyrenderowanej strony – to one wyznaczają zakres UPDATE-u
-            const pkValueTuples = this._allRows.map(
+            // gdy aktywny jest filtr wyszukiwania, bulk-edit dotyczy tylko wierszy, które aktualnie przez niego przechodzą - nie całych wyników SQL
+            const scopedEntries = this._filteredEntries ?? this._allRows;
+
+            if (scopedEntries.length === 0) {
+                vscode.window.showErrorMessage('No rows matching the current search to update');
+                this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
+                return;
+            }
+
+            // ID (wartości PK) wszystkich wierszy objętych operacją (scopedEntries), nie tylko z wyrenderowanej strony – to one wyznaczają zakres UPDATE-u
+            const pkValueTuples = scopedEntries.map(
                 (entry) => primaryKeys.map((pk) => entry.data[pk.index])
             );
 
@@ -807,12 +891,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 })
                 .join(', ');
 
-            const recordCount = this._allRows.length;
+            const recordCount = scopedEntries.length;
 
             const db = await this.getDbForCurrentFile();
 
             const confirmed = await this.confirmDestructiveOperation(
-                `Change ${changesPreview} for ${recordCount} record(s) matching the current SQL results in table "${tableName}"? ` +
+                `Change ${changesPreview} for ${recordCount} record(s) matching the current SQL results${this._searchQuery ? ' and search filter' : ''} in table "${tableName}"? ` +
                 `This cannot be undone.`,
                 'Update',
                 db
@@ -838,12 +922,15 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 throw err;
             }
 
-            // backend jest źródłem prawdy – odzwierciedlamy zmianę we wszystkich wierszach (this._allRows), żeby webview pokazał aktualne wartości
+            // backend jest źródłem prawdy – odzwierciedlamy zmianę tylko w wierszach objętych operacją (scopedEntries), żeby webview pokazał aktualne wartości
             for (const edit of normalizedEdits) {
-                for (const entry of this._allRows) {
+                for (const entry of scopedEntries) {
                     entry.data[edit.columnIndex] = edit.value;
                 }
             }
+
+            // wartości mogły się zmienić w kolumnie, po której filtruje aktywne wyszukiwanie - przeliczamy, jakie wiersze nadal pasują
+            this.applySearchFilter();
 
             // odśwież widok: znika czerwone podświetlenie kolumny i przycisk zapisu, komórki pokazują nową wartość
             this.sendPage(this._currentPage, true);
@@ -1168,8 +1255,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._infoMessage = infoMessage ?? '';
         this._flashMessage = flashMessage ?? '';
         this._errorMessage = errorMessage ?? '';
-        
-        const totalPages = Math.max(1, Math.ceil(this._allRows.length / this.ROWS_PER_PAGE));
+
+        // ten sam SQL co poprzednio -> filtr wyszukiwania przeżywa rerun (przeliczony na nowo dla świeżych danych), inaczej/nowy SQL -> filtr czyścimy
+        this._searchQuery = isSameQueryAsBefore ? (previousFileState?.searchQuery ?? '') : '';
+        this.applySearchFilter();
+
+        const totalRows = this._filteredEntries ? this._filteredEntries.length : this._allRows.length;
+        const totalPages = Math.max(1, Math.ceil(totalRows / this.ROWS_PER_PAGE));
         if (isSameQueryAsBefore) {
             // ten sam SQL co poprzednio -> zostajemy na poprzedniej stronie (przycięte do zakresu, gdyby liczba wierszy się zmieniła)
             this._currentPage = Math.min(previousFileState!.currentPage, totalPages);
@@ -1191,6 +1283,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             isProduction: this._isProduction,
             isReadOnly: this._isReadOnly,
             currentPage: this._currentPage,
+            searchQuery: this._searchQuery,
         });
         
         // wysłanie info o tym że dane się łądują (blur)
@@ -1212,6 +1305,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._headers = [];
         this._meta = [];
         this._columnTypes = [];
+        this._searchQuery = '';
+        this._filteredEntries = null;
 
         if (this._view) {
             this._view.webview.postMessage({
@@ -1253,6 +1348,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._isProduction = state.isProduction ?? false;
         this._isReadOnly = state.isReadOnly ?? false;
         this._currentPage = state.currentPage ?? 1;
+        // przywracamy filtr wyszukiwania zapamiętany dla tego pliku, żeby powrót do zakładki nie gubił frazy/zawężonej listy
+        this._searchQuery = state.searchQuery ?? '';
+        this.applySearchFilter();
 
         this._view.webview.postMessage({
             command: 'showResultsForFile',
@@ -1260,6 +1358,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             connectionColor: this._connectionColor,
             isProduction: this._isProduction,
             isReadOnly: this._isReadOnly,
+            searchQuery: this._searchQuery,
             sentAt: Date.now() // znacznik czasu w ms
         });
     }

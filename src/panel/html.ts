@@ -98,6 +98,11 @@ ${cssContent}
         Export TXT
     </span>
 
+    <div class="search-box" title="Search results (Ctrl/Cmd+F)">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search results…" autocomplete="off" spellcheck="false">
+        <span id="searchCount" class="search-count"></span>
+    </div>
+
     <div class="pagination">
 
         <button class="btn" id="firstBtn">

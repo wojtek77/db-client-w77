@@ -39,6 +39,9 @@
  * @property {Set<string>} selectedCellPositions - Pozycje pojedynczo zaznaczonych komórek
  *   w formacie "row-col" (odpowiednik selectedRowIndexes, ale dla zaznaczenia komórki).
  *   Klasa CSS 'selected-cell' to tylko wizualny efekt uboczny.
+ * @property {string} searchQuery - Aktualnie wpisana/zsynchronizowana z backendem fraza wyszukiwania (backend jest źródłem prawdy).
+ * @property {number} totalRows - Liczba wierszy PO zastosowaniu filtra wyszukiwania (to na jej podstawie liczona jest paginacja).
+ * @property {number} totalRowsUnfiltered - Pełna liczba wierszy w wynikach SQL, bez filtra - używana tylko do etykiety "X z Y" przy polu wyszukiwania.
  */
 
 export class State {
@@ -73,6 +76,9 @@ export class State {
                 selectedRowIndexes: new Set(),
                 selectedColIndexes: new Set(),
                 selectedCellPositions: new Set(),
+                searchQuery: '',
+                totalRows: 0,
+                totalRowsUnfiltered: 0,
             });
         }
 
