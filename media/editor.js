@@ -145,9 +145,10 @@ function startEditingCell(cell, vscode) {
         // tekst zmieniamy tymczasowo, pełne potwierdzenie (zielony błysk) przyjdzie z bazy danych
         cell.textContent = newValue;
 
-        // wysyłamy dokładnie to, co odbiera: msg.rowIndex, msg.columnIndex, msg.value
+        // rowKey to stabilny identyfikator wiersza z backendu (patrz RowEntry.key) - nim adresujemy wiersz w bazie; rowIndex jedzie tylko po to, żeby backend odesłał go bez zmian w 'updateConfirmed' i dało się namierzyć komórkę do animacji
         vscode.postMessage({
             command: 'updateCell',
+            rowKey: State.getInstance().currentRows?.[rowIndex]?.key,
             rowIndex: rowIndex,
             columnIndex: colIndex,
             value: newValue
@@ -412,13 +413,18 @@ export function hideToolsButtons() {
     });
 }
 
-/* zbiera indeksy aktualnie zaznaczonych wierszy (page-relative, tak jak przy edycji komórki),
-   posortowane rosnąco - tak samo jak wcześniej zwracał je querySelectorAll (kolejność w DOM) */
-function collectSelectedRowIndexes() {
-    return [...State.getInstance().selectedRowIndexes].sort((a, b) => a - b);
+/* zbiera stabilne identyfikatory (RowEntry.key z backendu) aktualnie zaznaczonych wierszy,
+   posortowane rosnąco wg ich page-relative pozycji (tak samo jak wcześniej zwracał je querySelectorAll) -
+   sortujemy PRZED mapowaniem na klucze, bo klucze same w sobie nie muszą być rosnące (np. po usunięciu wierszy) */
+function collectSelectedRowKeys() {
+    const rows = State.getInstance().currentRows || [];
+    return [...State.getInstance().selectedRowIndexes]
+        .sort((a, b) => a - b)
+        .map((rowIndex) => rows[rowIndex]?.key)
+        .filter((key) => key !== undefined);
 }
 
-/* obsługa kliknięcia ikony kosza - wysyła indeksy zaznaczonych wierszy do rozszerzenia */
+/* obsługa kliknięcia ikony kosza - wysyła identyfikatory zaznaczonych wierszy do rozszerzenia */
 export function initDeleteRowsButton(vscode) {
     const deleteBtn = document.getElementById('deleteRowsBtn');
     const gridBody = document.getElementById('gridBody');
@@ -427,14 +433,14 @@ export function initDeleteRowsButton(vscode) {
     }
 
     deleteBtn.addEventListener('click', () => {
-        const rowIndexes = collectSelectedRowIndexes();
-        if (rowIndexes.length === 0) {
+        const rowKeys = collectSelectedRowKeys();
+        if (rowKeys.length === 0) {
             return;
         }
 
         vscode.postMessage({
             command: 'deleteRows',
-            rowIndexes
+            rowKeys
         });
     });
 }
@@ -459,12 +465,12 @@ export function initGenerateSqlButtons(vscode) {
         }
 
         btn.addEventListener('click', () => {
-            const rowIndexes = collectSelectedRowIndexes();
-            if (rowIndexes.length === 0) {
+            const rowKeys = collectSelectedRowKeys();
+            if (rowKeys.length === 0) {
                 return;
             }
 
-            vscode.postMessage({ command, rowIndexes });
+            vscode.postMessage({ command, rowKeys });
         });
     }
 }

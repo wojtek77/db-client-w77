@@ -183,7 +183,7 @@ export function clearColumnPreview(columnIndex) {
             // nie nadpisuj komórki, która akurat jest w trakcie edycji (ma input/textarea)
             if (cell.querySelector('input, textarea')) {return;}
 
-            const rowData = currentRows ? currentRows[i] : undefined;
+            const rowData = currentRows ? currentRows[i]?.data : undefined;
             cell.textContent = rowData ? (rowData[columnIndex] ?? 'NULL') : '';
         });
     }
@@ -210,19 +210,27 @@ function rowsEqual(rowA, rowB, headerCount) {
     return true;
 }
 
-export function renderPage(data) {
+/**
+ * Renderuje stronę wyników. entries to tablica wpisów {key, data} (patrz RowEntry
+ * w SqlResultsProvider.ts) - key to stabilny identyfikator wiersza z backendu, data
+ * to jego wartości kolumn. Trzymamy je razem (zamiast osobnych currentRows/currentRowKeys),
+ * żeby nie było dwóch struktur, które muszą się zgadzać co do kolejności/długości.
+ * @param {Array<{key: number, data: Array}>} entries
+ */
+export function renderPage(entries) {
     const headers = State.getInstance().headers;
     const rows = State.getInstance().cachedGrid;
-    const dataCount = data.length;
+    const dataCount = entries.length;
     const headerCount = headers.length;
-    const lastData = State.getInstance().currentRows;
+    const lastEntries = State.getInstance().currentRows;
 
     for (let i = 0; i < dataCount; ++i) {
-        if (lastData && rowsEqual(lastData[i], data[i], headerCount)) {
+        const lastData = lastEntries ? lastEntries[i]?.data : undefined;
+        if (lastData && rowsEqual(lastData, entries[i].data, headerCount)) {
             continue;
         }
         
-        const rowData = data[i];
+        const rowData = entries[i].data;
         const rowCells = rows[i];
 
         for (let j = 0; j < headerCount; ++j) {
@@ -237,5 +245,5 @@ export function renderPage(data) {
         }
     }
     
-    State.getInstance().currentRows = data;
+    State.getInstance().currentRows = entries;
 }

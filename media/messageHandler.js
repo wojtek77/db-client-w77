@@ -251,7 +251,10 @@ window.addEventListener('message', event => {
         }
         
         console.time("⏱️ renderPage time");
-        renderPage(currentRows);
+        // sklejamy surowe dane (currentRows) ze stabilnymi identyfikatorami wierszy (msg.rowKeys) w jedną tablicę {key, data} - patrz RowEntry w SqlResultsProvider.ts i JSDoc State.currentRows
+        const rowKeys = Array.isArray(msg.rowKeys) ? msg.rowKeys : [];
+        const rowEntries = currentRows.map((data, i) => ({ key: rowKeys[i], data }));
+        renderPage(rowEntries);
         console.timeEnd("⏱️ renderPage time");
         
         if (msg.isLast) {

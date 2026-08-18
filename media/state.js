@@ -1,7 +1,11 @@
 /**
  * @typedef {Object} FileState
  * @property {string} filename - Nazwa aktualnie załadowanego pliku.
- * @property {Array} currentRows - Tablica z aktualnymi wierszami danych.
+ * @property {Array<{key: number, data: Array}>} currentRows - Ostatnio wyrenderowane wiersze bieżącej
+ *   strony. Każdy wpis to {key, data}: key to stabilny identyfikator wiersza z backendu (patrz RowEntry.key
+ *   w SqlResultsProvider.ts, page-relative index = pozycja w tej tablicy), data to jego wartości kolumn.
+ *   Trzymane razem (nie jako dwie równoległe tablice), żeby nie było dwóch struktur do zsynchronizowania.
+ *   Wysyłany z powrotem do backendu przy edycji/usuwaniu, żeby backend nie musiał przeliczać page-relative -> global.
  * @property {Array<string>} headers - Tablica z nagłówkami kolumn.
  * @property {Array<string>} columnTypes - Typy danych kolumn (np. 'varchar', 'text'), równoległe do headers.
  * @property {number} currentPage - Numer aktualnej strony.

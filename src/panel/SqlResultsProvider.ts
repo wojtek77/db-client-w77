@@ -11,8 +11,18 @@ import { TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatSqlValue } from '../sql/formatSqlValue.js';
 import { resolvePrimaryKeyColumns, resolveTableColumns } from '../sql/resolvePrimaryKeyColumns.js';
 
+/** Wiersz wyniku SQL razem ze stabilnym, permanentnym identyfikatorem (key). Klucz jest
+ * niezależny od pozycji w tablicy - nigdy nie jest przypisywany ponownie innemu wierszowi,
+ * nawet gdy inne wiersze zostaną usunięte (this._allRows.filter() przesuwa pozycje, ale
+ * nie dotyka wartości .key). Dzięki temu webview może zawsze zaadresować konkretny wiersz
+ * przez jego key, niezależnie od tego, która strona/w jakiej kolejności jest renderowana. */
+interface RowEntry {
+    key: number;
+    data: any[];
+}
+
 interface FileResultState {
-    rows: any[][];
+    rows: RowEntry[];
     headers: string[];
     sql: string;
     meta: any[];
@@ -62,7 +72,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _isProduction = false;
     private _isReadOnly = false;
     private _extensionUri: vscode.Uri;
-    private _allRows: any[][] = [];
+    private _allRows: RowEntry[] = [];
     private _headers: string[] = [];
     private _lastQueryTime = 0;
     private _meta: any[] = [];
@@ -151,11 +161,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
             
             if (msg.command === 'updateCell') {
-                await this.updateCellInDB(msg.rowIndex, msg.columnIndex, msg.value);
+                await this.updateCellInDB(msg.rowKey, msg.rowIndex, msg.columnIndex, msg.value);
             }
             
             if (msg.command === 'deleteRows') {
-                await this.deleteRowsInDB(msg.rowIndexes);
+                await this.deleteRowsInDB(msg.rowKeys);
             }
 
             if (msg.command === 'saveColumnEdits') {
@@ -163,15 +173,15 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
 
             if (msg.command === 'generateInsert') {
-                await this.generateInsertSQL(msg.rowIndexes);
+                await this.generateInsertSQL(msg.rowKeys);
             }
 
             if (msg.command === 'generateUpdate') {
-                await this.generateUpdateSQL(msg.rowIndexes);
+                await this.generateUpdateSQL(msg.rowKeys);
             }
 
             if (msg.command === 'generateDelete') {
-                await this.generateDeleteSQL(msg.rowIndexes);
+                await this.generateDeleteSQL(msg.rowKeys);
             }
             
             if (msg.command === 'changeConnection') {
@@ -243,13 +253,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 return typeof msg.page === 'number' && msg.page > 0;
 
             case 'updateCell':
-                return typeof msg.rowIndex === 'number' && typeof msg.columnIndex === 'number';
+                return typeof msg.rowKey === 'number' && typeof msg.rowIndex === 'number' && typeof msg.columnIndex === 'number';
 
             case 'deleteRows':
             case 'generateInsert':
             case 'generateUpdate':
             case 'generateDelete':
-                return isNumberArray(msg.rowIndexes);
+                return isNumberArray(msg.rowKeys);
 
             case 'saveColumnEdits':
                 return Array.isArray(msg.edits) && msg.edits.every((edit: any) =>
@@ -362,7 +372,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         
         const start = (pageNumber - 1) * this.ROWS_PER_PAGE;
         const end = start + this.ROWS_PER_PAGE;
-        const pageRows = this._allRows.slice(start, end);
+        const pageEntries = this._allRows.slice(start, end);
+        const pageRows = pageEntries.map((entry) => entry.data);
+        // stabilne identyfikatory wierszy tej strony - webview odsyła je z powrotem przy edycji/usuwaniu zamiast liczyć page-relative -> global offset
+        const rowKeys = pageEntries.map((entry) => entry.key);
         const totalPages = Math.ceil(this._allRows.length / this.ROWS_PER_PAGE);
         
         // 1. Konwertujemy wiersze na string JSON
@@ -377,6 +390,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 command: 'appendData',
                 sqlFile: this._currentSqlFile,
                 rows: rowsBuffer, // VS Code automatycznie obsłuży to jako transfer binarny
+                rowKeys, // mała tablica liczb - nie wymaga binarnego kodowania jak rows
                 headers: this._headers,
                 columnTypes: this._columnTypes,
                 totalRows: this._allRows.length,
@@ -459,13 +473,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         return ConnectionManager.getInstance().getDb(fileState.connectionName);
     }
 
-    private async updateCellInDB(rowIndex: number, columnIndex: number, value: any) {
+    private async updateCellInDB(rowKey: number, rowIndex: number, columnIndex: number, value: any) {
         try {
             const db = await this.getDbForCurrentFile();
 
-            // rowIndex przychodzi z webview jako indeks w obrębie wyrenderowanej strony – doliczamy offset, żeby trafić we właściwy wiersz w this._allRows
-            const globalIndex = (this._currentPage - 1) * this.ROWS_PER_PAGE + rowIndex;
-            const row = this._allRows[globalIndex];
+            // rowKey to stabilny identyfikator wiersza (patrz RowEntry) - żadnej arytmetyki z bieżącą stroną, działa niezależnie od tego, co jest aktualnie wyrenderowane
+            const entry = this._allRows.find((r) => r.key === rowKey);
+            const row = entry?.data;
 
             if (!row) {
                 vscode.window.showErrorMessage(`Row ${rowIndex} not found`);
@@ -538,7 +552,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             
             await db.query(updateSQL, [value, ...whereValues]);
 
-            this._allRows[globalIndex][columnIndex] = value;
+            row[columnIndex] = value;
 
             if (this._view) {
                 this._view.webview.postMessage({
@@ -562,18 +576,18 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async deleteRowsInDB(rowIndexes: number[]) {
-        if (!rowIndexes || rowIndexes.length === 0) {
+    private async deleteRowsInDB(rowKeys: number[]) {
+        if (!rowKeys || rowKeys.length === 0) {
             return;
         }
 
         try {
-            // rowIndexes przychodzą jako indeksy w obrębie wyrenderowanej strony – doliczamy offset bieżącej strony (tak samo jak w updateCellInDB)
-            const globalIndexes = rowIndexes.map(
-                (rowIndex) => (this._currentPage - 1) * this.ROWS_PER_PAGE + rowIndex
-            );
+            // rowKeys to stabilne identyfikatory (patrz RowEntry) - żadnej arytmetyki z bieżącą stroną
+            const entries = rowKeys
+                .map((key) => this._allRows.find((r) => r.key === key))
+                .filter((entry): entry is RowEntry => entry !== undefined);
 
-            const rows = globalIndexes.map((idx) => this._allRows[idx]).filter(Boolean);
+            const rows = entries.map((entry) => entry.data);
 
             if (rows.length === 0) {
                 vscode.window.showErrorMessage('Selected rows not found');
@@ -665,9 +679,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 throw err;
             }
 
-            // backend jest źródłem prawdy - usuwamy skasowane wiersze z lokalnego cache
-            const deletedGlobalIndexes = new Set(globalIndexes);
-            this._allRows = this._allRows.filter((_, idx) => !deletedGlobalIndexes.has(idx));
+            // backend jest źródłem prawdy - usuwamy skasowane wiersze z lokalnego cache. Filtrujemy po .key (stabilny, nigdy nie przypisywany ponownie),
+            // nie po pozycji w tablicy - klucze pozostałych wierszy pozostają nietknięte niezależnie od tego, ile wierszy przed nimi zniknęło
+            const deletedKeys = new Set(rowKeys);
+            this._allRows = this._allRows.filter((entry) => !deletedKeys.has(entry.key));
 
             // jeśli usunięto ostatnie wiersze na ostatniej stronie, cofamy się do istniejącej strony
             const totalPages = Math.max(1, Math.ceil(this._allRows.length / this.ROWS_PER_PAGE));
@@ -751,7 +766,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             // ID (wartości PK) wszystkich wierszy z bieżących wyników (this._allRows), nie tylko z wyrenderowanej strony – to one wyznaczają zakres UPDATE-u
             const pkValueTuples = this._allRows.map(
-                (row) => primaryKeys.map((pk) => row[pk.index])
+                (entry) => primaryKeys.map((pk) => entry.data[pk.index])
             );
 
             // sortujemy ID przed wstawieniem do UPDATE-u, żeby były czytelne w logach SQL
@@ -825,8 +840,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             // backend jest źródłem prawdy – odzwierciedlamy zmianę we wszystkich wierszach (this._allRows), żeby webview pokazał aktualne wartości
             for (const edit of normalizedEdits) {
-                for (const row of this._allRows) {
-                    row[edit.columnIndex] = edit.value;
+                for (const entry of this._allRows) {
+                    entry.data[edit.columnIndex] = edit.value;
                 }
             }
 
@@ -916,22 +931,22 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             : `\`${schema}\`.\`${tableName}\``;
     }
 
-    /** Zwraca wiersze (z this._allRows) odpowiadające page-relative rowIndexes z webview. */
-    private resolveSelectedRows(rowIndexes: number[]): any[][] {
-        return rowIndexes
-            .map((rowIndex) => (this._currentPage - 1) * this.ROWS_PER_PAGE + rowIndex)
-            .map((globalIndex) => this._allRows[globalIndex])
-            .filter(Boolean);
+    /** Zwraca wiersze (z this._allRows) odpowiadające stabilnym rowKeys z webview - żadnej arytmetyki page-relative -> global (patrz RowEntry). */
+    private resolveSelectedRows(rowKeys: number[]): any[][] {
+        return rowKeys
+            .map((key) => this._allRows.find((r) => r.key === key))
+            .filter((entry): entry is RowEntry => entry !== undefined)
+            .map((entry) => entry.data);
     }
 
-    private async generateInsertSQL(rowIndexes: number[]) {
+    private async generateInsertSQL(rowKeys: number[]) {
         try {
-            if (!rowIndexes || rowIndexes.length === 0) {return;}
+            if (!rowKeys || rowKeys.length === 0) {return;}
 
             const context = await this.resolveTableContext();
             if (!context) {return;}
 
-            const rows = this.resolveSelectedRows(rowIndexes);
+            const rows = this.resolveSelectedRows(rowKeys);
             if (rows.length === 0) {
                 vscode.window.showErrorMessage('Selected rows not found');
                 return;
@@ -956,14 +971,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async generateUpdateSQL(rowIndexes: number[]) {
+    private async generateUpdateSQL(rowKeys: number[]) {
         try {
-            if (!rowIndexes || rowIndexes.length === 0) {return;}
+            if (!rowKeys || rowKeys.length === 0) {return;}
 
             const context = await this.resolveTableContext();
             if (!context) {return;}
 
-            const rows = this.resolveSelectedRows(rowIndexes);
+            const rows = this.resolveSelectedRows(rowKeys);
             if (rows.length === 0) {
                 vscode.window.showErrorMessage('Selected rows not found');
                 return;
@@ -997,14 +1012,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async generateDeleteSQL(rowIndexes: number[]) {
+    private async generateDeleteSQL(rowKeys: number[]) {
         try {
-            if (!rowIndexes || rowIndexes.length === 0) {return;}
+            if (!rowKeys || rowKeys.length === 0) {return;}
 
             const context = await this.resolveTableContext();
             if (!context) {return;}
 
-            const rows = this.resolveSelectedRows(rowIndexes);
+            const rows = this.resolveSelectedRows(rowKeys);
             if (rows.length === 0) {
                 vscode.window.showErrorMessage('Selected rows not found');
                 return;
@@ -1137,7 +1152,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const previousFileState = this._fileStates.get(sqlFile);
         const isSameQueryAsBefore = previousFileState?.sql === sql;
         
-        this._allRows = rows;
+        // każdy wiersz dostaje stabilny, permanentny key (0, 1, 2...) niezależny od pozycji w tablicy - patrz RowEntry
+        let nextKey = 0;
+        this._allRows = rows.map((data: any[]) => ({ key: nextKey++, data }));
         this._headers = headers;
         this._lastSQL = sql;
         this._meta = meta;
@@ -1334,7 +1351,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     
     private async exportToCSV() {
         try {
-            const rows = this._allRows;
+            const rows = this._allRows.map((entry) => entry.data); // eksport operuje na surowych danych, key jest szczegółem wewnętrznym backendu
             const headers = this._headers;
 
             if (rows.length === 0) {
@@ -1383,7 +1400,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     
     private async exportToTXT() {
         try {
-            const rows = this._allRows;
+            const rows = this._allRows.map((entry) => entry.data); // eksport operuje na surowych danych, key jest szczegółem wewnętrznym backendu
             const headers = this._headers;
 
             if (rows.length === 0) {
