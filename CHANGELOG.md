@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0
+
+### Changed
+- Rows in the SQL results grid are now addressed by a stable,
+  permanent identifier instead of their position on the current page.
+  `SqlResultsProvider` tracks each row as `{ key, data }` (`RowEntry`)
+  instead of a plain array, with `key` assigned once when results are
+  loaded and never reassigned to a different row, even after other
+  rows are deleted. `updateCellInDB`, `deleteRowsInDB`, and
+  `resolveSelectedRows` now look rows up by this key instead of
+  converting a page-relative row index to a position in the full
+  result set. The webview mirrors this: `State.currentRows` now holds
+  `{ key, data }` entries instead of two separate arrays
+  (`currentRows`/`currentRowKeys`) that had to be kept in sync by
+  hand. No user-visible behavior change.
+
 ## 1.0.24
 
 ### Changed
