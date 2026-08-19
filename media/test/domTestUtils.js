@@ -26,6 +26,7 @@ const BASE_HTML = `<!doctype html>
         <span id="generateDeleteBtn" class="tools-btn generate-delete-btn"></span>
         <span id="deleteRowsBtn" class="tools-btn delete-rows-btn"></span>
         <span id="saveColumnEditsBtn" class="tools-btn save-column-edits-btn"></span>
+        <span id="cancelColumnEditsBtn" class="tools-btn cancel-column-edits-btn"></span>
     </div>
     <div class="search-box">
         <div class="search-input-wrap">

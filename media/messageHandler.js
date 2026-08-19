@@ -26,6 +26,7 @@ function getToolsBtnElements() {
         'generateDeleteBtn',
         'deleteRowsBtn',
         'saveColumnEditsBtn',
+        'cancelColumnEditsBtn',
     ].map(id => document.getElementById(id)).filter(Boolean);
 }
 

@@ -84,6 +84,7 @@ ${cssContent}
         <span id="generateDeleteBtn" class="tools-btn generate-delete-btn" title="Generate DELETE SQL">➖</span>
         <span id="deleteRowsBtn" class="tools-btn delete-rows-btn" title="Delete selected rows">❌</span>
         <span id="saveColumnEditsBtn" class="tools-btn save-column-edits-btn" title="Save new value(s) for the whole column(s)">💾 Save</span>
+        <span id="cancelColumnEditsBtn" class="tools-btn cancel-column-edits-btn" title="Cancel pending column edit(s)">✖ Cancel</span>
     </div>
 
     <span class="btn" id="openRecentFilesBtn">

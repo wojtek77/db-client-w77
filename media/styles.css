@@ -219,7 +219,8 @@ html, body {
 /* Na połączeniu tylko-do-odczytu edycja/usuwanie i tak zostaną odrzucone przez
    backend (Connection.query), więc od razu wygaszamy te przyciski w UI */
 .toolbar.readonly-connection .delete-rows-btn,
-.toolbar.readonly-connection .save-column-edits-btn {
+.toolbar.readonly-connection .save-column-edits-btn,
+.toolbar.readonly-connection .cancel-column-edits-btn {
     opacity: 0.35;
     pointer-events: none;
 }
@@ -291,6 +292,16 @@ html, body {
     font-weight: bold;
     color: var(--vscode-editor-foreground);
     background-color: var(--vscode-editorError-background);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid gray
+}
+
+.cancel-column-edits-btn {
+    margin-left: 0.5em;
+    font-weight: bold;
+    color: var(--vscode-editor-foreground);
+    background-color: var(--vscode-editor-background);
     padding: 2px 8px;
     border-radius: 4px;
     border: 1px solid gray

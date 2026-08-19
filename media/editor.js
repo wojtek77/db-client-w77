@@ -15,6 +15,7 @@ export function initEditor(vscode) {
         initDeleteRowsButton(vscode);
         initGenerateSqlButtons(vscode);
         initSaveColumnEditsButton(vscode);
+        initCancelColumnEditsButton();
 
     });
 }
@@ -28,7 +29,7 @@ const MULTILINE_COLUMN_TYPES = new Set([
 ]);
 
 // przyciski zależne od zaznaczenia wierszy pobieramy przez getElementById na żądanie, nie cache'ujemy w module (bo `document` mógłby jeszcze nie istnieć)
-// saveColumnEditsBtn celowo pominięty – jego widocznością steruje updateSaveColumnEditsButtonVisibility
+// saveColumnEditsBtn i cancelColumnEditsBtn celowo pominięte – ich widocznością steruje updateSaveColumnEditsButtonVisibility
 function getRowToolsBtnElements() {
     return [
         'generateInsertBtn',
@@ -221,13 +222,16 @@ export function reapplyAllColumnEdits() {
     updateSaveColumnEditsButtonVisibility();
 }
 
-/* pokazuje/ukrywa przycisk "Save" w zależności od tego, czy są jakieś oczekujące edycje kolumn */
+/* pokazuje/ukrywa przyciski "Save" i "Cancel" w zależności od tego, czy są jakieś oczekujące edycje kolumn */
 export function updateSaveColumnEditsButtonVisibility(onlyHide = false) {
-    const btn = document.getElementById('saveColumnEditsBtn');
-    if (!btn) {return;}
+    const saveBtn = document.getElementById('saveColumnEditsBtn');
+    const cancelBtn = document.getElementById('cancelColumnEditsBtn');
+    if (!saveBtn && !cancelBtn) {return;}
 
     const pending = onlyHide ? {} : (State.getInstance().pendingColumnEdits || {});
-    btn.style.display = Object.keys(pending).length > 0 ? 'inline-block' : 'none';
+    const display = Object.keys(pending).length > 0 ? 'inline-block' : 'none';
+    if (saveBtn) {saveBtn.style.display = display;}
+    if (cancelBtn) {cancelBtn.style.display = display;}
 }
 
 /* obsługa kliknięcia przycisku "Save" - wysyła wszystkie oczekujące edycje kolumn do
@@ -252,6 +256,16 @@ function initSaveColumnEditsButton(vscode) {
             command: 'saveColumnEdits',
             edits
         });
+    });
+}
+
+/* obsługa kliknięcia przycisku "Cancel" - odrzuca wszystkie oczekujące (jeszcze niezapisane) edycje kolumn bez wysyłania czegokolwiek do rozszerzenia */
+function initCancelColumnEditsButton() {
+    const btn = document.getElementById('cancelColumnEditsBtn');
+    if (!btn) {return;}
+
+    btn.addEventListener('click', () => {
+        cancelAllColumnEdits();
     });
 }
 
@@ -396,7 +410,7 @@ export function initRowSelection() {
 
 /* pokazuje ikony w .tools (kosz, generowanie SQL) tylko wtedy, gdy przynajmniej jeden wiersz jest zaznaczony
    (na podstawie State.selectedRowIndexes, bez przeszukiwania DOM po klasach).
-   Przycisk #saveColumnEditsBtn jest celowo pominięty - jego widoczność zależy wyłącznie
+   Przyciski #saveColumnEditsBtn i #cancelColumnEditsBtn są celowo pominięte - ich widoczność zależy wyłącznie
    od tego, czy są jakieś oczekujące edycje kolumn (patrz updateSaveColumnEditsButtonVisibility) */
 export function updateDeleteButtonVisibility() {
     const hasSelection = State.hasInstance() && State.getInstance().selectedRowIndexes.size > 0;
@@ -523,10 +537,7 @@ export function initColumnSelection() {
             State.getInstance().selectedColIndexes.delete(colIndex);
         }
 
-        // odznaczenie kolumny -> anuluj niezapisaną edycję tej kolumny (znika podświetlenie, wraca wartość, znika przycisk Save jeśli brak innych edycji)
-        if (!select) {
-            cancelColumnEdit(colIndex);
-        }
+        // uwaga: odznaczenie kolumny NIE anuluje jej oczekującej edycji - anulowanie zbiorczej edycji jest wyłącznie zadaniem przycisku "Cancel" (cancelColumnEditsBtn)
     }
 
     function clearAllColumns(headerCells) {
