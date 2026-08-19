@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.3
+
+### Added
+- A "Cancel" button now sits next to "Save" in the bulk column-edit
+  toolbar (`cancelColumnEditsBtn`), letting you discard all pending
+  column edits without saving.
+
+### Changed
+- Deselecting a column no longer discards its pending bulk edit. The
+  preview and the Save/Cancel buttons stay visible until you either
+  save or explicitly cancel, so you can freely select/deselect
+  columns while composing edits across several of them.
+
 ## 1.1.2
 
 ### Fixed
