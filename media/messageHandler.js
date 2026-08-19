@@ -1,7 +1,7 @@
 import { State } from './state.js';
 import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage } from './tableRenderer.js';
 import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, clearRowSelection, clearColumnSelection, clearCellSelection, hideToolsButtons } from './editor.js';
-import { restoreSearchUI, resetSearch } from './search.js';
+import { restoreSearchUI, resetSearch, hideSearchIndicator } from './search.js';
 
 let sqlFile;
 let queryTimer = null;
@@ -173,7 +173,10 @@ window.addEventListener('message', event => {
 
     if (msg.command === 'appendData') {
         console.log("--- START WEBVIEW PROCESSING ---");
-        
+
+        // każde appendData oznacza, że jeśli w tle trwało wyszukiwanie, to właśnie się rozstrzygnęło (wygrało najnowsze zapytanie) - bezpieczne no-op, gdy wskaźnik i tak nie był aktywny
+        hideSearchIndicator();
+
         const duration = Date.now() - msg.sentAt;
         console.log(`🚀 Travel time via postMessage: ${duration} ms`);
         

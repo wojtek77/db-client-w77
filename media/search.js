@@ -4,13 +4,78 @@ let vscodeRef;
 let debounceTimer = null;
 
 // debounce dla wyszukiwania w locie - bez tego każde naciśnięcie klawisza wywoływałoby pełne przeskanowanie this._allRows w backendzie
-const SEARCH_DEBOUNCE_MS = 300;
+const SEARCH_DEBOUNCE_MS = 150;
+
+// wskaźnik "szukam" pokazujemy dopiero po tylu ms od wysłania zapytania - krótkie wyszukiwania (większość przypadków) nigdy go nie zobaczą
+const SEARCH_INDICATOR_SHOW_DELAY_MS = 150;
+// gdy wskaźnik już się pokazał, trzymamy go minimum tyle ms, żeby nie migał przy wyszukiwaniach które akurat skończyły się chwilę po progu pokazania
+const SEARCH_INDICATOR_MIN_HOLD_MS = 300;
+
+let indicatorShowTimer = null;
+let indicatorHideTimer = null;
+let indicatorVisible = false;
+let indicatorShownAt = 0;
 
 function getEls() {
     return {
         input: document.getElementById('searchInput'),
         count: document.getElementById('searchCount'),
+        clearBtn: document.getElementById('searchClearBtn'),
+        spinner: document.getElementById('searchSpinner'),
     };
+}
+
+/** pokazuje/chowa krzyżyk czyszczenia frazy - widoczny tylko gdy input ma treść */
+function updateClearButtonVisibility() {
+    const { input, clearBtn } = getEls();
+    if (!clearBtn) {return;}
+    clearBtn.classList.toggle('visible', Boolean(input && input.value));
+}
+
+/** planuje pokazanie wskaźnika "szukam" po SEARCH_INDICATOR_SHOW_DELAY_MS - wywoływane przy każdym faktycznie wysłanym zapytaniu do backendu */
+function scheduleIndicatorShow() {
+    // nowe zapytanie startuje - ewentualne odliczanie do schowania poprzedniego wskaźnika jest już nieaktualne
+    if (indicatorHideTimer) {
+        clearTimeout(indicatorHideTimer);
+        indicatorHideTimer = null;
+    }
+    // wskaźnik już widoczny (poprzednie wyszukiwanie wciąż trwa) - to kolejne po prostu kontynuuje ten sam stan "szukam"
+    if (indicatorVisible || indicatorShowTimer) {return;}
+
+    indicatorShowTimer = setTimeout(() => {
+        indicatorShowTimer = null;
+        indicatorVisible = true;
+        indicatorShownAt = Date.now();
+        const { spinner } = getEls();
+        if (spinner) {spinner.classList.add('visible');}
+    }, SEARCH_INDICATOR_SHOW_DELAY_MS);
+}
+
+/** chowa wskaźnik "szukam" (od razu albo po dopilnowaniu minimalnego czasu pokazania) - wołane, gdy backend odpowiedział wynikiem wyszukiwania */
+export function hideSearchIndicator() {
+    // wyszukiwanie skończyło się zanim próg pokazania minął - wskaźnik nigdy się nie pokazał, nie ma czego chować
+    if (indicatorShowTimer) {
+        clearTimeout(indicatorShowTimer);
+        indicatorShowTimer = null;
+    }
+    if (!indicatorVisible) {return;}
+
+    const elapsed = Date.now() - indicatorShownAt;
+    const remaining = SEARCH_INDICATOR_MIN_HOLD_MS - elapsed;
+
+    const doHide = () => {
+        indicatorHideTimer = null;
+        indicatorVisible = false;
+        const { spinner } = getEls();
+        if (spinner) {spinner.classList.remove('visible');}
+    };
+
+    if (remaining <= 0) {
+        doHide();
+    } else {
+        if (indicatorHideTimer) {clearTimeout(indicatorHideTimer);}
+        indicatorHideTimer = setTimeout(doHide, remaining);
+    }
 }
 
 function updateCountLabel() {
@@ -27,6 +92,8 @@ function updateCountLabel() {
 }
 
 function sendSearch(query) {
+    // wskaźnik liczy realny czas przetwarzania na backendzie, więc startuje dopiero tutaj, nie w momencie naciśnięcia klawisza (debounce to nie "szukanie")
+    scheduleIndicatorShow();
     vscodeRef.postMessage({ command: 'search', query });
 }
 
@@ -121,6 +188,17 @@ export function resetSearch() {
     if (input) {input.value = '';}
 
     updateCountLabel();
+    updateClearButtonVisibility();
+}
+
+/** czyści frazę i natychmiast wysyła puste zapytanie do backendu, z pominięciem debounce - to jednoznaczna akcja (przycisk/Escape), nie wpisywanie znaków */
+function clearSearch() {
+    if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+    }
+    resetSearch();
+    sendSearch('');
 }
 
 /**
@@ -139,6 +217,7 @@ export function restoreSearchUI() {
     }
 
     updateCountLabel();
+    updateClearButtonVisibility();
     highlightMatchesOnCurrentPage();
 }
 
@@ -146,24 +225,31 @@ export function initSearchListeners(vscode) {
     vscodeRef = vscode;
 
     document.addEventListener('DOMContentLoaded', () => {
-        const { input } = getEls();
+        const { input, clearBtn } = getEls();
         if (!input) {return;}
 
         input.addEventListener('input', () => {
             if (!State.hasInstance()) {return;}
             State.getInstance().searchQuery = input.value;
             updateCountLabel();
+            updateClearButtonVisibility();
             debouncedSearch(input.value);
         });
 
         input.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
                 event.preventDefault();
-                resetSearch();
-                sendSearch('');
+                clearSearch();
                 input.blur();
             }
         });
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                clearSearch();
+                input.focus();
+            });
+        }
 
         // Ctrl/Cmd+F wewnątrz webview przenosi fokus do pola wyszukiwania - bezpieczne, bo webview to osobny kontekst DOM niż główny edytor SQL w VS Code, więc nie koliduje z jego wbudowanym "Find"
         document.addEventListener('keydown', (event) => {

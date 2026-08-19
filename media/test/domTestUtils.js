@@ -28,7 +28,11 @@ const BASE_HTML = `<!doctype html>
         <span id="saveColumnEditsBtn" class="tools-btn save-column-edits-btn"></span>
     </div>
     <div class="search-box">
-        <input type="text" id="searchInput" class="search-input">
+        <div class="search-input-wrap">
+            <input type="text" id="searchInput" class="search-input">
+            <button type="button" id="searchClearBtn" class="search-clear-btn"></button>
+        </div>
+        <span id="searchSpinner" class="search-spinner"></span>
         <span id="searchCount" class="search-count"></span>
     </div>
     <div class="pagination">

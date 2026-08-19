@@ -6,6 +6,7 @@ import {
     highlightMatchesOnCurrentPage,
     restoreSearchUI,
     resetSearch,
+    hideSearchIndicator,
 } from '../search.js';
 
 /** minimalny fake VS Code API - zapamiętuje wszystkie postMessage, żeby testy mogły je zweryfikować */
@@ -258,6 +259,50 @@ describe('search.js - synchronizacja stanu i UI', () => {
         assert.equal(document.getElementById('searchCount').textContent, '');
     });
 
+    test('krzyżyk czyszczenia jest ukryty przy pustym inpucie i pojawia się po wpisaniu tekstu', () => {
+        setupDom();
+        buildGrid('search-clear-vis-1.sql', {
+            headers: ['name'],
+            currentRows: [['foo']],
+        });
+
+        const vscode = fakeVscode();
+        initSearchListeners(vscode);
+        document.dispatchEvent(new window.Event('DOMContentLoaded'));
+
+        const input = document.getElementById('searchInput');
+        const clearBtn = document.getElementById('searchClearBtn');
+        assert.equal(clearBtn.classList.contains('visible'), false);
+
+        input.value = 'f';
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+        assert.equal(clearBtn.classList.contains('visible'), true);
+    });
+
+    test('klik krzyżyka czyści frazę lokalnie i natychmiast wysyła pustą komendę search (bez czekania na debounce)', () => {
+        setupDom();
+        const state = buildGrid('search-clear-1.sql', {
+            headers: ['name'],
+            currentRows: [['foo']],
+        });
+        state.searchQuery = 'foo';
+
+        const vscode = fakeVscode();
+        initSearchListeners(vscode);
+        document.dispatchEvent(new window.Event('DOMContentLoaded'));
+
+        const input = document.getElementById('searchInput');
+        const clearBtn = document.getElementById('searchClearBtn');
+        input.value = 'foo';
+        clearBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+        assert.equal(state.searchQuery, '');
+        assert.equal(input.value, '');
+        assert.equal(clearBtn.classList.contains('visible'), false);
+        assert.deepEqual(vscode.sent, [{ command: 'search', query: '' }]);
+    });
+
     test('Ctrl+F (i Cmd+F) przenosi fokus do pola wyszukiwania', () => {
         setupDom();
         buildGrid('search-state-4.sql', {
@@ -275,5 +320,60 @@ describe('search.js - synchronizacja stanu i UI', () => {
         document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }));
 
         assert.equal(document.activeElement, input);
+    });
+});
+
+describe('search.js - wskaźnik "szukam"', () => {
+
+    test('krótkie wyszukiwanie (zakończone przed progiem pokazania) nigdy nie pokazuje wskaźnika', async () => {
+        setupDom();
+        buildGrid('search-ind-1.sql', {
+            headers: ['name'],
+            currentRows: [['foo']],
+        });
+
+        const vscode = fakeVscode();
+        initSearchListeners(vscode);
+        document.dispatchEvent(new window.Event('DOMContentLoaded'));
+
+        const input = document.getElementById('searchInput');
+        input.value = 'foo';
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+        // czekamy aż debounce wyśle zapytanie, ale krócej niż próg pokazania wskaźnika liczony od momentu wysłania
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        hideSearchIndicator(); // symulacja szybkiej odpowiedzi backendu (appendData)
+
+        const spinner = document.getElementById('searchSpinner');
+        assert.equal(spinner.classList.contains('visible'), false);
+    });
+
+    test('długie wyszukiwanie pokazuje wskaźnik po progu i chowa go dopiero po minimalnym czasie trzymania', async () => {
+        setupDom();
+        buildGrid('search-ind-2.sql', {
+            headers: ['name'],
+            currentRows: [['foo']],
+        });
+
+        const vscode = fakeVscode();
+        initSearchListeners(vscode);
+        document.dispatchEvent(new window.Event('DOMContentLoaded'));
+
+        const input = document.getElementById('searchInput');
+        input.value = 'foo';
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+        const spinner = document.getElementById('searchSpinner');
+
+        // po debounce (150ms) + progu pokazania (150ms) wskaźnik powinien być już widoczny
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        assert.equal(spinner.classList.contains('visible'), true);
+
+        // backend odpowiada zaraz po pokazaniu się wskaźnika - mimo to musi zostać widoczny jeszcze przez minimalny czas trzymania
+        hideSearchIndicator();
+        assert.equal(spinner.classList.contains('visible'), true, 'wskaźnik nie powinien zniknąć natychmiast');
+
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        assert.equal(spinner.classList.contains('visible'), false);
     });
 });

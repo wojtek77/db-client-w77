@@ -99,7 +99,11 @@ ${cssContent}
     </span>
 
     <div class="search-box" title="Search results (Ctrl/Cmd+F)">
-        <input type="text" id="searchInput" class="search-input" placeholder="Search results…" autocomplete="off" spellcheck="false">
+        <div class="search-input-wrap">
+            <input type="text" id="searchInput" class="search-input" placeholder="Search results…" autocomplete="off" spellcheck="false">
+            <button type="button" id="searchClearBtn" class="search-clear-btn" title="Clear search" aria-label="Clear search">✕</button>
+        </div>
+        <span id="searchSpinner" class="search-spinner" title="Searching…" aria-hidden="true"></span>
         <span id="searchCount" class="search-count"></span>
     </div>
 

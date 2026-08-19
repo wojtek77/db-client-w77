@@ -366,9 +366,15 @@ button.btn:disabled {
     align-items: center;
 }
 
+.search-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
 .search-input {
     width: 140px;
-    padding: 2px 5px;
+    padding: 2px 20px 2px 5px;
     border: 1px solid gray;
     border-radius: 6px;
     background: var(--vscode-input-background);
@@ -379,6 +385,54 @@ button.btn:disabled {
 }
 .search-input:focus {
     border-color: var(--vscode-focusBorder);
+}
+
+/* krzyżyk czyszczący frazę wyszukiwania - widoczny tylko gdy input ma treść (patrz updateClearButtonVisibility w search.js) */
+.search-clear-btn {
+    display: none;
+
+    position: absolute;
+    right: 3px;
+
+    width: 16px;
+    height: 16px;
+    padding: 0;
+
+    align-items: center;
+    justify-content: center;
+
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground, gray);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+}
+.search-clear-btn.visible {
+    display: flex;
+}
+.search-clear-btn:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+    color: var(--vscode-input-foreground);
+}
+
+/* mały spinner obok pola wyszukiwania - pokazywany z opóźnieniem i przytrzymywany minimalny czas, żeby nie migać przy szybkich wyszukiwaniach (patrz SEARCH_INDICATOR_* w search.js) */
+.search-spinner {
+    display: none;
+
+    width: 11px;
+    height: 11px;
+    flex: none;
+
+    border: 2px solid rgba(128, 128, 128, 0.3);
+    border-top: 2px solid var(--vscode-descriptionForeground, #3794ff);
+    border-radius: 50%;
+
+    animation: spin 0.8s linear infinite;
+}
+.search-spinner.visible {
+    display: inline-block;
 }
 
 .search-count {
