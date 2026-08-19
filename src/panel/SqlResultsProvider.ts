@@ -668,9 +668,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 .map((pk: any, i: number) => `${pk.name} = ${whereValues[i]}`)
                 .join(', ');
 
-            vscode.window.showInformationMessage(
-                `✅ Updated ${tableName}.${columnName} (${pkDisplay})`
-            );
+            // vscode.window.showInformationMessage(
+            //     `✅ Updated ${tableName}.${columnName} (${pkDisplay})`
+            // );
         } catch (err: any) {
             console.error('Update error:', err);
             vscode.window.showErrorMessage(`❌ Update error: ${err.message}`);
