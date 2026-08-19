@@ -1,6 +1,6 @@
 import { State } from './state.js';
 import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage } from './tableRenderer.js';
-import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, cancelPendingCellEdits, updateSaveCellEditsButtonVisibility, clearRowSelection, clearColumnSelection, clearCellSelection, hideToolsButtons } from './editor.js';
+import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, cancelPendingCellEdits, reapplyPendingCellEdits, updateSaveCellEditsButtonVisibility, clearRowSelection, clearColumnSelection, clearCellSelection, hideToolsButtons } from './editor.js';
 import { restoreSearchUI, resetSearch, hideSearchIndicator } from './search.js';
 
 let sqlFile;
@@ -268,9 +268,6 @@ window.addEventListener('message', event => {
         renderPage(rowEntries);
         console.timeEnd("⏱️ renderPage time");
 
-        // zbiorcza edycja komórek działa tylko w obrębie jednej strony - każde nowe dociągnięcie danych (nowy SQL, zmiana strony, zapis) unieważnia oczekującą grupę
-        cancelPendingCellEdits();
-
         // dociąga podświetlenie dopasowanego tekstu na właśnie wyrenderowaną stronę (i przywraca frazę/licznik, gdyby to był powrót do innego pliku)
         restoreSearchUI();
         
@@ -282,6 +279,7 @@ window.addEventListener('message', event => {
             // dane odświeżone z backendu -> znika podświetlenie i przycisk zapisu
             // musi być wywołane przed stopToolsBtn(), bo cancelAllColumnEdits() korzysta z jeszcze niewyczyszczonego State.pendingColumnEdits
             cancelAllColumnEdits();
+            cancelPendingCellEdits();
 
             // stopToolsBtn() musi zajrzeć do selectedRowIndexes zanim clearRowSelection() je wyczyści, inaczej zawsze widzi puste zaznaczenie i pomija ukrycie przycisków
             stopToolsBtn();
@@ -290,11 +288,13 @@ window.addEventListener('message', event => {
             clearCellSelection();
         } else {
             if (isSameQuery) {
-                // jeśli są niezapisane edycje kolumn, trzeba ponownie nałożyć ich podgląd, bo renderPage() nadpisał komórki wartościami z backendu
+                // jeśli są niezapisane edycje kolumn/grupy komórek, trzeba ponownie nałożyć ich podgląd, bo renderPage() nadpisał komórki wartościami z backendu - to samo dotyczy ponownego uruchomienia tego samego SQL-a (Ctrl+Enter), nie tylko zmiany strony
                 reapplyAllColumnEdits();
+                reapplyPendingCellEdits();
             } else {
-                // inny SQL niż poprzednio (isSameQuery już to uwzględnia razem ze zmianą gridShape) -> stare zaznaczenie odnosi się do poprzedniej siatki (inne węzły DOM po renderHeaders/initializeGrid), więc trzeba je wyczyścić
+                // inny SQL niż poprzednio (isSameQuery już to uwzględnia razem ze zmianą gridShape) -> stare zaznaczenie i pozycje odnoszą się do poprzedniej siatki (inne węzły DOM po renderHeaders/initializeGrid), więc trzeba je wyczyścić
                 // kolejność jak wyżej: najpierw stopToolsBtn() (widzi jeszcze pełne selectedRowIndexes), dopiero potem czyszczenie zaznaczeń
+                cancelPendingCellEdits();
                 stopToolsBtn();
                 clearRowSelection();
                 clearColumnSelection();

@@ -266,6 +266,15 @@ export function cancelPendingCellEdits() {
     updateSaveCellEditsButtonVisibility();
 }
 
+/** Ponownie nakłada podgląd oczekującej grupy komórek - odpowiednik reapplyAllColumnEdits, używane m.in. po ponownym uruchomieniu tego samego SQL-a (renderPage nadpisuje komórki wartościami z backendu). Pozycje są page-relative, więc po odświeżeniu po prostu odnoszą się do tego, co teraz jest na danej pozycji - tak samo jak przy bulk-edicie kolumny. */
+export function reapplyPendingCellEdits() {
+    const pending = State.getInstance().pendingCellEdits;
+    if (!pending) {return;}
+
+    applyCellGroupPreview(pending.positions, pending.value);
+    updateSaveCellEditsButtonVisibility();
+}
+
 /* pokazuje/ukrywa przyciski "Save cells" i "Cancel cells" w zależności od tego, czy jest oczekująca edycja grupy komórek */
 export function updateSaveCellEditsButtonVisibility(onlyHide = false) {
     const saveBtn = document.getElementById('saveCellEditsBtn');
