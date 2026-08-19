@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.1.1
+
+### Added
+- A search box in the SQL results toolbar filters the grid to rows
+  containing the typed text (case-insensitive, any column), with
+  matched text highlighted in the visible cells. Search state
+  (`_searchQuery`/`_filteredEntries`) is tracked per file, so it
+  survives tab switches and query re-runs, and is recomputed after
+  row deletes and bulk column edits (which are scoped to the filtered
+  subset when a search is active). Rows continue to be addressed by
+  their existing stable `.key` regardless of whether a filter is
+  active - no special-casing needed in `updateCellInDB`,
+  `deleteRowsInDB`, or `resolveSelectedRows`.
+- Filtering a large result set no longer blocks the extension host:
+  `applySearchFilter()` processes rows in batches, yielding to the
+  event loop between them, and a generation counter cancels a search
+  as soon as a newer one (or any other change to the underlying rows)
+  supersedes it - so typing a new character interrupts a still-running
+  search instead of waiting for it to finish.
+- The search input now shows a small spinner if a search takes longer
+  than ~150ms, and a clear ("x") button that empties the field and
+  re-runs the search immediately, bypassing the input's debounce.
+
+### Changed
+- Search input debounce reduced from 300ms to 150ms, now that a new
+  search cancels an in-flight one instead of queuing behind it.
+
 ## 1.1.0
 
 ### Changed
