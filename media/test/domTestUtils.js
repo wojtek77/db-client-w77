@@ -27,6 +27,8 @@ const BASE_HTML = `<!doctype html>
         <span id="deleteRowsBtn" class="tools-btn delete-rows-btn"></span>
         <span id="saveColumnEditsBtn" class="tools-btn save-column-edits-btn"></span>
         <span id="cancelColumnEditsBtn" class="tools-btn cancel-column-edits-btn"></span>
+        <span id="saveCellEditsBtn" class="tools-btn save-cell-edits-btn"></span>
+        <span id="cancelCellEditsBtn" class="tools-btn cancel-cell-edits-btn"></span>
     </div>
     <div class="search-box">
         <div class="search-input-wrap">
@@ -121,6 +123,11 @@ export function click(el, { ctrlKey = false, shiftKey = false, detail = 1 } = {}
         shiftKey,
         detail,
     }));
+}
+
+/** Symuluje podwójne kliknięcie myszą na elemencie (samo zdarzenie 'dblclick', bez poprzedzającego 'click'). */
+export function dblclick(el) {
+    el.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
 }
 
 /** Symuluje wciśnięcie klawisza (np. Ctrl+C) na danym elemencie (domyślnie document). */
