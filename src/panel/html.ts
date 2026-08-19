@@ -85,6 +85,8 @@ ${cssContent}
         <span id="deleteRowsBtn" class="tools-btn delete-rows-btn" title="Delete selected rows">❌</span>
         <span id="saveColumnEditsBtn" class="tools-btn save-column-edits-btn" title="Save new value(s) for the whole column(s)">💾 Save</span>
         <span id="cancelColumnEditsBtn" class="tools-btn cancel-column-edits-btn" title="Cancel pending column edit(s)">✖ Cancel</span>
+        <span id="saveCellEditsBtn" class="tools-btn save-cell-edits-btn" title="Save new value for the selected cells">📋 Save cells</span>
+        <span id="cancelCellEditsBtn" class="tools-btn cancel-cell-edits-btn" title="Cancel pending cell edit">✖ Cancel cells</span>
     </div>
 
     <span class="btn" id="openRecentFilesBtn">

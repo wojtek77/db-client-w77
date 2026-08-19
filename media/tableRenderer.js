@@ -193,6 +193,50 @@ export function clearColumnPreview(columnIndex) {
 }
 
 /**
+ * Nakłada WIZUALNY podgląd nowej wartości na dowolny zbiór KOMÓREK (nie całą kolumnę) - używane
+ * przez zbiorczą edycję niezależnie zaznaczonych komórek. To tylko widok, tak jak applyColumnPreview.
+ * @param {Set<string>} positions - pozycje w formacie "row-col"
+ * @param {string} value
+ */
+export function applyCellGroupPreview(positions, value) {
+    const rows = State.getInstance().cachedGrid;
+    if (!rows) {return;}
+
+    positions.forEach((key) => {
+        const [rowIndex, colIndex] = key.split('-').map(Number);
+        const cell = rows[rowIndex]?.[colIndex + 1];
+        if (!cell) {return;}
+        cell.textContent = value;
+        cell.classList.add('cell-edit-pending');
+    });
+}
+
+/**
+ * Zdejmuje podgląd z podanego zbioru komórek: usuwa podświetlenie i przywraca prawdziwą wartość
+ * z State.currentRows - odpowiednik clearColumnPreview, ale dla dowolnego zbioru komórek.
+ * @param {Set<string>} positions - pozycje w formacie "row-col"
+ */
+export function clearCellGroupPreview(positions) {
+    const rows = State.getInstance().cachedGrid;
+    const currentRows = State.getInstance().currentRows;
+    if (!rows) {return;}
+
+    positions.forEach((key) => {
+        const [rowIndex, colIndex] = key.split('-').map(Number);
+        const cell = rows[rowIndex]?.[colIndex + 1];
+        if (!cell) {return;}
+
+        cell.classList.remove('cell-edit-pending');
+
+        // nie nadpisuj komórki, która akurat jest w trakcie edycji (ma input/textarea)
+        if (cell.querySelector('input, textarea')) {return;}
+
+        const rowData = currentRows ? currentRows[rowIndex]?.data : undefined;
+        cell.textContent = rowData ? (rowData[colIndex] ?? 'NULL') : '';
+    });
+}
+
+/**
  * Płytkie porównanie dwóch wierszy kolumna-po-kolumnie (bez serializacji do JSON).
  * @param {Array} rowA
  * @param {Array} rowB

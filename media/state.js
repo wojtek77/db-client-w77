@@ -39,6 +39,7 @@
  * @property {Set<string>} selectedCellPositions - Pozycje pojedynczo zaznaczonych komórek
  *   w formacie "row-col" (odpowiednik selectedRowIndexes, ale dla zaznaczenia komórki).
  *   Klasa CSS 'selected-cell' to tylko wizualny efekt uboczny.
+ * @property {{value: string, positions: Set<string>}|null} pendingCellEdits - Oczekująca (jeszcze niezapisana) zbiorcza edycja NIEZALEŻNYCH ZAZNACZONYCH KOMÓREK (osobny mechanizm od pendingColumnEdits) - tylko jedna grupa naraz, positions to zbiór "row-col" z chwili startu edycji, value to jedna wspólna wartość dla całej grupy, tylko podgląd w webview dopóki użytkownik nie kliknie "Save cells", zasięg zawsze tylko bieżąca strona
  * @property {string} searchQuery - Aktualnie wpisana/zsynchronizowana z backendem fraza wyszukiwania (backend jest źródłem prawdy).
  * @property {number} totalRows - Liczba wierszy PO zastosowaniu filtra wyszukiwania (to na jej podstawie liczona jest paginacja).
  * @property {number} totalRowsUnfiltered - Pełna liczba wierszy w wynikach SQL, bez filtra - używana tylko do etykiety "X z Y" przy polu wyszukiwania.
@@ -73,6 +74,7 @@ export class State {
                 infoMessage: '',
                 errorMessage: '',
                 pendingColumnEdits: {},
+                pendingCellEdits: null,
                 selectedRowIndexes: new Set(),
                 selectedColIndexes: new Set(),
                 selectedCellPositions: new Set(),

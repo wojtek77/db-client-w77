@@ -1,6 +1,6 @@
 import { State } from './state.js';
 import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage } from './tableRenderer.js';
-import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, clearRowSelection, clearColumnSelection, clearCellSelection, hideToolsButtons } from './editor.js';
+import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, cancelPendingCellEdits, updateSaveCellEditsButtonVisibility, clearRowSelection, clearColumnSelection, clearCellSelection, hideToolsButtons } from './editor.js';
 import { restoreSearchUI, resetSearch, hideSearchIndicator } from './search.js';
 
 let sqlFile;
@@ -27,6 +27,8 @@ function getToolsBtnElements() {
         'deleteRowsBtn',
         'saveColumnEditsBtn',
         'cancelColumnEditsBtn',
+        'saveCellEditsBtn',
+        'cancelCellEditsBtn',
     ].map(id => document.getElementById(id)).filter(Boolean);
 }
 
@@ -266,6 +268,9 @@ window.addEventListener('message', event => {
         renderPage(rowEntries);
         console.timeEnd("⏱️ renderPage time");
 
+        // zbiorcza edycja komórek działa tylko w obrębie jednej strony - każde nowe dociągnięcie danych (nowy SQL, zmiana strony, zapis) unieważnia oczekującą grupę
+        cancelPendingCellEdits();
+
         // dociąga podświetlenie dopasowanego tekstu na właśnie wyrenderowaną stronę (i przywraca frazę/licznik, gdyby to był powrót do innego pliku)
         restoreSearchUI();
         
@@ -326,6 +331,7 @@ window.addEventListener('message', event => {
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
         updateDeleteButtonVisibility();
         updateSaveColumnEditsButtonVisibility();
+        updateSaveCellEditsButtonVisibility();
         
         // renderowanie HTML
         console.time("⏱️ restoreHeaderFromCache time");
@@ -356,6 +362,7 @@ window.addEventListener('message', event => {
         updatePagination();
         hideToolsButtons();
         updateSaveColumnEditsButtonVisibility(true); // tylko ukrywa
+        updateSaveCellEditsButtonVisibility(true); // tylko ukrywa
         resetSearch(); // pusty ekran nie powinien pokazywać frazy wyszukiwania z poprzednio oglądanego pliku
     }
     
@@ -382,6 +389,11 @@ window.addEventListener('message', event => {
     if (msg.command === 'columnEditsCancelled') {
         // użytkownik odrzucił prompt potwierdzenia (albo wystąpił błąd zapisu) -> nic nie zmienione w bazie, cofamy wizualny podgląd
         cancelAllColumnEdits();
+    }
+
+    if (msg.command === 'cellEditsCancelled') {
+        // użytkownik odrzucił prompt potwierdzenia (albo wystąpił błąd zapisu) -> nic nie zmienione w bazie, cofamy wizualny podgląd grupy komórek
+        cancelPendingCellEdits();
     }
 
     if (msg.command === 'clearCache') {

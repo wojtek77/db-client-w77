@@ -185,6 +185,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 await this.saveColumnEdits(msg.edits);
             }
 
+            if (msg.command === 'saveCellEdits') {
+                await this.saveCellEdits(msg.value, msg.cells);
+            }
+
             if (msg.command === 'generateInsert') {
                 await this.generateInsertSQL(msg.rowKeys);
             }
@@ -283,6 +287,15 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                     typeof edit.columnIndex === 'number' &&
                     typeof edit.columnName === 'string'
                 );
+
+            case 'saveCellEdits':
+                return typeof msg.value !== 'undefined' &&
+                    Array.isArray(msg.cells) && msg.cells.length > 0 && msg.cells.every((cell: any) =>
+                        cell && typeof cell === 'object' &&
+                        typeof cell.rowKey === 'number' &&
+                        typeof cell.columnIndex === 'number' &&
+                        typeof cell.columnName === 'string'
+                    );
 
             case 'webviewReady':
             case 'changeConnection':
@@ -966,6 +979,162 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             console.error('Column bulk update error:', err);
             vscode.window.showErrorMessage(`❌ Column bulk update error: ${err.message}`);
             this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
+        }
+    }
+
+    /**
+     * Zbiorcza edycja NIEZALEŻNIE ZAZNACZONYCH KOMÓREK (nowa funkcja, osobna od saveColumnEdits) -
+     * wszystkie przekazane komórki dostają tę samą nową wartość. Zakres to wyłącznie komórki
+     * przekazane z webview (bieżąca strona, w przeciwieństwie do saveColumnEdits, które obejmuje
+     * całe wyniki SQL) - stąd rowKey adresujący pojedynczy wiersz zamiast globalnego WHERE ... IN
+     * po wszystkich rekordach. Minimalizacja liczby SQL-i: komórki grupujemy najpierw po wierszu
+     * (jeden UPDATE z wieloma SET dla wiersza z kilkoma zaznaczonymi kolumnami), a potem wiersze
+     * o dokładnie tym samym zestawie edytowanych kolumn scalamy w jeden UPDATE z WHERE pk IN (...),
+     * analogicznie do mechanizmu WHERE IN z saveColumnEdits (celowo nie wydzielony jako wspólna
+     * funkcja - to kilkanaście prostych linii, a duplikacja jest tu czytelniejsza niż pośredni helper).
+     */
+    private async saveCellEdits(
+        value: any,
+        cells: { rowKey: number; rowIndex: number; columnIndex: number; columnName: string }[]
+    ) {
+        if (!cells || cells.length === 0) {
+            return;
+        }
+
+        try {
+            const context = await this.resolveTableContext();
+            if (!context) {
+                this._view?.webview.postMessage({ command: 'cellEditsCancelled' });
+                return;
+            }
+
+            const { tableName, qualifiedTable, columns, primaryKeys } = context;
+
+            // bezpieczeństwo: columnName z webview trafia wprost do UPDATE (SET `<columnName>` = ?), musi być zweryfikowane tak samo jak w saveColumnEdits
+            const trustedColumnNames = new Set(columns.map((c) => c.name));
+            const unknownColumn = cells.find((cell) => !trustedColumnNames.has(cell.columnName));
+            if (unknownColumn) {
+                vscode.window.showErrorMessage(`Refusing to update unknown column "${unknownColumn.columnName}"`);
+                this._view?.webview.postMessage({ command: 'cellEditsCancelled' });
+                return;
+            }
+
+            // rowKey to stabilny identyfikator wiersza (patrz RowEntry) - mapujemy na realny wiersz w this._allRows, żadnej arytmetyki page-relative -> global
+            const entryByRowKey = new Map(cells.map((cell) => [cell.rowKey, this._allRows.find((r) => r.key === cell.rowKey)]));
+            if ([...entryByRowKey.values()].some((entry) => !entry)) {
+                vscode.window.showErrorMessage('Row not found for one of the selected cells');
+                this._view?.webview.postMessage({ command: 'cellEditsCancelled' });
+                return;
+            }
+
+            let normalizedValue = value;
+            if (typeof normalizedValue === 'string' && normalizedValue.trim().toUpperCase() === 'NULL') {
+                normalizedValue = null;
+            }
+
+            // grupujemy komórki wg rowKey - wiersz z kilkoma zaznaczonymi kolumnami dostanie jeden UPDATE z wieloma SET (ta sama wartość w każdym SET)
+            const columnNamesByRowKey = new Map<number, string[]>();
+            for (const cell of cells) {
+                const list = columnNamesByRowKey.get(cell.rowKey) ?? [];
+                if (!list.includes(cell.columnName)) {
+                    list.push(cell.columnName);
+                }
+                columnNamesByRowKey.set(cell.rowKey, list);
+            }
+
+            // wiersze o dokładnie tym samym zestawie edytowanych kolumn scalają się w jeden UPDATE z WHERE pk IN (...)
+            const rowKeysByColumnSet = new Map<string, number[]>();
+            for (const [rowKey, columnNames] of columnNamesByRowKey) {
+                const setKey = [...columnNames].sort().join('\u0000');
+                const list = rowKeysByColumnSet.get(setKey) ?? [];
+                list.push(rowKey);
+                rowKeysByColumnSet.set(setKey, list);
+            }
+
+            const pkColumnNames = primaryKeys.map((pk) => `\`${pk.name}\``);
+
+            const updates: { sql: string; values: any[] }[] = [];
+
+            for (const [setKey, rowKeys] of rowKeysByColumnSet) {
+                const columnNames = setKey.split('\u0000');
+
+                const pkValueTuples = rowKeys
+                    .map((rowKey) => entryByRowKey.get(rowKey)!.data)
+                    .map((row) => primaryKeys.map((pk) => row[pk.index]));
+
+                // sortujemy ID przed wstawieniem do UPDATE-u, żeby były czytelne w logach SQL - tak samo jak w saveColumnEdits
+                pkValueTuples.sort((tupleA, tupleB) => this.comparePkTuples(tupleA, tupleB));
+
+                let whereClause: string;
+                let whereValues: any[];
+
+                if (pkColumnNames.length === 1) {
+                    const placeholders = pkValueTuples.map(() => '?').join(', ');
+                    whereClause = `${pkColumnNames[0]} IN (${placeholders})`;
+                    whereValues = pkValueTuples.map((tuple) => tuple[0]);
+                } else {
+                    const tuplePlaceholder = `(${pkColumnNames.map(() => '?').join(', ')})`;
+                    const placeholders = pkValueTuples.map(() => tuplePlaceholder).join(', ');
+                    whereClause = `(${pkColumnNames.join(', ')}) IN (${placeholders})`;
+                    whereValues = pkValueTuples.flat();
+                }
+
+                const setClause = columnNames.map((name) => `\`${name}\` = ?`).join(', ');
+                const setValues = columnNames.map(() => normalizedValue);
+
+                updates.push({
+                    sql: `UPDATE ${qualifiedTable} SET ${setClause} WHERE ${whereClause}`,
+                    values: [...setValues, ...whereValues]
+                });
+            }
+
+            const columnInfoByName = new Map(columns.map((c) => [c.name, c]));
+            const firstColumnName = cells[0].columnName;
+            const valuePreview = formatSqlValue(normalizedValue, columnInfoByName.get(firstColumnName)?.field);
+
+            const db = await this.getDbForCurrentFile();
+
+            const confirmed = await this.confirmDestructiveOperation(
+                `Change ${cells.length} cell(s) across ${columnNamesByRowKey.size} record(s) in table "${tableName}" to ${valuePreview}? ` +
+                `This cannot be undone.`,
+                'Update',
+                db
+            );
+            if (!confirmed) {
+                this._view?.webview.postMessage({ command: 'cellEditsCancelled' });
+                return;
+            }
+
+            await db.startTransaction();
+            try {
+                for (const update of updates) {
+                    await db.query(update.sql, update.values);
+                }
+                await db.commit();
+            } catch (err) {
+                await db.rollback();
+                throw err;
+            }
+
+            // backend jest źródłem prawdy - odzwierciedlamy zmianę w this._allRows dla wszystkich edytowanych komórek
+            for (const cell of cells) {
+                const entry = entryByRowKey.get(cell.rowKey)!;
+                entry.data[cell.columnIndex] = normalizedValue;
+            }
+
+            // wartości mogły się zmienić w kolumnie, po której filtruje aktywne wyszukiwanie - przeliczamy, jakie wiersze nadal pasują
+            await this.applySearchFilter();
+
+            // odśwież widok: znika czerwone podświetlenie komórek i przyciski zapisu, komórki pokazują nową wartość
+            this.sendPage(this._currentPage, true);
+
+            vscode.window.showInformationMessage(
+                `✅ Updated ${cells.length} cell(s) across ${columnNamesByRowKey.size} record(s) in ${tableName}`
+            );
+        } catch (err: any) {
+            console.error('Cell bulk update error:', err);
+            vscode.window.showErrorMessage(`❌ Cell bulk update error: ${err.message}`);
+            this._view?.webview.postMessage({ command: 'cellEditsCancelled' });
         }
     }
 

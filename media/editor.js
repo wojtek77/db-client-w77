@@ -1,5 +1,5 @@
 import { State } from './state.js';
-import { applyColumnPreview, clearColumnPreview } from './tableRenderer.js';
+import { applyColumnPreview, clearColumnPreview, applyCellGroupPreview, clearCellGroupPreview } from './tableRenderer.js';
 
 export function initEditor(vscode) {
     document.addEventListener('DOMContentLoaded', () => {
@@ -16,6 +16,8 @@ export function initEditor(vscode) {
         initGenerateSqlButtons(vscode);
         initSaveColumnEditsButton(vscode);
         initCancelColumnEditsButton();
+        initSaveCellEditsButton(vscode);
+        initCancelCellEditsButton();
 
     });
 }
@@ -52,6 +54,9 @@ function focusGridContainer() {
     }
 }
 
+// dzieli initCellEditing i initCellSelection (dblclick musi umieć anulować to, co zaplanował zwykły klik) - patrz komentarz przy jej użyciu w initCellSelection
+let pendingCellCollapseTimer = null;
+
 /* edycja komórki */
 function initCellEditing(vscode) {
 
@@ -63,6 +68,12 @@ function initCellEditing(vscode) {
 
         // blokujemy nagłówki, LP oraz sytuację gdy pole edycji już istnieje
         if (!cell || cell.classList.contains('lp-cell') || cell.querySelector('input, textarea')) {return;}
+
+        // pierwszy klik tego dblclicku mógł zaplanować zwężenie zaznaczenia do tej jednej komórki (patrz initCellSelection) - odwołujemy to, żeby edycja widziała pełne, wieloelementowe zaznaczenie
+        if (pendingCellCollapseTimer) {
+            clearTimeout(pendingCellCollapseTimer);
+            pendingCellCollapseTimer = null;
+        }
 
         startEditingCell(cell, vscode);
     });
@@ -140,6 +151,15 @@ function startEditingCell(cell, vscode) {
         if (isColumnSelected) {
             // cała kolumna jest zaznaczona -> zamiast update'ować jeden wiersz, startujemy wyłącznie wizualny podgląd zbiorczej edycji tej kolumny
             startColumnEdit(colIndex, newValue);
+            return;
+        }
+
+        // niezależny mechanizm od edycji kolumny: edytowana komórka jest zaznaczona i jest jeszcze co najmniej jedna inna zaznaczona komórka -> cały zaznaczony zbiór dostaje tę samą nową wartość
+        const selectedCells = State.getInstance().selectedCellPositions;
+        const isPartOfCellGroup = selectedCells.has(`${rowIndex}-${colIndex}`) && selectedCells.size >= 2;
+
+        if (isPartOfCellGroup) {
+            startCellGroupEdit(newValue);
             return;
         }
 
@@ -222,6 +242,42 @@ export function reapplyAllColumnEdits() {
     updateSaveColumnEditsButtonVisibility();
 }
 
+/**
+ * Startuje (wyłącznie wizualny) podgląd zbiorczej edycji NIEZALEŻNIE ZAZNACZONYCH KOMÓREK - osobny
+ * mechanizm od startColumnEdit, zawsze tylko jedna grupa naraz. Zapamiętuje aktualny zbiór
+ * selectedCellPositions (kopię, żeby dalsze zmiany zaznaczenia nie ruszały już wystartowanej grupy)
+ * razem z nową wartością w State.pendingCellEdits i nakłada podgląd na wszystkie jego komórki.
+ */
+function startCellGroupEdit(value) {
+    const positions = new Set(State.getInstance().selectedCellPositions);
+    State.getInstance().pendingCellEdits = { value, positions };
+
+    applyCellGroupPreview(positions, value);
+    updateSaveCellEditsButtonVisibility();
+}
+
+/** Anuluje oczekującą edycję grupy komórek i przywraca ich realne wartości - odpowiednik cancelAllColumnEdits, ale zawsze tylko dla jednej istniejącej grupy. */
+export function cancelPendingCellEdits() {
+    const pending = State.getInstance().pendingCellEdits;
+    if (!pending) {return;}
+
+    clearCellGroupPreview(pending.positions);
+    State.getInstance().pendingCellEdits = null;
+    updateSaveCellEditsButtonVisibility();
+}
+
+/* pokazuje/ukrywa przyciski "Save cells" i "Cancel cells" w zależności od tego, czy jest oczekująca edycja grupy komórek */
+export function updateSaveCellEditsButtonVisibility(onlyHide = false) {
+    const saveBtn = document.getElementById('saveCellEditsBtn');
+    const cancelBtn = document.getElementById('cancelCellEditsBtn');
+    if (!saveBtn && !cancelBtn) {return;}
+
+    const hasPending = !onlyHide && State.getInstance().pendingCellEdits !== null;
+    const display = hasPending ? 'inline-block' : 'none';
+    if (saveBtn) {saveBtn.style.display = display;}
+    if (cancelBtn) {cancelBtn.style.display = display;}
+}
+
 /* pokazuje/ukrywa przyciski "Save" i "Cancel" w zależności od tego, czy są jakieś oczekujące edycje kolumn */
 export function updateSaveColumnEditsButtonVisibility(onlyHide = false) {
     const saveBtn = document.getElementById('saveColumnEditsBtn');
@@ -269,6 +325,49 @@ function initCancelColumnEditsButton() {
     });
 }
 
+/* obsługa kliknięcia przycisku "Save cells" - wysyła oczekującą edycję grupy komórek do rozszerzenia; ono pokaże okno potwierdzenia i wykona (lub anuluje) faktyczny zapis */
+function initSaveCellEditsButton(vscode) {
+    const btn = document.getElementById('saveCellEditsBtn');
+    if (!btn) {return;}
+
+    btn.addEventListener('click', () => {
+        const pending = State.getInstance().pendingCellEdits;
+        if (!pending) {return;}
+
+        const headers = State.getInstance().headers;
+        const currentRows = State.getInstance().currentRows || [];
+
+        // rowKey to stabilny identyfikator wiersza z backendu (patrz RowEntry.key) - nim backend adresuje wiersz w bazie, rowIndex/columnIndex jadą tylko po to, żeby dało się odtworzyć podgląd po stronie webview
+        const cells = [...pending.positions].map((key) => {
+            const [rowIndex, colIndex] = key.split('-').map(Number);
+            return {
+                rowKey: currentRows[rowIndex]?.key,
+                rowIndex,
+                columnIndex: colIndex,
+                columnName: headers[colIndex]
+            };
+        }).filter((cell) => cell.rowKey !== undefined);
+
+        if (cells.length === 0) {return;}
+
+        vscode.postMessage({
+            command: 'saveCellEdits',
+            value: pending.value,
+            cells
+        });
+    });
+}
+
+/* obsługa kliknięcia przycisku "Cancel cells" - odrzuca oczekującą edycję grupy komórek bez wysyłania czegokolwiek do rozszerzenia */
+function initCancelCellEditsButton() {
+    const btn = document.getElementById('cancelCellEditsBtn');
+    if (!btn) {return;}
+
+    btn.addEventListener('click', () => {
+        cancelPendingCellEdits();
+    });
+}
+
 /* zaznaczenie wiersza - selectedRowIndexes w State jest źródłem prawdy, klasa
    'selected-row' to tylko wizualny efekt uboczny aktualizowany razem z nim */
 function setRowSelected(row, rowIndex, select) {
@@ -307,6 +406,12 @@ export function clearColumnSelection() {
 
 // odznacza wszystkie aktualnie zaznaczone komórki na podstawie Setu, bez przeszukiwania DOM
 export function clearCellSelection() {
+    // odwołujemy ewentualne odroczone zwężenie zaznaczenia po zwykłym kliku (patrz initCellSelection) - siatka mogła się właśnie przebudować, więc stary targetIndex już by nie pasował
+    if (pendingCellCollapseTimer) {
+        clearTimeout(pendingCellCollapseTimer);
+        pendingCellCollapseTimer = null;
+    }
+
     const rows = State.getInstance().cachedGrid || [];
     State.getInstance().selectedCellPositions.forEach(key => {
         const [r, c] = key.split('-').map(Number);
@@ -722,6 +827,18 @@ export function initCellSelection() {
 
         const wasSelected = State.getInstance().selectedCellPositions.has(`${targetIndex.row}-${targetIndex.col}`);
         const selectedCount = State.getInstance().selectedCellPositions.size;
+
+        // pierwszy 'click' podwójnego kliknięcia (event.detail===1) wygląda dokładnie tak samo jak zwykły pojedynczy klik - jeśli trafił w komórkę należącą do zaznaczenia obejmującego więcej niż jedną komórkę, nie zwężamy go od razu, tylko odkładamy na krótką chwilę, żeby dblclick (patrz initCellEditing) zdążył to odwołać i zobaczyć pełne zaznaczenie
+        if (wasSelected && selectedCount > 1) {
+            if (pendingCellCollapseTimer) {clearTimeout(pendingCellCollapseTimer);}
+            pendingCellCollapseTimer = setTimeout(() => {
+                pendingCellCollapseTimer = null;
+                clearAllCells();
+                selectCell(targetIndex.row, targetIndex.col, true);
+                anchorCell = targetIndex;
+            }, 300);
+            return;
+        }
 
         clearAllCells();
 
