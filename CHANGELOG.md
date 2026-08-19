@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.2
+
+### Fixed
+- The information popup shown after updating a cell (`✅ Updated
+  table.column (pk)`) has been removed, as it could appear over the
+  SQL results grid and get in the way while editing multiple cells
+  in a row.
+
 ## 1.1.1
 
 ### Added
