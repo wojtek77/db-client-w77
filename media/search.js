@@ -166,6 +166,8 @@ export function highlightMatchesOnCurrentPage() {
             if (cell.querySelector('input, textarea')) {continue;}
             // komórka z niezapisanym podglądem bulk-edita kolumny (patrz applyColumnPreview w tableRenderer.js) pokazuje CELOWO inną wartość niż State.currentRows - nie nadpisujemy jej
             if (cell.classList.contains('column-edit-pending')) {continue;}
+            // to samo dla niezapisanego podglądu zbiorczej edycji niezależnie zaznaczonych komórek (patrz applyCellGroupPreview w tableRenderer.js)
+            if (cell.classList.contains('cell-edit-pending')) {continue;}
 
             const text = String(entry.data[j - 1] ?? 'NULL');
 

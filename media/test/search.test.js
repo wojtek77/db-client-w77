@@ -134,6 +134,24 @@ describe('search.js - podświetlanie dopasowań na bieżącej stronie', () => {
         assert.equal(cell.querySelector('mark'), null);
     });
 
+    test('komórka z niezapisanym podglądem zbiorczej edycji komórek (cell-edit-pending) nie jest nadpisywana', () => {
+        setupDom();
+        const state = buildGrid('search-hl-7b.sql', {
+            headers: ['name'],
+            currentRows: [['foobar']],
+        });
+        const cell = dataCellOf(state, 0, 0);
+        cell.classList.add('cell-edit-pending');
+        cell.textContent = 'pending-cell-group-value';
+
+        // regres: to dokładnie ten scenariusz zgłoszony przez użytkownika - restoreSearchUI (a więc i highlightMatchesOnCurrentPage) wywołuje się też przy powrocie do zakładki pliku (showResultsForFile), nawet bez aktywnego wyszukiwania
+        state.searchQuery = '';
+        highlightMatchesOnCurrentPage();
+
+        assert.equal(cell.textContent, 'pending-cell-group-value');
+        assert.equal(cell.querySelector('mark'), null);
+    });
+
     test('wiele kolumn: podświetlana jest tylko ta, która faktycznie zawiera frazę', () => {
         setupDom();
         const state = buildGrid('search-hl-8.sql', {
