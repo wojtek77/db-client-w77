@@ -107,3 +107,57 @@ suite('SqlResultsProvider - stan panelu (hasOpenPanel / isFocusSqlTab)', () => {
         assert.strictEqual(provider.hasOpenPanel, true);
     });
 });
+
+suite('SqlResultsProvider - large result search cancellation', () => {
+    test('new search cancels the previous search and stale results do not overwrite the new results', async () => {
+        const provider = getProvider() as any;
+
+        // 20k rekordów gwarantuje oddanie sterowania event loop po pierwszych 10k rekordów
+        const rows = Array.from({ length: 20000 }, (_, i) => ({
+            key: i,
+            data: [i % 2 === 0 ? 'aaa' : 'ddd']
+        }));
+
+        provider._headers = ['value'];
+        provider._allRows = rows;
+
+        provider._searchQuery = 'a';
+        const firstSearch = provider.applySearchFilter();
+
+        // pierwsze wyszukiwanie oddaje sterowanie po 10k rekordów, a nowa fraza je unieważnia
+        provider._searchQuery = 'd';
+        const secondSearch = provider.applySearchFilter();
+
+        const [firstCompleted, secondCompleted] = await Promise.all([
+            firstSearch,
+            secondSearch,
+        ]);
+
+        assert.strictEqual(firstCompleted, false, 'pierwsze wyszukiwanie powinno zostać anulowane');
+        assert.strictEqual(secondCompleted, true, 'drugie wyszukiwanie powinno zostać ukończone');
+        assert.ok(provider._filteredEntries.length > 0);
+        assert.ok(provider._filteredEntries.every((entry: any) => entry.data[0].includes('d')));
+        assert.strictEqual(provider._filteredEntries.length, 10000);
+    });
+
+    test('clearing the active file cancels the running search', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['value'];
+        provider._allRows = Array.from({ length: 20000 }, (_, i) => ({
+            key: i,
+            data: ['aaaa']
+        }));
+        provider._searchQuery = 'a';
+
+        const search = provider.applySearchFilter();
+        provider.clearActiveFile();
+
+        const completed = await search;
+
+        assert.strictEqual(completed, false);
+        assert.strictEqual(provider._allRows.length, 0);
+        assert.strictEqual(provider._filteredEntries, null);
+        assert.strictEqual(provider._searchQuery, '');
+    });
+});

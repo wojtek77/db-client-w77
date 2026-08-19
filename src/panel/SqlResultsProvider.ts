@@ -96,6 +96,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _resolveViewReady?: (value: boolean) => void;
     private _currentSqlFile = '';
     private _queryRunning = false;
+    // numer operacji filtrowania, który pozwala unieważnić poprzednie wyszukiwanie
+    private _searchGeneration = 0;
+    private readonly SEARCH_YIELD_EVERY = 10000;
 
     private constructor(context: vscode.ExtensionContext) {
         this._extensionUri = context.extensionUri;
@@ -166,7 +169,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
 
             if (msg.command === 'search') {
-                this.performSearch(msg.query);
+                // wyszukiwanie jest asynchroniczne i anulowalne, więc nie blokuje obsługi kolejnych komunikatów
+                void this.performSearch(msg.query);
             }
             
             if (msg.command === 'updateCell') {
@@ -366,54 +370,73 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    /**
-     * Przelicza this._filteredEntries na podstawie this._searchQuery i AKTUALNEJ zawartości
-     * this._allRows. Wywoływana zarówno przy wpisaniu nowej frazy, jak i po każdej operacji,
-     * która zmienia dane pod spodem (delete, bulk column edit, ponowne uruchomienie tego
-     * samego SQL-a) - dzięki temu przefiltrowany widok zawsze odzwierciedla to, co faktycznie
-     * jest w wynikach. Filtrujemy całe RowEntry (nie same indeksy) - każdy wpis niesie swój
-     * .key, więc żadna inna metoda nigdy nie musi tłumaczyć pozycji na stronie na cokolwiek.
-     */
-    private applySearchFilter() {
+    // przelicza filtrowane wyniki na podstawie aktualnych danych i frazy wyszukiwania
+    private async applySearchFilter(): Promise<boolean> {
+        const generation = ++this._searchGeneration;
         const query = this._searchQuery.trim();
 
         if (!query) {
             this._filteredEntries = null;
-            return;
+            return true;
         }
 
         // wyszukiwanie bez rozróżniania wielkości liter, tak jak filtr w większości narzędzi tabelarycznych
         const needle = query.toLowerCase();
         const columnCount = this._headers.length;
+        const source = this._allRows;
+        const filteredEntries: RowEntry[] = [];
 
-        this._filteredEntries = this._allRows.filter((entry) => {
+        // przetwarzamy rekordy partiami, aby event loop mógł obsłużyć nowe wyszukiwanie
+        for (let i = 0; i < source.length; i++) {
+            // nowe wyszukiwanie albo zmiana danych unieważniły tę operację
+            if (generation !== this._searchGeneration) {
+                return false;
+            }
+
+            const entry = source[i];
+
             for (let j = 0; j < columnCount; j++) {
                 const value = entry.data[j];
-                // null/undefined renderują się jako 'NULL' w siatce, więc szukanie 'null' też powinno je znaleźć
+                // null i undefined są wyświetlane jako NULL, więc wyszukiwanie null powinno je znaleźć
                 const text = (value === null || value === undefined) ? 'NULL' : String(value);
 
                 if (text.toLowerCase().includes(needle)) {
-                    return true; // wystarczy jedno trafienie w wierszu - liczy się CAŁY wiersz, nie konkretna kolumna
+                    filteredEntries.push(entry);
+                    break; // wystarczy jedno trafienie w wierszu
+
                 }
             }
+
+            if ((i + 1) % this.SEARCH_YIELD_EVERY === 0) {
+                await new Promise<void>((resolve) => setImmediate(resolve));
+            }
+        }
+
+        // sprawdzamy generację przed zapisaniem wyniku
+        if (generation !== this._searchGeneration) {
             return false;
-        });
+        }
+
+        this._filteredEntries = filteredEntries;
+        return true;
     }
 
-    /**
-     * Obsługa komendy 'search' z webview: ustawia nową frazę, przelicza filtr i wysyła
-     * stronę 1 przefiltrowanych wyników - identycznie jak zwykłe 'appendData', więc webview
-     * nie potrzebuje żadnej osobnej ścieżki renderowania dla wyszukiwania.
-     */
-    private performSearch(rawQuery: string) {
+    // obsługuje wyszukiwanie z webview i wysyła pierwszą stronę przefiltrowanych wyników
+    private async performSearch(rawQuery: string): Promise<void> {
         if (!this._view) {return;}
 
         this._searchQuery = rawQuery;
-        this.applySearchFilter();
 
         const fileState = this._fileStates.get(this._currentSqlFile);
         if (fileState) {
             fileState.searchQuery = this._searchQuery;
+        }
+
+        const completed = await this.applySearchFilter();
+
+        // nowsza fraza unieważnia poprzednie wyszukiwanie i jego wynik
+        if (!completed) {
+            return;
         }
 
         // nowe wyszukiwanie zawsze wraca na stronę 1 - poprzednia strona mogła nie istnieć w przefiltrowanym zbiorze
@@ -763,7 +786,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             this._allRows = this._allRows.filter((entry) => !deletedKeys.has(entry.key));
 
             // wiersze zniknęły z this._allRows - przeliczamy filtr wyszukiwania na nowo (sendPage sam przytnie stronę, jeśli trzeba)
-            this.applySearchFilter();
+            await this.applySearchFilter();
 
             this.sendPage(this._currentPage, true);
 
@@ -930,7 +953,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
 
             // wartości mogły się zmienić w kolumnie, po której filtruje aktywne wyszukiwanie - przeliczamy, jakie wiersze nadal pasują
-            this.applySearchFilter();
+            await this.applySearchFilter();
 
             // odśwież widok: znika czerwone podświetlenie kolumny i przycisk zapisu, komórki pokazują nową wartość
             this.sendPage(this._currentPage, true);
@@ -1258,7 +1281,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         // ten sam SQL co poprzednio -> filtr wyszukiwania przeżywa rerun (przeliczony na nowo dla świeżych danych), inaczej/nowy SQL -> filtr czyścimy
         this._searchQuery = isSameQueryAsBefore ? (previousFileState?.searchQuery ?? '') : '';
-        this.applySearchFilter();
+        await this.applySearchFilter();
 
         const totalRows = this._filteredEntries ? this._filteredEntries.length : this._allRows.length;
         const totalPages = Math.max(1, Math.ceil(totalRows / this.ROWS_PER_PAGE));
@@ -1300,6 +1323,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
      * i nie dało się przez niego edytować/usuwać danych, które nie są już powiązane z żadną widoczną zakładką SQL
      */
     public clearActiveFile() {
+        // unieważnij filtrowanie, które nadal skanuje poprzedni wynik
+        this._searchGeneration++;
         this._currentSqlFile = '';
         this._allRows = [];
         this._headers = [];
@@ -1321,7 +1346,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         return this._fileStates.has(sqlFile);
     }
 
-    public showResultsForFile(sqlFile: string) {
+    public async showResultsForFile(sqlFile: string) {
         if (!this._view) {
             return;
         }
@@ -1350,7 +1375,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._currentPage = state.currentPage ?? 1;
         // przywracamy filtr wyszukiwania zapamiętany dla tego pliku, żeby powrót do zakładki nie gubił frazy/zawężonej listy
         this._searchQuery = state.searchQuery ?? '';
-        this.applySearchFilter();
+        await this.applySearchFilter();
 
         this._view.webview.postMessage({
             command: 'showResultsForFile',
