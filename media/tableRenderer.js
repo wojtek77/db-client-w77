@@ -56,12 +56,47 @@ export function renderHeaders(pageRows) {
         const th = document.createElement('div');
         th.className = 'grid-cell header-cell';
         th.dataset.columnIndex = i;
-        th.textContent = headers[i];
+
+        // nazwa kolumny jako osobny span (nie textContent całego th), żeby obok zmieściła się klikalna strzałka sortowania bez kolizji z zaznaczaniem kolumny (patrz sorting.js)
+        const label = document.createElement('span');
+        label.className = 'header-label';
+        label.textContent = headers[i];
+        th.appendChild(label);
+
+        const sortIndicator = document.createElement('span');
+        sortIndicator.className = 'sort-indicator';
+        th.appendChild(sortIndicator);
+
         fragment.appendChild(th);
     }
     
     headerContainer.replaceChildren(fragment);
     State.getInstance().cachedHeaderHtml = [...headerContainer.children];
+
+    updateSortIndicators();
+}
+
+/**
+ * odświeża strzałki sortowania we wszystkich nagłówkach kolumn na podstawie State.sortColumn/State.sortDirection
+ * (backend jest źródłem prawdy - patrz msg.sortColumn/msg.sortDirection w messageHandler.js) - wołane po renderHeaders
+ * oraz po appendData/showResultsForFile, żeby wskaźnik zawsze odzwierciedlał aktualny stan sortowania z backendu
+ */
+export function updateSortIndicators() {
+    if (!State.hasInstance()) {return;}
+    const state = State.getInstance();
+
+    // pomijamy indeks 0 (komórka LP) - reszta jest w tej samej kolejności co kolumny
+    const headerCells = state.cachedHeaderHtml ? state.cachedHeaderHtml.slice(1) : [];
+
+    headerCells.forEach((headerCell, colIndex) => {
+        const indicator = headerCell.querySelector('.sort-indicator');
+        if (!indicator) {return;}
+
+        const isActive = state.sortColumn === colIndex && Boolean(state.sortDirection);
+        // nieaktywna kolumna też musi mieć jakiś glif w środku - inaczej opacity/hover z CSS nie ma czego pokazać (pusty span jest niewidoczny nawet przy opacity: 1)
+        indicator.textContent = isActive ? (state.sortDirection === 'asc' ? '▲' : '▼') : '⇅';
+        indicator.classList.toggle('sort-active', isActive);
+    });
 }
 
 /**

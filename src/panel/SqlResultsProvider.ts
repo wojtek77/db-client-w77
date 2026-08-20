@@ -35,6 +35,8 @@ interface FileResultState {
     isReadOnly: boolean;
     currentPage: number;
     searchQuery: string;
+    sortColumn: number | null;
+    sortDirection: 'asc' | 'desc' | null;
 }
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
@@ -90,6 +92,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     // Trzymamy same RowEntry (z ich .key), nie osobne indeksy - dzięki temu updateCellInDB/deleteRowsInDB/resolveSelectedRows w ogóle nie muszą wiedzieć,
     // czy filtr jest aktywny: zawsze adresują wiersz przez .key w this._allRows, niezależnie od tego, co jest akurat wyświetlane.
     private _filteredEntries: RowEntry[] | null = null;
+    // null = brak aktywnego sortowania (this._allRows w naturalnej kolejności z zapytania SQL); patrz applySort/performSort
+    private _sortColumn: number | null = null;
+    private _sortDirection: 'asc' | 'desc' | null = null;
     private _context?: vscode.ExtensionContext;
     // _viewReady === true oznacza, że skrypt JS w webview się załadował i zarejestrował listener – samo `this._view` tego nie gwarantuje
     private _viewReady = false;
@@ -171,6 +176,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (msg.command === 'search') {
                 // wyszukiwanie jest asynchroniczne i anulowalne, więc nie blokuje obsługi kolejnych komunikatów
                 void this.performSearch(msg.query);
+            }
+
+            if (msg.command === 'sortColumn') {
+                // tak jak wyszukiwanie - asynchroniczne (dzieli pracę z applySearchFilter), nie blokuje kolejnych komunikatów
+                void this.performSort(msg.columnIndex, msg.direction);
             }
             
             if (msg.command === 'updateCell') {
@@ -271,6 +281,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             case 'search':
                 return typeof msg.query === 'string';
+
+            case 'sortColumn':
+                return typeof msg.columnIndex === 'number' &&
+                    (msg.direction === 'asc' || msg.direction === 'desc' || msg.direction === null);
 
             case 'updateCell':
                 return typeof msg.rowKey === 'number' && typeof msg.rowIndex === 'number' && typeof msg.columnIndex === 'number';
@@ -458,6 +472,61 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this.sendPage(1, true, false);
     }
 
+    // porównuje dwie wartości komórek na potrzeby sortowania: NULL/undefined zawsze na końcu niezależnie od kierunku (tak jak w Excelu), Date i liczby porównywane wartościowo, reszta jako tekst z naturalnym porządkiem cyfr ('10' po '9', nie przed)
+    private static compareForSort(a: any, b: any, direction: 'asc' | 'desc'): number {
+        const aNull = a === null || a === undefined;
+        const bNull = b === null || b === undefined;
+        if (aNull && bNull) {return 0;}
+        if (aNull) {return 1;}
+        if (bNull) {return -1;}
+
+        let cmp: number;
+        if (a instanceof Date && b instanceof Date) {
+            cmp = a.getTime() - b.getTime();
+        } else if (typeof a === 'number' && typeof b === 'number') {
+            cmp = a - b;
+        } else {
+            cmp = String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+        }
+
+        return direction === 'desc' ? -cmp : cmp;
+    }
+
+    // sortuje this._allRows w miejscu wg _sortColumn/_sortDirection; brak aktywnego sortowania -> wraca do naturalnej kolejności z zapytania SQL (rosnąco po stabilnym kluczu wiersza, patrz RowEntry.key)
+    private applySort(): void {
+        if (this._sortColumn === null || this._sortDirection === null) {
+            this._allRows.sort((a, b) => a.key - b.key);
+            return;
+        }
+
+        const col = this._sortColumn;
+        const dir = this._sortDirection;
+        this._allRows.sort((a, b) => SqlResultsProvider.compareForSort(a.data[col], b.data[col], dir));
+    }
+
+    // obsługuje kliknięcie strzałki sortowania w webview - aktualizuje stan sortowania, przelicza filtr wyszukiwania (jego dopasowania się nie zmieniają, ale ich kolejność już tak) i wysyła stronę 1
+    private async performSort(columnIndex: number, direction: 'asc' | 'desc' | null): Promise<void> {
+        if (!this._view) {return;}
+        if (columnIndex < 0 || columnIndex >= this._headers.length) {return;}
+
+        this._sortColumn = direction === null ? null : columnIndex;
+        this._sortDirection = direction;
+
+        const fileState = this._fileStates.get(this._currentSqlFile);
+        if (fileState) {
+            fileState.sortColumn = this._sortColumn;
+            fileState.sortDirection = this._sortDirection;
+        }
+
+        this.applySort();
+
+        const completed = await this.applySearchFilter();
+        if (!completed) {return;}
+
+        // nowe sortowanie zawsze wraca na stronę 1 - poprzednia strona mogła nie odpowiadać już tym samym wierszom
+        this.sendPage(1, true, false);
+    }
+
     private updateHtml() {
         if (!this._view) {throw new Error("missing webview");}
         
@@ -510,6 +579,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 totalRowsUnfiltered: this._allRows.length,
                 // backend jest źródłem prawdy dla frazy wyszukiwania - webview synchronizuje z tym pole inputu
                 searchQuery: this._searchQuery,
+                // backend jest źródłem prawdy dla sortowania - webview synchronizuje z tym strzałki w nagłówku
+                sortColumn: this._sortColumn,
+                sortDirection: this._sortDirection,
                 isLast: (clampedPage === totalPages),
                 currentPage: clampedPage,
                 totalPages: totalPages,
@@ -1450,6 +1522,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._flashMessage = flashMessage ?? '';
         this._errorMessage = errorMessage ?? '';
 
+        // ten sam SQL co poprzednio -> sortowanie przeżywa rerun (przeliczone na nowo dla świeżych danych), inaczej/nowy SQL -> sortowanie czyścimy - dokładnie ta sama zasada co przy filtrze wyszukiwania niżej. Musi wykonać się PRZED applySearchFilter, bo ono operuje na this._allRows w kolejności ustalonej właśnie tutaj
+        this._sortColumn = isSameQueryAsBefore ? (previousFileState?.sortColumn ?? null) : null;
+        this._sortDirection = isSameQueryAsBefore ? (previousFileState?.sortDirection ?? null) : null;
+        this.applySort();
+
         // ten sam SQL co poprzednio -> filtr wyszukiwania przeżywa rerun (przeliczony na nowo dla świeżych danych), inaczej/nowy SQL -> filtr czyścimy
         this._searchQuery = isSameQueryAsBefore ? (previousFileState?.searchQuery ?? '') : '';
         await this.applySearchFilter();
@@ -1478,6 +1555,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             isReadOnly: this._isReadOnly,
             currentPage: this._currentPage,
             searchQuery: this._searchQuery,
+            sortColumn: this._sortColumn,
+            sortDirection: this._sortDirection,
         });
         
         // wysłanie info o tym że dane się łądują (blur)
@@ -1503,6 +1582,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._columnTypes = [];
         this._searchQuery = '';
         this._filteredEntries = null;
+        this._sortColumn = null;
+        this._sortDirection = null;
 
         if (this._view) {
             this._view.webview.postMessage({
@@ -1544,6 +1625,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._isProduction = state.isProduction ?? false;
         this._isReadOnly = state.isReadOnly ?? false;
         this._currentPage = state.currentPage ?? 1;
+        // przywracamy sortowanie zapamiętane dla tego pliku - bez ponownego applySort(), bo state.rows to ta sama referencja co this._allRows w chwili zapisu, więc już jest w odpowiedniej kolejności
+        this._sortColumn = state.sortColumn ?? null;
+        this._sortDirection = state.sortDirection ?? null;
         // przywracamy filtr wyszukiwania zapamiętany dla tego pliku, żeby powrót do zakładki nie gubił frazy/zawężonej listy
         this._searchQuery = state.searchQuery ?? '';
         await this.applySearchFilter();
@@ -1555,6 +1639,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             isProduction: this._isProduction,
             isReadOnly: this._isReadOnly,
             searchQuery: this._searchQuery,
+            sortColumn: this._sortColumn,
+            sortDirection: this._sortDirection,
             sentAt: Date.now() // znacznik czasu w ms
         });
     }

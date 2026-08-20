@@ -1,5 +1,5 @@
 import { State } from './state.js';
-import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage } from './tableRenderer.js';
+import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage, updateSortIndicators } from './tableRenderer.js';
 import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, cancelPendingCellEdits, reapplyPendingCellEdits, updateSaveCellEditsButtonVisibility, clearRowSelection, clearColumnSelection, clearCellSelection, hideToolsButtons } from './editor.js';
 import { restoreSearchUI, resetSearch, hideSearchIndicator } from './search.js';
 
@@ -209,6 +209,9 @@ window.addEventListener('message', event => {
         State.getInstance().errorMessage = msg.errorMessage;
         // backend jest źródłem prawdy dla frazy wyszukiwania - wpisana fraza i liczby wierszy zawsze odzwierciedlają to, co faktycznie wysłał
         State.getInstance().searchQuery = typeof msg.searchQuery === 'string' ? msg.searchQuery : '';
+        // backend jest źródłem prawdy też dla sortowania - strzałka w nagłówku zawsze odzwierciedla to, co faktycznie wysłał
+        State.getInstance().sortColumn = typeof msg.sortColumn === 'number' ? msg.sortColumn : null;
+        State.getInstance().sortDirection = msg.sortDirection ?? null;
         State.getInstance().totalRows = msg.totalRows ?? 0;
         State.getInstance().totalRowsUnfiltered = msg.totalRowsUnfiltered ?? msg.totalRows ?? 0;
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
@@ -260,6 +263,9 @@ window.addEventListener('message', event => {
             }
             sqlFile = msg.sqlFile;
         }
+
+        // renderHeaders() już to robi sam przy przebudowie nagłówka, ale gałąź restoreHeaderFromCache() (powrót do wcześniej wyrenderowanego kształtu) nie - odświeżamy tu bezwarunkowo, żeby strzałki zawsze odzwierciedlały aktualny stan z backendu
+        updateSortIndicators();
         
         console.time("⏱️ renderPage time");
         // sklejamy surowe dane (currentRows) ze stabilnymi identyfikatorami wierszy (msg.rowKeys) w jedną tablicę {key, data} - patrz RowEntry w SqlResultsProvider.ts i JSDoc State.currentRows
@@ -325,6 +331,9 @@ window.addEventListener('message', event => {
         State.getInstance().isReadOnly = msg.isReadOnly ?? false;
         // backend przywrócił zapamiętaną dla tego pliku frazę wyszukiwania (patrz FileResultState.searchQuery) - to on jest źródłem prawdy, nie lokalny cache State
         State.getInstance().searchQuery = typeof msg.searchQuery === 'string' ? msg.searchQuery : '';
+        // to samo dla sortowania (patrz FileResultState.sortColumn/sortDirection)
+        State.getInstance().sortColumn = typeof msg.sortColumn === 'number' ? msg.sortColumn : null;
+        State.getInstance().sortDirection = msg.sortDirection ?? null;
         
         startGridContainer();
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
@@ -342,6 +351,9 @@ window.addEventListener('message', event => {
         console.time("⏱️ restoreGridFromCache time");
         restoreGridFromCache();
         console.timeEnd("⏱️ restoreGridFromCache time");
+
+        // przywrócony z cache nagłówek mógł należeć do innego pliku - odświeżamy strzałki, żeby odpowiadały właśnie ustawionemu State.sortColumn/sortDirection
+        updateSortIndicators();
 
         // powrót do zakładki tego pliku -> przywróć jego własną frazę wyszukiwania i dociągnij podświetlenie na przywróconą z cache siatkę
         restoreSearchUI();
