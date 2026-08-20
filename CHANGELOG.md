@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.5
+
+### Fixed
+- Cell-group edit previews are now applied only to the rows that were
+  actually edited. Pending cell edits are identified by the stable row
+  key and column instead of page-relative row and column coordinates,
+  so switching between pages no longer displays edit previews for
+  unrelated rows.
+
 ## 1.1.4
 
 ### Added
