@@ -212,7 +212,7 @@ suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['item10', 'item9', 'item2']);
     });
 
-    test('NULL zawsze na końcu, niezależnie od kierunku sortowania (tak jak w Excelu)', () => {
+    test('NULL jak w natywnym SQL ORDER BY (najmniejsza możliwa wartość) - pierwszy przy ASC, ostatni przy DESC', () => {
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
@@ -225,7 +225,7 @@ suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [1, 5, null, null]);
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [null, null, 1, 5]);
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         provider.applySort();

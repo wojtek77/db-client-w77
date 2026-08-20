@@ -476,13 +476,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this.sendPage(1, true, false);
     }
 
-    // porównuje dwie wartości komórek na potrzeby sortowania: NULL/undefined zawsze na końcu niezależnie od kierunku (tak jak w Excelu), Date i liczby porównywane wartościowo, reszta jako tekst z naturalnym porządkiem cyfr ('10' po '9', nie przed)
+    // porównuje dwie wartości komórek na potrzeby sortowania: NULL traktowany jak w natywnym SQL ORDER BY (najmniejsza możliwa wartość) - pierwszy przy ASC, ostatni przy DESC. Date i liczby porównywane wartościowo, reszta jako tekst z naturalnym porządkiem cyfr ('10' po '9', nie przed)
     private static compareForSort(a: any, b: any, direction: 'asc' | 'desc'): number {
         const aNull = a === null || a === undefined;
         const bNull = b === null || b === undefined;
         if (aNull && bNull) {return 0;}
-        if (aNull) {return 1;}
-        if (bNull) {return -1;}
+        // NULL jako najmniejsza wartość -> zwykłe porównanie (bez early return niezależnego od kierunku), więc odwrócenie znaku dla desc automatycznie przenosi NULL na koniec
+        if (aNull) {return direction === 'desc' ? 1 : -1;}
+        if (bNull) {return direction === 'desc' ? -1 : 1;}
 
         let cmp: number;
         if (a instanceof Date && b instanceof Date) {
