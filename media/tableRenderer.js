@@ -44,7 +44,15 @@ export function renderHeaders(pageRows) {
     }
     State.getInstance().cachedGridTemplate = gridTemplate;
     
-    // budujemy nagłówki HTML
+    // budujemy nagłówki HTML z aktualnym stanem sortowania
+    const sortCriteria = State.getInstance().sortCriteria || [];
+    const sortStateByColumn = new Map(
+        sortCriteria.map((criterion, criterionIndex) => [criterion.columnIndex, {
+            direction: criterion.direction,
+            criterionIndex,
+        }])
+    );
+    const showPriority = sortCriteria.length > 1;
     const fragment = document.createDocumentFragment();
     const lpHeader = document.createElement('div');
     lpHeader.className = 'grid-cell header-cell lp-cell';
@@ -65,6 +73,16 @@ export function renderHeaders(pageRows) {
 
         const sortIndicator = document.createElement('span');
         sortIndicator.className = 'sort-indicator';
+        const sortState = sortStateByColumn.get(i);
+        const isActive = sortState !== undefined;
+        if (!isActive) {
+            // domyślny glif jest potrzebny także bez aktywnego sortowania, żeby hover pokazywał możliwość sortowania
+            sortIndicator.textContent = '⇅';
+        } else {
+            const arrow = sortState.direction === 'asc' ? '▲' : '▼';
+            sortIndicator.textContent = showPriority ? `${arrow}${sortState.criterionIndex + 1}` : arrow;
+            sortIndicator.classList.add('sort-active');
+        }
         th.appendChild(sortIndicator);
 
         fragment.appendChild(th);
@@ -72,14 +90,11 @@ export function renderHeaders(pageRows) {
     
     headerContainer.replaceChildren(fragment);
     State.getInstance().cachedHeaderHtml = [...headerContainer.children];
-
-    updateSortIndicators();
 }
 
 /**
- * odświeża strzałki sortowania we wszystkich nagłówkach kolumn na podstawie State.sortColumn/State.sortDirection
- * (backend jest źródłem prawdy - patrz msg.sortColumn/msg.sortDirection w messageHandler.js) - wołane po renderHeaders
- * oraz po appendData/showResultsForFile, żeby wskaźnik zawsze odzwierciedlał aktualny stan sortowania z backendu
+ * odświeża strzałki sortowania we wszystkich istniejących nagłówkach na podstawie State.sortCriteria
+ * (backend jest źródłem prawdy) - używane po przywróceniu nagłówka z cache lub gdy nagłówek nie był przebudowany
  */
 export function updateSortIndicators() {
     if (!State.hasInstance()) {return;}
@@ -91,19 +106,26 @@ export function updateSortIndicators() {
     // numer priorytetu (▲1, ▼2, ...) pokazujemy tylko gdy naprawdę jest co numerować - przy jednym aktywnym kryterium sama strzałka wystarczy
     const showPriority = criteria.length > 1;
 
+    const sortStateByColumn = new Map(
+        criteria.map((criterion, criterionIndex) => [criterion.columnIndex, {
+            direction: criterion.direction,
+            criterionIndex,
+        }])
+    );
+
     headerCells.forEach((headerCell, colIndex) => {
         const indicator = headerCell.querySelector('.sort-indicator');
         if (!indicator) {return;}
 
-        const criterionIndex = criteria.findIndex((c) => c.columnIndex === colIndex);
-        const isActive = criterionIndex !== -1;
+        const sortState = sortStateByColumn.get(colIndex);
+        const isActive = sortState !== undefined;
 
         if (!isActive) {
-            // nieaktywna kolumna też musi mieć jakiś glif w środku - inaczej opacity/hover z CSS nie ma czego pokazać (pusty span jest niewidoczny nawet przy opacity: 1)
+            // nieaktywna kolumna też musi mieć jakiś glif w środku - inaczej opacity/hover z CSS nie ma czego pokazać
             indicator.textContent = '⇅';
         } else {
-            const arrow = criteria[criterionIndex].direction === 'asc' ? '▲' : '▼';
-            indicator.textContent = showPriority ? `${arrow}${criterionIndex + 1}` : arrow;
+            const arrow = sortState.direction === 'asc' ? '▲' : '▼';
+            indicator.textContent = showPriority ? `${arrow}${sortState.criterionIndex + 1}` : arrow;
         }
         indicator.classList.toggle('sort-active', isActive);
     });

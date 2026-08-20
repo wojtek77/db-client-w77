@@ -225,6 +225,7 @@ window.addEventListener('message', event => {
         const shape = `${currentRows.length}x${State.getInstance().headers.join('|')}`;
 
         let isSameQuery = Boolean(msg.isSameQuery);
+        let headerFreshlyRendered = false;
 
         if (sqlFile && sqlFile === msg.sqlFile) { // kiedy jest powtórne uruchomienie SQL w tym samym pliku
             // header DOM już jest poprawny (ten sam plik, poprzednie renderHeaders) – przebudowujemy go tylko gdy zmienił się kształt albo nazwy kolumn
@@ -238,6 +239,7 @@ window.addEventListener('message', event => {
                 console.timeEnd("⏱️ initializeGrid time");
                 State.getInstance().currentRows = undefined;
                 State.getInstance().gridShape = shape;
+                headerFreshlyRendered = true;
 
                 isSameQuery = false;
             }
@@ -259,12 +261,15 @@ window.addEventListener('message', event => {
                 State.getInstance().currentRows = undefined;
                 console.timeEnd("⏱️ initializeGrid time");
                 State.getInstance().gridShape = shape;
+                headerFreshlyRendered = true;
             }
             sqlFile = msg.sqlFile;
         }
 
-        // renderHeaders() już to robi sam przy przebudowie nagłówka, ale gałąź restoreHeaderFromCache() (powrót do wcześniej wyrenderowanego kształtu) nie - odświeżamy tu bezwarunkowo, żeby strzałki zawsze odzwierciedlały aktualny stan z backendu
-        updateSortIndicators();
+        // świeżo zbudowany nagłówek ma już poprawne strzałki, więc synchronizujemy tylko istniejący lub przywrócony DOM
+        if (!headerFreshlyRendered) {
+            updateSortIndicators();
+        }
         
         console.time("⏱️ renderPage time");
         // sklejamy surowe dane (currentRows) ze stabilnymi identyfikatorami wierszy (msg.rowKeys) w jedną tablicę {key, data} - patrz RowEntry w SqlResultsProvider.ts i JSDoc State.currentRows
