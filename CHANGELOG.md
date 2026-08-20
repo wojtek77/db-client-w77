@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.1.4
+
+### Added
+- Bulk edit for independently selected cells, in addition to the
+  existing whole-column bulk edit (which is unchanged). Select two
+  or more cells, double-click one of them, type a value and press
+  Enter - the value is staged as a preview for the whole selection
+  instead of being saved immediately (`State.pendingCellEdits`), and
+  committed via the new "Save cells"/"Cancel cells" toolbar buttons.
+  On save, `SqlResultsProvider.saveCellEdits` groups the staged
+  cells by row (one `UPDATE` with multiple `SET` per row) and merges
+  rows sharing the exact same set of edited columns into a single
+  `UPDATE ... WHERE pk IN (...)`, to minimize the number of executed
+  statements.
+
+### Fixed
+- Double-clicking a cell that was already part of a multi-cell
+  selection collapsed the selection down to that one cell before the
+  group edit could start, because the browser fires a plain `click`
+  (detail=1) before `dblclick`. The collapse is now deferred by
+  ~300ms and cancelled if a `dblclick` follows on the same cell.
+- `highlightMatchesOnCurrentPage` (search.js) was missing the guard
+  for the new `cell-edit-pending` class (it already had one for
+  `column-edit-pending`), so a pending cell-group edit's preview was
+  silently wiped when switching away from a file's tab and back,
+  even with no active search query.
+- Re-running the exact same SQL query on the same page no longer
+  discards a pending cell-group edit; it's reapplied instead,
+  mirroring the existing behavior of column bulk edits
+  (`reapplyPendingCellEdits`).
+
 ## 1.1.3
 
 ### Added
