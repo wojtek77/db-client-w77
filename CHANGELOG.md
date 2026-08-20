@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.7
+
+### Changed
+- `SqlResultsProvider.performSearch` now trims the search query once, at
+  the source, instead of leaving it untrimmed in `_searchQuery` and
+  re-trimming it separately in every consumer. `applySearchFilter`
+  (backend row matching) and `highlightMatchesOnCurrentPage`
+  (`media/search.js`) no longer call `.trim()` themselves - they read the
+  already-trimmed value. As a side effect, a whitespace-only search query
+  no longer makes the "N record(s) matching the current SQL results and
+  search filter" confirmation message claim a filter is active when
+  `applySearchFilter` would have treated it as empty anyway.
+
 ## 1.1.6
 
 ### Changed
