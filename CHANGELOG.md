@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.6
+
+### Changed
+- Sped up search UI updates in the webview: `highlightMatchesOnCurrentPage`
+  (`media/search.js`) now skips rewriting every cell on the page when there
+  is no active search query and the page has no leftover highlights to
+  clear, tracked via a new per-file `hasHighlights` flag in `State`
+  (`media/state.js`). Also, `restoreSearchUI()` is no longer called at all
+  after `appendData` when the same file has no active search and nothing to
+  restore, since the input/count/clear-button are already kept in sync by
+  the search input's own `input` listener in that case. The
+  `showResultsForFile` tab-switch path is unchanged and always calls
+  `restoreSearchUI()`, since the shared search input/count DOM may still
+  reflect a different, previously viewed file.
+
 ## 1.1.5
 
 ### Fixed
