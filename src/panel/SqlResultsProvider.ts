@@ -386,7 +386,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     // przelicza filtrowane wyniki na podstawie aktualnych danych i frazy wyszukiwania
     private async applySearchFilter(): Promise<boolean> {
         const generation = ++this._searchGeneration;
-        const query = this._searchQuery.trim();
+        // _searchQuery jest już przycięte u źródła (performSearch), nie trzeba tego powtarzać tutaj
+        const query = this._searchQuery;
 
         if (!query) {
             this._filteredEntries = null;
@@ -438,7 +439,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private async performSearch(rawQuery: string): Promise<void> {
         if (!this._view) {return;}
 
-        this._searchQuery = rawQuery;
+        // przycinamy raz u źródła, żeby cały system (fileState, webview State.searchQuery, wiadomości appendData) operował na tej samej, spójnej wartości zamiast każdy konsument robił własny trim
+        this._searchQuery = rawQuery.trim();
 
         const fileState = this._fileStates.get(this._currentSqlFile);
         if (fileState) {

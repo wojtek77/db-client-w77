@@ -147,7 +147,8 @@ function buildHighlightedFragment(text, lowerQuery) {
 export function highlightMatchesOnCurrentPage() {
     if (!State.hasInstance()) {return;}
     const state = State.getInstance();
-    const query = (state.searchQuery || '').trim();
+    // state.searchQuery jest tu zawsze świeżo ustawione z msg.searchQuery (messageHandler.js), już przyciętego u źródła w SqlResultsProvider.performSearch
+    const query = state.searchQuery || '';
 
     // brak aktywnej frazy i strona nie ma żadnych wcześniejszych podświetleń do zdjęcia - nie ma czego robić, pomijamy przejście po wszystkich komórkach
     if (!query && !state.hasHighlights) {return;}
