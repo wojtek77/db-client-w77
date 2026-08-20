@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.9
+
+### Added
+- Column sorting in the SQL results grid. Click the sort arrow in a column
+  header to cycle asc -> desc -> none (`SqlResultsProvider.toggleSort`,
+  `applySort`). Shift+click adds/updates/removes that column as an
+  additional sort criterion without disturbing existing ones, enabling
+  multi-column sorting (`ORDER BY col1, col2, ...`); when more than one
+  criterion is active, the header arrow shows its priority number (e.g.
+  `▼1`, `▲2`). Sorting is applied on the backend (`_sortCriteria`) before
+  the search filter, persists per SQL file, and survives reruns of the
+  same query. New `sorting.js` webview module and `.sort-indicator`
+  header markup (`tableRenderer.js`, `styles.css`).
+
+### Fixed
+- `compareForSort` now treats `NULL` the way native SQL `ORDER BY` does
+  (smallest possible value: first on ascending, last on descending)
+  instead of always placing it last regardless of direction.
+
 ## 1.1.8
 
 ### Changed
