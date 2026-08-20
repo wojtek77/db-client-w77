@@ -87,14 +87,24 @@ export function updateSortIndicators() {
 
     // pomijamy indeks 0 (komórka LP) - reszta jest w tej samej kolejności co kolumny
     const headerCells = state.cachedHeaderHtml ? state.cachedHeaderHtml.slice(1) : [];
+    const criteria = state.sortCriteria || [];
+    // numer priorytetu (▲1, ▼2, ...) pokazujemy tylko gdy naprawdę jest co numerować - przy jednym aktywnym kryterium sama strzałka wystarczy
+    const showPriority = criteria.length > 1;
 
     headerCells.forEach((headerCell, colIndex) => {
         const indicator = headerCell.querySelector('.sort-indicator');
         if (!indicator) {return;}
 
-        const isActive = state.sortColumn === colIndex && Boolean(state.sortDirection);
-        // nieaktywna kolumna też musi mieć jakiś glif w środku - inaczej opacity/hover z CSS nie ma czego pokazać (pusty span jest niewidoczny nawet przy opacity: 1)
-        indicator.textContent = isActive ? (state.sortDirection === 'asc' ? '▲' : '▼') : '⇅';
+        const criterionIndex = criteria.findIndex((c) => c.columnIndex === colIndex);
+        const isActive = criterionIndex !== -1;
+
+        if (!isActive) {
+            // nieaktywna kolumna też musi mieć jakiś glif w środku - inaczej opacity/hover z CSS nie ma czego pokazać (pusty span jest niewidoczny nawet przy opacity: 1)
+            indicator.textContent = '⇅';
+        } else {
+            const arrow = criteria[criterionIndex].direction === 'asc' ? '▲' : '▼';
+            indicator.textContent = showPriority ? `${arrow}${criterionIndex + 1}` : arrow;
+        }
         indicator.classList.toggle('sort-active', isActive);
     });
 }

@@ -92,10 +92,10 @@ html, body {
     white-space: nowrap;
 }
 
-/* strzałka sortowania - domyślnie niewidoczna, delikatna po najechaniu na nagłówek, w pełni widoczna gdy ta kolumna jest aktywnie posortowana */
+/* strzałka sortowania - domyślnie niewidoczna, delikatna po najechaniu na nagłówek, w pełni widoczna gdy ta kolumna jest aktywnie posortowana. Szerokość liczona z zapasem na numer priorytetu (np. "▼2") przy sortowaniu wielokolumnowym */
 .sort-indicator {
     flex-shrink: 0;
-    width: 12px;
+    min-width: 16px;
     text-align: center;
     font-size: 10px;
     line-height: 1;

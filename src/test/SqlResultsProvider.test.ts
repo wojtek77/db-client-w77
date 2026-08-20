@@ -161,3 +161,209 @@ suite('SqlResultsProvider - large result search cancellation', () => {
         assert.strictEqual(provider._searchQuery, '');
     });
 });
+
+suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
+
+    test('pusta lista kryteriów -> naturalna kolejność z zapytania SQL (rosnąco po key), niezależnie od bieżącej kolejności _allRows', () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['value'];
+        provider._allRows = [
+            { key: 2, data: ['c'] },
+            { key: 0, data: ['a'] },
+            { key: 1, data: ['b'] },
+        ];
+        provider._sortCriteria = [];
+
+        provider.applySort();
+
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [0, 1, 2]);
+    });
+
+    test('jedno kryterium, sortowanie liczbowe rosnąco', () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['n'];
+        provider._allRows = [
+            { key: 0, data: [30] },
+            { key: 1, data: [10] },
+            { key: 2, data: [20] },
+        ];
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+        provider.applySort();
+
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [10, 20, 30]);
+    });
+
+    test('jedno kryterium, sortowanie tekstowe malejąco z naturalnym porządkiem cyfr ("10" po "9", nie przed)', () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['n'];
+        provider._allRows = [
+            { key: 0, data: ['item2'] },
+            { key: 1, data: ['item10'] },
+            { key: 2, data: ['item9'] },
+        ];
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+
+        provider.applySort();
+
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['item10', 'item9', 'item2']);
+    });
+
+    test('NULL zawsze na końcu, niezależnie od kierunku sortowania (tak jak w Excelu)', () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['n'];
+        provider._allRows = [
+            { key: 0, data: [null] },
+            { key: 1, data: [5] },
+            { key: 2, data: [null] },
+            { key: 3, data: [1] },
+        ];
+
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        provider.applySort();
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [1, 5, null, null]);
+
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+        provider.applySort();
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [5, 1, null, null]);
+    });
+
+    test('dwa kryteria - drugie rozstrzyga remisy pierwszego (ORDER BY col0, col1)', () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['dept', 'name'];
+        provider._allRows = [
+            { key: 0, data: ['sales', 'bob'] },
+            { key: 1, data: ['eng', 'zoe'] },
+            { key: 2, data: ['sales', 'alice'] },
+            { key: 3, data: ['eng', 'amy'] },
+        ];
+        provider._sortCriteria = [
+            { columnIndex: 0, direction: 'asc' },
+            { columnIndex: 1, direction: 'asc' },
+        ];
+
+        provider.applySort();
+
+        assert.deepStrictEqual(
+            provider._allRows.map((r: any) => r.data),
+            [['eng', 'amy'], ['eng', 'zoe'], ['sales', 'alice'], ['sales', 'bob']]
+        );
+    });
+
+    test('remis na wszystkich kryteriach naraz -> deterministyczny tie-break po key rosnąco (nie "cokolwiek było w _allRows przed sortowaniem")', () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['dept'];
+        provider._allRows = [
+            { key: 2, data: ['sales'] },
+            { key: 0, data: ['sales'] },
+            { key: 1, data: ['sales'] },
+        ];
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+        provider.applySort();
+
+        // wszystkie trzy wiersze remisują na jedynym kryterium ('sales' === 'sales') -> applySort jawnie
+        // tie-breakuje po key rosnąco (patrz ostatni `return a.key - b.key` w applySort), więc wynik to [0,1,2],
+        // NIE oryginalna kolejność [2,0,1] sprzed wywołania - to świadomy wybór, nie efekt uboczny stabilności Array.sort
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [0, 1, 2]);
+    });
+});
+
+suite('SqlResultsProvider - toggleSort (budowanie listy kryteriów z kliknięć)', () => {
+
+    test('zwykły klik na nieposortowanej kolumnie -> jedno kryterium asc', () => {
+        const provider = getProvider() as any;
+        provider._sortCriteria = [];
+
+        provider.toggleSort(0, false);
+
+        assert.deepStrictEqual(provider._sortCriteria, [{ columnIndex: 0, direction: 'asc' }]);
+    });
+
+    test('cykl zwykłych kliknięć na TEJ SAMEJ, jedynej posortowanej kolumnie: asc -> desc -> brak', () => {
+        const provider = getProvider() as any;
+        provider._sortCriteria = [];
+
+        provider.toggleSort(0, false);
+        assert.deepStrictEqual(provider._sortCriteria, [{ columnIndex: 0, direction: 'asc' }]);
+
+        provider.toggleSort(0, false);
+        assert.deepStrictEqual(provider._sortCriteria, [{ columnIndex: 0, direction: 'desc' }]);
+
+        provider.toggleSort(0, false);
+        assert.deepStrictEqual(provider._sortCriteria, []);
+    });
+
+    test('zwykły klik na INNEJ kolumnie niż aktualnie posortowana czyści resztę i zaczyna od nowa (nie kontynuuje cyklu tamtej kolumny)', () => {
+        const provider = getProvider() as any;
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+
+        provider.toggleSort(1, false);
+
+        assert.deepStrictEqual(provider._sortCriteria, [{ columnIndex: 1, direction: 'asc' }]);
+    });
+
+    test('zwykły klik gdy aktywne jest WIELE kryteriów zawsze resetuje do jednego nowego kryterium, nawet jeśli klika się w kolumnę już obecną na liście', () => {
+        const provider = getProvider() as any;
+        provider._sortCriteria = [
+            { columnIndex: 0, direction: 'asc' },
+            { columnIndex: 1, direction: 'desc' },
+        ];
+
+        provider.toggleSort(1, false);
+
+        assert.deepStrictEqual(provider._sortCriteria, [{ columnIndex: 1, direction: 'asc' }]);
+    });
+
+    test('Shift+klik na nowej kolumnie dokłada ją na końcu listy priorytetów, nie ruszając istniejących kryteriów', () => {
+        const provider = getProvider() as any;
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+        provider.toggleSort(1, true);
+
+        assert.deepStrictEqual(provider._sortCriteria, [
+            { columnIndex: 0, direction: 'asc' },
+            { columnIndex: 1, direction: 'asc' },
+        ]);
+    });
+
+    test('Shift+klik cyklu na kolumnie już obecnej na liście: asc -> desc -> usunięcie z listy (reszta kryteriów zostaje)', () => {
+        const provider = getProvider() as any;
+        provider._sortCriteria = [
+            { columnIndex: 0, direction: 'asc' },
+            { columnIndex: 1, direction: 'asc' },
+        ];
+
+        provider.toggleSort(1, true);
+        assert.deepStrictEqual(provider._sortCriteria, [
+            { columnIndex: 0, direction: 'asc' },
+            { columnIndex: 1, direction: 'desc' },
+        ]);
+
+        provider.toggleSort(1, true);
+        assert.deepStrictEqual(provider._sortCriteria, [{ columnIndex: 0, direction: 'asc' }]);
+    });
+
+    test('usunięcie kryterium spośród trzech zachowuje kolejność (priorytet) pozostałych', () => {
+        const provider = getProvider() as any;
+        provider._sortCriteria = [
+            { columnIndex: 0, direction: 'asc' },
+            { columnIndex: 1, direction: 'desc' },
+            { columnIndex: 2, direction: 'asc' },
+        ];
+
+        // kolumna 1 jest już 'desc' -> kolejny Shift+klik ją usuwa
+        provider.toggleSort(1, true);
+
+        assert.deepStrictEqual(provider._sortCriteria, [
+            { columnIndex: 0, direction: 'asc' },
+            { columnIndex: 2, direction: 'asc' },
+        ]);
+    });
+});

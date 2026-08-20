@@ -2,18 +2,15 @@ import { State } from './state.js';
 
 let vscodeRef;
 
-// cykl po kliknięciu w strzałkę sortowania danej kolumny: brak sortowania -> rosnąco -> malejąco -> brak sortowania
-function nextDirection(currentDirection) {
-    if (currentDirection === 'asc') {return 'desc';}
-    if (currentDirection === 'desc') {return null;}
-    return 'asc';
-}
-
 /**
  * nasłuch kliknięcia w strzałkę sortowania (.sort-indicator) w nagłówku kolumny. Rejestrowany w fazie
  * capture na #gridHeader, żeby zadziałać PRZED listenerem zaznaczania kolumny z editor.js (initColumnSelection),
  * który też nasłuchuje 'click' na tym samym #gridHeader w domyślnej fazie bubble - inaczej stopPropagation()
  * wywołane w listenerze zarejestrowanym później (bubble) nie zdążyłoby powstrzymać tego zarejestrowanego wcześniej.
+ *
+ * Zwykły klik = ta kolumna staje się jedynym kryterium sortowania (cykl asc -> desc -> brak, patrz backend toggleSort).
+ * Shift+klik = dokłada/aktualizuje/usuwa TĘ kolumnę jako kolejne kryterium, budując sortowanie wielokolumnowe
+ * (ORDER BY col1, col2, ...) - backend jest źródłem prawdy dla całej listy, więc webview tylko zgłasza klik + Shift.
  */
 export function initSortListeners(vscode) {
     vscodeRef = vscode;
@@ -34,11 +31,8 @@ export function initSortListeners(vscode) {
             if (Number.isNaN(columnIndex)) {return;}
 
             if (!State.hasInstance()) {return;}
-            const state = State.getInstance();
-            const currentDirection = state.sortColumn === columnIndex ? state.sortDirection : null;
-            const direction = nextDirection(currentDirection);
 
-            vscodeRef.postMessage({ command: 'sortColumn', columnIndex, direction });
+            vscodeRef.postMessage({ command: 'sortColumn', columnIndex, additive: event.shiftKey });
         }, { capture: true });
     });
 }

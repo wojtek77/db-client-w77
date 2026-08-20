@@ -209,9 +209,8 @@ window.addEventListener('message', event => {
         State.getInstance().errorMessage = msg.errorMessage;
         // backend jest źródłem prawdy dla frazy wyszukiwania - wpisana fraza i liczby wierszy zawsze odzwierciedlają to, co faktycznie wysłał
         State.getInstance().searchQuery = typeof msg.searchQuery === 'string' ? msg.searchQuery : '';
-        // backend jest źródłem prawdy też dla sortowania - strzałka w nagłówku zawsze odzwierciedla to, co faktycznie wysłał
-        State.getInstance().sortColumn = typeof msg.sortColumn === 'number' ? msg.sortColumn : null;
-        State.getInstance().sortDirection = msg.sortDirection ?? null;
+        // backend jest źródłem prawdy też dla sortowania - strzałki w nagłówku zawsze odzwierciedlają to, co faktycznie wysłał
+        State.getInstance().sortCriteria = Array.isArray(msg.sortCriteria) ? msg.sortCriteria : [];
         State.getInstance().totalRows = msg.totalRows ?? 0;
         State.getInstance().totalRowsUnfiltered = msg.totalRowsUnfiltered ?? msg.totalRows ?? 0;
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
@@ -331,9 +330,8 @@ window.addEventListener('message', event => {
         State.getInstance().isReadOnly = msg.isReadOnly ?? false;
         // backend przywrócił zapamiętaną dla tego pliku frazę wyszukiwania (patrz FileResultState.searchQuery) - to on jest źródłem prawdy, nie lokalny cache State
         State.getInstance().searchQuery = typeof msg.searchQuery === 'string' ? msg.searchQuery : '';
-        // to samo dla sortowania (patrz FileResultState.sortColumn/sortDirection)
-        State.getInstance().sortColumn = typeof msg.sortColumn === 'number' ? msg.sortColumn : null;
-        State.getInstance().sortDirection = msg.sortDirection ?? null;
+        // to samo dla sortowania (patrz FileResultState.sortCriteria)
+        State.getInstance().sortCriteria = Array.isArray(msg.sortCriteria) ? msg.sortCriteria : [];
         
         startGridContainer();
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
@@ -352,7 +350,7 @@ window.addEventListener('message', event => {
         restoreGridFromCache();
         console.timeEnd("⏱️ restoreGridFromCache time");
 
-        // przywrócony z cache nagłówek mógł należeć do innego pliku - odświeżamy strzałki, żeby odpowiadały właśnie ustawionemu State.sortColumn/sortDirection
+        // przywrócony z cache nagłówek mógł należeć do innego pliku - odświeżamy strzałki, żeby odpowiadały właśnie ustawionemu State.sortCriteria
         updateSortIndicators();
 
         // powrót do zakładki tego pliku -> przywróć jego własną frazę wyszukiwania i dociągnij podświetlenie na przywróconą z cache siatkę

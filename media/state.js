@@ -41,8 +41,7 @@
  *   Klasa CSS 'selected-cell' to tylko wizualny efekt uboczny.
  * @property {{value: string, positions: Set<string>}|null} pendingCellEdits - Oczekująca (jeszcze niezapisana) zbiorcza edycja NIEZALEŻNYCH ZAZNACZONYCH KOMÓREK (osobny mechanizm od pendingColumnEdits) - tylko jedna grupa naraz, positions to zbiór "rowKey-col" z chwili startu edycji, value to jedna wspólna wartość dla całej grupy, tylko podgląd w webview dopóki użytkownik nie kliknie "Save cells"
  * @property {string} searchQuery - Aktualnie wpisana/zsynchronizowana z backendem fraza wyszukiwania (backend jest źródłem prawdy).
- * @property {number|null} sortColumn - Indeks kolumny wg której aktualnie sortowane są wyniki, null = brak sortowania (backend jest źródłem prawdy, patrz msg.sortColumn).
- * @property {'asc'|'desc'|null} sortDirection - Kierunek aktywnego sortowania, null = brak sortowania (backend jest źródłem prawdy, patrz msg.sortDirection).
+ * @property {Array<{columnIndex: number, direction: 'asc'|'desc'}>} sortCriteria - Aktywne kryteria sortowania w kolejności priorytetu (pierwsze = główne, ORDER BY col1, col2, ...), pusta tablica = brak sortowania (backend jest źródłem prawdy, patrz msg.sortCriteria).
  * @property {number} totalRows - Liczba wierszy PO zastosowaniu filtra wyszukiwania (to na jej podstawie liczona jest paginacja).
  * @property {number} totalRowsUnfiltered - Pełna liczba wierszy w wynikach SQL, bez filtra - używana tylko do etykiety "X z Y" przy polu wyszukiwania.
  * @property {boolean} hasHighlights - czy bieżąca strona ma obecnie nałożone podświetlenia wyszukiwania (patrz highlightMatchesOnCurrentPage w search.js)
@@ -82,8 +81,7 @@ export class State {
                 selectedColIndexes: new Set(),
                 selectedCellPositions: new Set(),
                 searchQuery: '',
-                sortColumn: null,
-                sortDirection: null,
+                sortCriteria: [],
                 totalRows: 0,
                 totalRowsUnfiltered: 0,
                 hasHighlights: false,

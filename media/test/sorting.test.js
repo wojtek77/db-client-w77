@@ -37,16 +37,15 @@ describe('renderHeaders - struktura nagłówka pod sortowanie', () => {
     });
 });
 
-describe('updateSortIndicators - odzwierciedlenie State.sortColumn/sortDirection w DOM', () => {
+describe('updateSortIndicators - odzwierciedlenie State.sortCriteria w DOM', () => {
 
-    test('brak aktywnego sortowania (sortColumn = null) - obie kolumny mają neutralny glif ⇅, żadna nie ma klasy sort-active', () => {
+    test('brak aktywnego sortowania (sortCriteria = []) - obie kolumny mają neutralny glif ⇅, żadna nie ma klasy sort-active', () => {
         setupDom();
         const state = buildGrid('sort-ind-1.sql', {
             headers: ['a', 'b'],
             currentRows: [[1, 2]],
         });
-        state.sortColumn = null;
-        state.sortDirection = null;
+        state.sortCriteria = [];
 
         updateSortIndicators();
 
@@ -55,14 +54,13 @@ describe('updateSortIndicators - odzwierciedlenie State.sortColumn/sortDirection
         assert.equal(headerCellOf(state, 0).querySelector('.sort-indicator').classList.contains('sort-active'), false);
     });
 
-    test('sortColumn=1, sortDirection="asc" - strzałka ▲ tylko na kolumnie 1, reszta ma neutralny glif ⇅', () => {
+    test('jedno kryterium asc na kolumnie 1 - sama strzałka ▲ bez numeru priorytetu, reszta ma neutralny glif ⇅', () => {
         setupDom();
         const state = buildGrid('sort-ind-2.sql', {
             headers: ['a', 'b', 'c'],
             currentRows: [[1, 2, 3]],
         });
-        state.sortColumn = 1;
-        state.sortDirection = 'asc';
+        state.sortCriteria = [{ columnIndex: 1, direction: 'asc' }];
 
         updateSortIndicators();
 
@@ -77,31 +75,49 @@ describe('updateSortIndicators - odzwierciedlenie State.sortColumn/sortDirection
         assert.equal(ind2.textContent, '⇅');
     });
 
-    test('sortDirection="desc" - strzałka ▼', () => {
+    test('jedno kryterium desc - strzałka ▼ bez numeru priorytetu', () => {
         setupDom();
         const state = buildGrid('sort-ind-3.sql', {
             headers: ['a'],
             currentRows: [[1]],
         });
-        state.sortColumn = 0;
-        state.sortDirection = 'desc';
+        state.sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
 
         updateSortIndicators();
 
         assert.equal(headerCellOf(state, 0).querySelector('.sort-indicator').textContent, '▼');
     });
+
+    test('dwa aktywne kryteria - każde pokazuje strzałkę Z numerem priorytetu (1 = główne, 2 = rozstrzyga remisy)', () => {
+        setupDom();
+        const state = buildGrid('sort-ind-4.sql', {
+            headers: ['a', 'b', 'c'],
+            currentRows: [[1, 2, 3]],
+        });
+        // kolumna 2 jest głównym kryterium (priorytet 1), kolumna 0 rozstrzyga remisy (priorytet 2)
+        state.sortCriteria = [
+            { columnIndex: 2, direction: 'desc' },
+            { columnIndex: 0, direction: 'asc' },
+        ];
+
+        updateSortIndicators();
+
+        assert.equal(headerCellOf(state, 2).querySelector('.sort-indicator').textContent, '▼1');
+        assert.equal(headerCellOf(state, 0).querySelector('.sort-indicator').textContent, '▲2');
+        assert.equal(headerCellOf(state, 1).querySelector('.sort-indicator').textContent, '⇅');
+        assert.equal(headerCellOf(state, 1).querySelector('.sort-indicator').classList.contains('sort-active'), false);
+    });
 });
 
-describe('sorting.js - klik w strzałkę sortowania', () => {
+describe('sorting.js - klik w strzałkę sortowania wysyła columnIndex + additive (Shift)', () => {
 
-    test('pierwszy klik na kolumnie bez sortowania wysyła direction: "asc"', () => {
+    test('zwykły klik (bez Shift) wysyła additive: false', () => {
         setupDom();
         const state = buildGrid('sort-click-1.sql', {
             headers: ['a', 'b'],
             currentRows: [[1, 2]],
         });
-        state.sortColumn = null;
-        state.sortDirection = null;
+        state.sortCriteria = [];
 
         const vscode = fakeVscode();
         initSortListeners(vscode);
@@ -109,50 +125,24 @@ describe('sorting.js - klik w strzałkę sortowania', () => {
 
         clickSortIndicator(state, 1);
 
-        assert.deepEqual(vscode.sent, [{ command: 'sortColumn', columnIndex: 1, direction: 'asc' }]);
+        assert.deepEqual(vscode.sent, [{ command: 'sortColumn', columnIndex: 1, additive: false }]);
     });
 
-    test('cykl na tej samej kolumnie: asc -> desc -> null (brak sortowania)', () => {
+    test('Shift+klik wysyła additive: true', () => {
         setupDom();
         const state = buildGrid('sort-click-2.sql', {
-            headers: ['a'],
-            currentRows: [[1]],
-        });
-
-        const vscode = fakeVscode();
-        initSortListeners(vscode);
-        document.dispatchEvent(new window.Event('DOMContentLoaded'));
-
-        // symulujemy to, co backend odesłałby po appendData po każdym kliknięciu (source of truth), bo sorting.js czyta aktualny kierunek z State
-        state.sortColumn = null; state.sortDirection = null;
-        clickSortIndicator(state, 0);
-        assert.equal(vscode.sent[0].direction, 'asc');
-
-        state.sortColumn = 0; state.sortDirection = 'asc';
-        clickSortIndicator(state, 0);
-        assert.equal(vscode.sent[1].direction, 'desc');
-
-        state.sortColumn = 0; state.sortDirection = 'desc';
-        clickSortIndicator(state, 0);
-        assert.equal(vscode.sent[2].direction, null);
-    });
-
-    test('kliknięcie strzałki innej kolumny niż aktualnie posortowana zaczyna od "asc" (nie kontynuuje cyklu tamtej kolumny)', () => {
-        setupDom();
-        const state = buildGrid('sort-click-3.sql', {
             headers: ['a', 'b'],
             currentRows: [[1, 2]],
         });
-        state.sortColumn = 0;
-        state.sortDirection = 'desc'; // kolumna 0 jest już w stanie "desc"
+        state.sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
 
         const vscode = fakeVscode();
         initSortListeners(vscode);
         document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
-        clickSortIndicator(state, 1); // klikamy zupełnie inną kolumnę
+        clickSortIndicator(state, 1, { shiftKey: true });
 
-        assert.deepEqual(vscode.sent, [{ command: 'sortColumn', columnIndex: 1, direction: 'asc' }]);
+        assert.deepEqual(vscode.sent, [{ command: 'sortColumn', columnIndex: 1, additive: true }]);
     });
 
     test('klik w strzałkę NIE zaznacza kolumny (nie koliduje z initColumnSelection na tym samym #gridHeader)', () => {
@@ -173,6 +163,25 @@ describe('sorting.js - klik w strzałkę sortowania', () => {
         assert.equal(vscode.sent.length, 1);
         assert.equal(state.selectedColIndexes.size, 0);
         assert.equal(headerCellOf(state, 0).classList.contains('selected-col'), false);
+    });
+
+    test('Shift+klik w strzałkę też NIE odpala zaznaczania zakresu kolumn z editor.js (mimo że tam Shift+klik na nagłówku zwykle zaznacza zakres)', () => {
+        setupDom();
+        const state = buildGrid('sort-click-6.sql', {
+            headers: ['a', 'b', 'c'],
+            currentRows: [[1, 2, 3]],
+        });
+
+        const vscode = fakeVscode();
+        initColumnSelection();
+        initSortListeners(vscode);
+        document.dispatchEvent(new window.Event('DOMContentLoaded'));
+
+        clickSortIndicator(state, 1, { shiftKey: true });
+
+        assert.equal(vscode.sent.length, 1);
+        assert.equal(vscode.sent[0].additive, true);
+        assert.equal(state.selectedColIndexes.size, 0);
     });
 
     test('klik gdzie indziej w header-cell (poza strzałką) nadal normalnie zaznacza kolumnę', () => {
