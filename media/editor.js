@@ -249,7 +249,17 @@ export function reapplyAllColumnEdits() {
  * razem z nową wartością w State.pendingCellEdits i nakłada podgląd na wszystkie jego komórki.
  */
 function startCellGroupEdit(value) {
-    const positions = new Set(State.getInstance().selectedCellPositions);
+    const state = State.getInstance();
+    const positions = new Set();
+
+    state.selectedCellPositions.forEach((key) => {
+        const [rowIndex, colIndex] = key.split('-').map(Number);
+        const rowKey = state.currentRows?.[rowIndex]?.key;
+        if (rowKey !== undefined) {
+            positions.add(`${rowKey}-${colIndex}`);
+        }
+    });
+
     State.getInstance().pendingCellEdits = { value, positions };
 
     applyCellGroupPreview(positions, value);
@@ -266,7 +276,7 @@ export function cancelPendingCellEdits() {
     updateSaveCellEditsButtonVisibility();
 }
 
-/** Ponownie nakłada podgląd oczekującej grupy komórek - odpowiednik reapplyAllColumnEdits, używane m.in. po ponownym uruchomieniu tego samego SQL-a (renderPage nadpisuje komórki wartościami z backendu). Pozycje są page-relative, więc po odświeżeniu po prostu odnoszą się do tego, co teraz jest na danej pozycji - tak samo jak przy bulk-edicie kolumny. */
+/** Ponownie nakłada podgląd oczekującej grupy komórek - odpowiednik reapplyAllColumnEdits, używane m.in. po ponownym uruchomieniu tego samego SQL-a (renderPage nadpisuje komórki wartościami z backendu). Pozycje używają stabilnego klucza wiersza, więc podgląd trafia tylko na właściwą stronę. */
 export function reapplyPendingCellEdits() {
     const pending = State.getInstance().pendingCellEdits;
     if (!pending) {return;}
@@ -346,16 +356,18 @@ function initSaveCellEditsButton(vscode) {
         const headers = State.getInstance().headers;
         const currentRows = State.getInstance().currentRows || [];
 
-        // rowKey to stabilny identyfikator wiersza z backendu (patrz RowEntry.key) - nim backend adresuje wiersz w bazie, rowIndex/columnIndex jadą tylko po to, żeby dało się odtworzyć podgląd po stronie webview
+        // rowKey to stabilny identyfikator wiersza z backendu - rowIndex jest wyliczany tylko dla bieżącej strony
         const cells = [...pending.positions].map((key) => {
-            const [rowIndex, colIndex] = key.split('-').map(Number);
+            const [rowKey, colIndex] = key.split('-').map(Number);
+            const rowIndex = currentRows.findIndex(entry => entry?.key === rowKey);
+            if (rowIndex === -1) {return null;}
             return {
-                rowKey: currentRows[rowIndex]?.key,
+                rowKey,
                 rowIndex,
                 columnIndex: colIndex,
                 columnName: headers[colIndex]
             };
-        }).filter((cell) => cell.rowKey !== undefined);
+        }).filter((cell) => cell !== null);
 
         if (cells.length === 0) {return;}
 

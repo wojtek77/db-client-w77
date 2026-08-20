@@ -60,7 +60,7 @@ describe('zbiorcza edycja niezależnie zaznaczonych komórek', () => {
         assert.equal(vscode.messages.length, 0);
 
         assert.deepEqual(state.pendingCellEdits.value, 'X');
-        assert.deepEqual([...state.pendingCellEdits.positions].sort(), ['0-0', '0-1', '1-0', '1-1']);
+        assert.deepEqual([...state.pendingCellEdits.positions].sort(), ['10-0', '10-1', '20-0', '20-1']);
 
         for (const [r, c] of [[0, 0], [0, 1], [1, 0], [1, 1]]) {
             const cell = dataCellOf(state, r, c);

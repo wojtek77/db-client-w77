@@ -195,15 +195,18 @@ export function clearColumnPreview(columnIndex) {
 /**
  * Nakłada WIZUALNY podgląd nowej wartości na dowolny zbiór KOMÓREK (nie całą kolumnę) - używane
  * przez zbiorczą edycję niezależnie zaznaczonych komórek. To tylko widok, tak jak applyColumnPreview.
- * @param {Set<string>} positions - pozycje w formacie "row-col"
+ * @param {Set<string>} positions - pozycje w formacie "rowKey-col"
  * @param {string} value
  */
 export function applyCellGroupPreview(positions, value) {
     const rows = State.getInstance().cachedGrid;
-    if (!rows) {return;}
+    const currentRows = State.getInstance().currentRows;
+    if (!rows || !currentRows) {return;}
 
     positions.forEach((key) => {
-        const [rowIndex, colIndex] = key.split('-').map(Number);
+        const [rowKey, colIndex] = key.split('-').map(Number);
+        const rowIndex = currentRows.findIndex(entry => entry?.key === rowKey);
+        if (rowIndex === -1) {return;}
         const cell = rows[rowIndex]?.[colIndex + 1];
         if (!cell) {return;}
         cell.textContent = value;
@@ -214,15 +217,17 @@ export function applyCellGroupPreview(positions, value) {
 /**
  * Zdejmuje podgląd z podanego zbioru komórek: usuwa podświetlenie i przywraca prawdziwą wartość
  * z State.currentRows - odpowiednik clearColumnPreview, ale dla dowolnego zbioru komórek.
- * @param {Set<string>} positions - pozycje w formacie "row-col"
+ * @param {Set<string>} positions - pozycje w formacie "rowKey-col"
  */
 export function clearCellGroupPreview(positions) {
     const rows = State.getInstance().cachedGrid;
     const currentRows = State.getInstance().currentRows;
-    if (!rows) {return;}
+    if (!rows || !currentRows) {return;}
 
     positions.forEach((key) => {
-        const [rowIndex, colIndex] = key.split('-').map(Number);
+        const [rowKey, colIndex] = key.split('-').map(Number);
+        const rowIndex = currentRows.findIndex(entry => entry?.key === rowKey);
+        if (rowIndex === -1) {return;}
         const cell = rows[rowIndex]?.[colIndex + 1];
         if (!cell) {return;}
 
@@ -231,7 +236,7 @@ export function clearCellGroupPreview(positions) {
         // nie nadpisuj komórki, która akurat jest w trakcie edycji (ma input/textarea)
         if (cell.querySelector('input, textarea')) {return;}
 
-        const rowData = currentRows ? currentRows[rowIndex]?.data : undefined;
+        const rowData = currentRows[rowIndex]?.data;
         cell.textContent = rowData ? (rowData[colIndex] ?? 'NULL') : '';
     });
 }

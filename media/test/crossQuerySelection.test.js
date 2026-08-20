@@ -13,7 +13,7 @@ initColumnSelection();
 initCellSelection();
 
 /** Symuluje wiadomość 'appendData' z backendu (SqlResultsProvider.sendPage), tak jak naprawdę leci przez postMessage do webview. */
-function sendAppendData({ sqlFile, headers, rows, isSameQuery, clearSelection = false }) {
+function sendAppendData({ sqlFile, headers, rows, rowKeys, isSameQuery, clearSelection = false }) {
     dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
         data: {
             command: 'appendData',
@@ -21,6 +21,7 @@ function sendAppendData({ sqlFile, headers, rows, isSameQuery, clearSelection = 
             headers,
             columnTypes: [],
             rows,
+            rowKeys,
             isEncoded: false,
             totalRows: rows.length,
             currentPage: 1,
@@ -104,6 +105,7 @@ describe('zaznaczenie wiersza między różnymi zapytaniami na tym samym pliku S
             sqlFile,
             headers: ['sku', 'price'],
             rows: [['A100', 10], ['B200', 20]],
+            rowKeys: [10, 20],
             isSameQuery: true,
         });
 
@@ -210,6 +212,7 @@ describe('oczekująca zbiorcza edycja komórek (pendingCellEdits) między zapyta
             sqlFile,
             headers: ['sku', 'price'],
             rows: [['A100', 10], ['B200', 20]],
+            rowKeys: [10, 20],
             isSameQuery: false,
         });
 
@@ -218,7 +221,7 @@ describe('oczekująca zbiorcza edycja komórek (pendingCellEdits) między zapyta
         click(dataCellOf(state, 1, 1), { ctrlKey: true });
 
         // symulujemy skutek startCellGroupEdit() (patrz cellGroupEdit.test.js dla testu samego wejścia w tryb grupy) - tu interesuje nas wyłącznie zachowanie się tego stanu przy odświeżeniu
-        state.pendingCellEdits = { value: 'X', positions: new Set(state.selectedCellPositions) };
+        state.pendingCellEdits = { value: 'X', positions: new Set(['10-0', '20-1']) };
         dataCellOf(state, 0, 0).textContent = 'X';
         dataCellOf(state, 0, 0).classList.add('cell-edit-pending');
         dataCellOf(state, 1, 1).textContent = 'X';
@@ -229,6 +232,7 @@ describe('oczekująca zbiorcza edycja komórek (pendingCellEdits) między zapyta
             sqlFile,
             headers: ['sku', 'price'],
             rows: [['A100', 10], ['B200', 20]],
+            rowKeys: [10, 20],
             isSameQuery: true,
         });
 
@@ -241,6 +245,47 @@ describe('oczekująca zbiorcza edycja komórek (pendingCellEdits) między zapyta
         assert.notEqual(document.getElementById('saveCellEditsBtn').style.display, 'none');
     });
 
+    test('zmiana strony nie nakłada podglądu na wiersze o tych samych pozycjach, ale innych kluczach', () => {
+        const sqlFile = 'cross-query-cell-group-page.sql';
+
+        sendAppendData({
+            sqlFile,
+            headers: ['sku', 'price'],
+            rows: [['A100', 10], ['B200', 20]],
+            rowKeys: [10, 20],
+            isSameQuery: false,
+        });
+
+        const state = State.getInstance();
+        state.pendingCellEdits = { value: 'X', positions: new Set(['10-0', '20-1']) };
+
+        sendAppendData({
+            sqlFile,
+            headers: ['sku', 'price'],
+            rows: [['C300', 30], ['D400', 40]],
+            rowKeys: [30, 40],
+            isSameQuery: true,
+        });
+
+        assert.equal(dataCellOf(state, 0, 0).textContent, 'C300');
+        assert.equal(dataCellOf(state, 0, 0).classList.contains('cell-edit-pending'), false);
+        assert.equal(dataCellOf(state, 1, 1).textContent, '40');
+        assert.equal(dataCellOf(state, 1, 1).classList.contains('cell-edit-pending'), false);
+
+        sendAppendData({
+            sqlFile,
+            headers: ['sku', 'price'],
+            rows: [['A100', 10], ['B200', 20]],
+            rowKeys: [10, 20],
+            isSameQuery: true,
+        });
+
+        assert.equal(dataCellOf(state, 0, 0).textContent, 'X');
+        assert.equal(dataCellOf(state, 0, 0).classList.contains('cell-edit-pending'), true);
+        assert.equal(dataCellOf(state, 1, 1).textContent, 'X');
+        assert.equal(dataCellOf(state, 1, 1).classList.contains('cell-edit-pending'), true);
+    });
+
     test('uruchomienie INNEGO SQL-a anuluje oczekującą edycję grupy komórek (pozycje odnosiłyby się do już nieistniejącego wyniku)', () => {
         const sqlFile = 'cross-query-cell-group-2.sql';
 
@@ -248,13 +293,14 @@ describe('oczekująca zbiorcza edycja komórek (pendingCellEdits) między zapyta
             sqlFile,
             headers: ['sku', 'price'],
             rows: [['A100', 10], ['B200', 20]],
+            rowKeys: [10, 20],
             isSameQuery: false,
         });
 
         const state = State.getInstance();
         click(dataCellOf(state, 0, 0), { ctrlKey: true });
         click(dataCellOf(state, 1, 1), { ctrlKey: true });
-        state.pendingCellEdits = { value: 'X', positions: new Set(state.selectedCellPositions) };
+        state.pendingCellEdits = { value: 'X', positions: new Set(['10-0', '20-1']) };
         dataCellOf(state, 0, 0).classList.add('cell-edit-pending');
         dataCellOf(state, 1, 1).classList.add('cell-edit-pending');
 
@@ -262,6 +308,7 @@ describe('oczekująca zbiorcza edycja komórek (pendingCellEdits) między zapyta
             sqlFile,
             headers: ['sku', 'price', 'warehouse'],
             rows: [['A100', 10, 'EU'], ['B200', 20, 'EU']],
+            rowKeys: [10, 20],
             isSameQuery: false,
         });
 
