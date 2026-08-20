@@ -148,6 +148,10 @@ export function highlightMatchesOnCurrentPage() {
     if (!State.hasInstance()) {return;}
     const state = State.getInstance();
     const query = (state.searchQuery || '').trim();
+
+    // brak aktywnej frazy i strona nie ma żadnych wcześniejszych podświetleń do zdjęcia - nie ma czego robić, pomijamy przejście po wszystkich komórkach
+    if (!query && !state.hasHighlights) {return;}
+
     const lowerQuery = query.toLowerCase();
 
     const rows = state.cachedGrid;
@@ -178,6 +182,11 @@ export function highlightMatchesOnCurrentPage() {
             }
         }
     });
+
+    // zapamiętujemy, czy ta strona ma teraz nałożone podświetlenia, żeby przy kolejnym wywołaniu bez frazy wiedzieć, czy jest jeszcze co zdejmować
+    state.hasHighlights = !!query;
+    
+    console.log('HIGHLIGHT_MATCHES_ON_CURRENT_PAGE');
 }
 
 /** czyści cały stan wyszukiwania (nowy SQL, zmiana pliku, zamknięcie zakładki) i pole inputu */
@@ -221,6 +230,8 @@ export function restoreSearchUI() {
     updateCountLabel();
     updateClearButtonVisibility();
     highlightMatchesOnCurrentPage();
+    
+    console.log('RESTORE_SEARCH_UI');
 }
 
 export function initSearchListeners(vscode) {

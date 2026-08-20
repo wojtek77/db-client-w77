@@ -43,6 +43,7 @@
  * @property {string} searchQuery - Aktualnie wpisana/zsynchronizowana z backendem fraza wyszukiwania (backend jest źródłem prawdy).
  * @property {number} totalRows - Liczba wierszy PO zastosowaniu filtra wyszukiwania (to na jej podstawie liczona jest paginacja).
  * @property {number} totalRowsUnfiltered - Pełna liczba wierszy w wynikach SQL, bez filtra - używana tylko do etykiety "X z Y" przy polu wyszukiwania.
+ * @property {boolean} hasHighlights - czy bieżąca strona ma obecnie nałożone podświetlenia wyszukiwania (patrz highlightMatchesOnCurrentPage w search.js)
  */
 
 export class State {
@@ -81,6 +82,7 @@ export class State {
                 searchQuery: '',
                 totalRows: 0,
                 totalRowsUnfiltered: 0,
+                hasHighlights: false,
             });
         }
 
