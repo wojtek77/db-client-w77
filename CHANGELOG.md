@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.8
+
+### Changed
+- `SqlResultsProvider.saveColumnEdits` and the independently-selected-cell
+  bulk update path no longer show a `showInformationMessage` popup on
+  success (`✅ Updated ... record(s) in ...`). Error notifications on
+  failure are unchanged.
+
 ## 1.1.7
 
 ### Changed
