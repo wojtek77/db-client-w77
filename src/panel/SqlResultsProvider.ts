@@ -974,9 +974,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             this.sendPage(this._currentPage, true);
 
             const columnNames = normalizedEdits.map((e) => `\`${e.columnName}\``).join(', ');
-            vscode.window.showInformationMessage(
-                `✅ Updated ${columnNames} for ${recordCount} record(s) in ${tableName}`
-            );
+            // vscode.window.showInformationMessage(
+            //     `✅ Updated ${columnNames} for ${recordCount} record(s) in ${tableName}`
+            // );
         } catch (err: any) {
             console.error('Column bulk update error:', err);
             vscode.window.showErrorMessage(`❌ Column bulk update error: ${err.message}`);
@@ -1130,9 +1130,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // odśwież widok: znika czerwone podświetlenie komórek i przyciski zapisu, komórki pokazują nową wartość
             this.sendPage(this._currentPage, true);
 
-            vscode.window.showInformationMessage(
-                `✅ Updated ${cells.length} cell(s) across ${columnNamesByRowKey.size} record(s) in ${tableName}`
-            );
+            // vscode.window.showInformationMessage(
+            //     `✅ Updated ${cells.length} cell(s) across ${columnNamesByRowKey.size} record(s) in ${tableName}`
+            // );
         } catch (err: any) {
             console.error('Cell bulk update error:', err);
             vscode.window.showErrorMessage(`❌ Cell bulk update error: ${err.message}`);
