@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.10
+
+### Changed
+- Reduced redundant DOM work when refreshing sort-indicator arrows.
+  `renderHeaders` (`tableRenderer.js`) now sets each header's sort
+  glyph (`⇅`/`▲`/`▼`, plus priority number for multi-column sorts)
+  directly while building the header DOM, using a
+  `Map<columnIndex, {direction, criterionIndex}>` built from
+  `State.sortCriteria` instead of a full follow-up
+  `updateSortIndicators()` pass with `criteria.findIndex()` per
+  column. `updateSortIndicators()` itself was switched to the same
+  `Map`-based lookup. In `messageHandler.js`'s `appendData` handler,
+  the trailing `updateSortIndicators()` call is now skipped whenever
+  the header was just freshly rendered by `renderHeaders()` in that
+  same pass, and still runs when the existing header DOM is reused
+  as-is (e.g. after a sort click on an unchanged result shape) or
+  restored from cache for a different file/tab. No visible behavior
+  change.
+
 ## 1.1.9
 
 ### Added
