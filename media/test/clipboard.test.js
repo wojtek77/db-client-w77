@@ -97,7 +97,7 @@ describe('copying the selection to the clipboard (Ctrl+C)', () => {
         assert.equal(getCopied(), null);
     });
 
-    test('a row selection combined with a single cell in another row is merged (Set of unique positions)', () => {
+    test('a row selection combined with a later single cell selection copies only the cell (last touched type wins)', () => {
         setupDom();
         const getCopied = mockClipboard();
         const state = buildGrid('clip-5.sql', {
@@ -109,13 +109,34 @@ describe('copying the selection to the clipboard (Ctrl+C)', () => {
         initCellSelection();
         initClipboard();
 
-        click(state.cachedGridHtml[0].querySelector('.lp-cell')); // cały wiersz 0
-        click(dataCellOf(state, 2, 1), { ctrlKey: true }); // tylko komórka (2,1)
+        click(state.cachedGridHtml[0].querySelector('.lp-cell')); // cały wiersz 0 - "row" staje się aktywnym typem
+        click(dataCellOf(state, 2, 1), { ctrlKey: true }); // tylko komórka (2,1) - "cell" staje się nowym aktywnym typem
 
         ctrlC();
 
-        // wiersze użyte: 0, 2; kolumny użyte: 0, 1 (wiersz 0 ma obie); (2,0) nie jest w zaznaczeniu -> puste pole
-        assert.equal(getCopied(), '1\t2\n\t6');
+        // wiersz 0 pozostaje wizualnie zaznaczony (punkt odniesienia), ale kopiowana jest wyłącznie ostatnio dotknięta komórka
+        assert.equal(getCopied(), '6');
+    });
+
+    test('after the active cell selection is cleared, copying falls back to the previously active row selection', () => {
+        setupDom();
+        const getCopied = mockClipboard();
+        const state = buildGrid('clip-7.sql', {
+            headers: ['a', 'b'],
+            currentRows: [[1, 2], [3, 4], [5, 6]],
+        });
+        initRowSelection();
+        initColumnSelection();
+        initCellSelection();
+        initClipboard();
+
+        click(state.cachedGridHtml[0].querySelector('.lp-cell')); // cały wiersz 0 - "row" aktywny
+        click(dataCellOf(state, 2, 1), { ctrlKey: true }); // komórka (2,1) - "cell" aktywny
+        click(dataCellOf(state, 2, 1), { ctrlKey: true }); // odznaczenie tej samej komórki - "cell" znika z kolejności (był pusty)
+
+        ctrlC();
+
+        assert.equal(getCopied(), '1\t2');
     });
 
     test('Ctrl+C inside an input/textarea field is ignored (we do not intercept text copying)', () => {

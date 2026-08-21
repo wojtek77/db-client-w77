@@ -39,6 +39,7 @@
  * @property {Set<string>} selectedCellPositions - Pozycje pojedynczo zaznaczonych komórek
  *   w formacie "row-col" (odpowiednik selectedRowIndexes, ale dla zaznaczenia komórki).
  *   Klasa CSS 'selected-cell' to tylko wizualny efekt uboczny.
+ * @property {Set<'row'|'col'|'cell'>} selectionTypeOrder - Kolejność ostatniej aktywności trzech typów zaznaczenia (ostatni element = aktualnie "aktywny" typ, czyli ten kopiowany przez Ctrl+C) - jedyny właściciel tego pola to selection.js, patrz tam markXSelected/unmarkXSelected
  * @property {{value: string, positions: Set<string>}|null} pendingCellEdits - Oczekująca (jeszcze niezapisana) zbiorcza edycja NIEZALEŻNYCH ZAZNACZONYCH KOMÓREK (osobny mechanizm od pendingColumnEdits) - tylko jedna grupa naraz, positions to zbiór "rowKey-col" z chwili startu edycji, value to jedna wspólna wartość dla całej grupy, tylko podgląd w webview dopóki użytkownik nie kliknie "Save cells"
  * @property {string} searchQuery - Aktualnie wpisana/zsynchronizowana z backendem fraza wyszukiwania (backend jest źródłem prawdy).
  * @property {Array<{columnIndex: number, direction: 'asc'|'desc'}>} sortCriteria - Aktywne kryteria sortowania w kolejności priorytetu (pierwsze = główne, ORDER BY col1, col2, ...), pusta tablica = brak sortowania (backend jest źródłem prawdy, patrz msg.sortCriteria).
@@ -80,6 +81,7 @@ export class State {
                 selectedRowIndexes: new Set(),
                 selectedColIndexes: new Set(),
                 selectedCellPositions: new Set(),
+                selectionTypeOrder: new Set(),
                 searchQuery: '',
                 sortCriteria: [],
                 totalRows: 0,

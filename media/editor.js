@@ -1,5 +1,6 @@
 import { State } from './state.js';
 import { applyColumnPreview, clearColumnPreview, applyCellGroupPreview, clearCellGroupPreview } from './tableRenderer.js';
+import { markRowSelected, unmarkRowSelected, clearAllRowMarks, markColSelected, unmarkColSelected, clearAllColMarks, markCellSelected, unmarkCellSelected, clearAllCellMarks, getActiveClipboardPositions } from './selection.js';
 
 export function initEditor(vscode) {
     document.addEventListener('DOMContentLoaded', () => {
@@ -394,9 +395,9 @@ function initCancelCellEditsButton() {
 function setRowSelected(row, rowIndex, select) {
     row.classList.toggle('selected-row', select);
     if (select) {
-        State.getInstance().selectedRowIndexes.add(rowIndex);
+        markRowSelected(rowIndex);
     } else {
-        State.getInstance().selectedRowIndexes.delete(rowIndex);
+        unmarkRowSelected(rowIndex);
     }
 }
 
@@ -406,7 +407,7 @@ export function clearRowSelection() {
     State.getInstance().selectedRowIndexes.forEach(rowIndex => {
         if (rows[rowIndex]) {rows[rowIndex].classList.remove('selected-row');}
     });
-    State.getInstance().selectedRowIndexes.clear();
+    clearAllRowMarks();
 }
 
 // odznacza wszystkie aktualnie zaznaczone kolumny na podstawie Setu, bez przeszukiwania DOM
@@ -422,7 +423,7 @@ export function clearColumnSelection() {
             if (cell) {cell.classList.remove('selected-col');}
         });
     });
-    State.getInstance().selectedColIndexes.clear();
+    clearAllColMarks();
 }
 
 // odznacza wszystkie aktualnie zaznaczone komórki na podstawie Setu, bez przeszukiwania DOM
@@ -440,7 +441,7 @@ export function clearCellSelection() {
         const cell = rows[r]?.[c + 1];
         if (cell) {cell.classList.remove('selected-cell');}
     });
-    State.getInstance().selectedCellPositions.clear();
+    clearAllCellMarks();
 }
 
 export function initRowSelection() {
@@ -658,9 +659,9 @@ export function initColumnSelection() {
         });
 
         if (select) {
-            State.getInstance().selectedColIndexes.add(colIndex);
+            markColSelected(colIndex);
         } else {
-            State.getInstance().selectedColIndexes.delete(colIndex);
+            unmarkColSelected(colIndex);
         }
 
         // uwaga: odznaczenie kolumny NIE anuluje jej oczekującej edycji - anulowanie zbiorczej edycji jest wyłącznie zadaniem przycisku "Cancel" (cancelColumnEditsBtn)
@@ -770,11 +771,10 @@ export function initCellSelection() {
             cell.classList.toggle('selected-cell', select);
         }
 
-        const key = `${rowIndex}-${colIndex}`;
         if (select) {
-            State.getInstance().selectedCellPositions.add(key);
+            markCellSelected(rowIndex, colIndex);
         } else {
-            State.getInstance().selectedCellPositions.delete(key);
+            unmarkCellSelected(rowIndex, colIndex);
         }
     }
 
@@ -785,7 +785,7 @@ export function initCellSelection() {
             const cell = getCell(r, c);
             if (cell) {cell.classList.remove('selected-cell');}
         });
-        State.getInstance().selectedCellPositions.clear();
+        clearAllCellMarks();
     }
 
     gridBody.addEventListener('click', (event) => {
@@ -914,7 +914,7 @@ export function initCellSelection() {
     });
 }
 
-/* kopiowanie zaznaczenia (wiersze / kolumny / komórki) do schowka */
+/* kopiowanie zaznaczenia do schowka - jeśli aktywnych jest kilka typów zaznaczenia naraz (wiersze/kolumny/komórki), kopiowany jest wyłącznie ostatnio dotknięty typ, patrz getActiveClipboardPositions w selection.js */
 export function initClipboard() {
 
     const gridBody = document.getElementById('gridBody');
@@ -925,33 +925,6 @@ export function initClipboard() {
     function cellValue(rowIndex, colIndex) {
         const cell = State.getInstance().cachedGrid?.[rowIndex]?.[colIndex + 1];
         return cell ? cell.textContent : '';
-    }
-
-    // zbiera pozycje (row-col) ze wszystkich trzech typów zaznaczenia wprost z Setów w State, bez przeszukiwania DOM po klasach
-    function collectSelectedPositions() {
-        const positions = new Set();
-        const state = State.getInstance();
-
-        // zaznaczone wiersze -> wszystkie kolumny danego wiersza
-        const columnCount = state.headers.length;
-        state.selectedRowIndexes.forEach(rowIndex => {
-            for (let col = 0; col < columnCount; col++) {
-                positions.add(`${rowIndex}-${col}`);
-            }
-        });
-
-        // zaznaczone kolumny -> wszystkie wiersze danej kolumny (bieżącej strony)
-        const rowCount = state.cachedGrid.length;
-        state.selectedColIndexes.forEach(colIndex => {
-            for (let row = 0; row < rowCount; row++) {
-                positions.add(`${row}-${colIndex}`);
-            }
-        });
-
-        // pojedyncze zaznaczone komórki
-        state.selectedCellPositions.forEach(key => positions.add(key));
-
-        return positions;
     }
 
     // buduje tekst TSV (wklejalny do Excela/Sheets) odtwarzając prostokąt z użytych wierszy/kolumn – pola spoza zaznaczenia wychodzą puste
@@ -1022,7 +995,7 @@ export function initClipboard() {
             return;
         }
 
-        const positions = collectSelectedPositions();
+        const positions = getActiveClipboardPositions();
         if (positions.size === 0) {
             return;
         }
