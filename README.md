@@ -13,7 +13,7 @@ Fast **MariaDB & MySQL database client** for **Visual Studio Code** with intelli
 - ▶️ Execute current query (`Ctrl+Enter`)
 - ▶️ Execute entire SQL file (`Alt+X`)
 - ✏️ Inline table data editing
-- 📊 Bulk edit values for the selected column(s)
+- 📊 Bulk edit values for the selected column(s) or multiple cells
 - 📝 Generate INSERT, UPDATE, and DELETE statements for selected row(s)
 - 🎨 SQL formatter (`Ctrl+Shift+F`)
 - 📋 Recent SQL files (`F3`)
