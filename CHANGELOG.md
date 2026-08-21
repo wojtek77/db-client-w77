@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.11
+
+### Fixed
+- Copying to clipboard no longer merges unrelated row/column/cell
+  selections into one sparse rectangle. Previously, selecting e.g. a
+  whole row and then a single cell elsewhere copied a rectangle
+  spanning all their rows and columns (mostly empty), instead of
+  just the cell. Selection state now tracks which of the three
+  types (row/col/cell) was most recently touched
+  (`State.selectionTypeOrder`, maintained by new `selection.js`),
+  and Ctrl+C copies only that type's positions
+  (`getActiveClipboardPositions`). Other selections remain visually
+  active as a reference point (e.g. keeping a row highlighted while
+  copying a cell from it) but are excluded from the copied text.
+  If the active type's selection is cleared, copying falls back to
+  the previously active type.
+
 ## 1.1.10
 
 ### Changed
