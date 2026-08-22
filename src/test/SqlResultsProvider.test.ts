@@ -162,9 +162,9 @@ suite('SqlResultsProvider - large result search cancellation', () => {
     });
 });
 
-suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
+suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort dla wielu)', () => {
 
-    test('pusta lista kryteriów -> naturalna kolejność z zapytania SQL (rosnąco po key), niezależnie od bieżącej kolejności _allRows', () => {
+    test('pusta lista kryteriów -> naturalna kolejność z zapytania SQL (rosnąco po key), niezależnie od bieżącej kolejności _allRows', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['value'];
@@ -174,13 +174,33 @@ suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
             { key: 1, data: ['b'] },
         ];
         provider._sortCriteria = [];
+        provider._sortKinds = ['string'];
 
-        provider.applySort();
+        await provider.applySort();
 
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [0, 1, 2]);
     });
 
-    test('jedno kryterium, sortowanie liczbowe rosnąco', () => {
+    test('jedno kryterium NUMBER rosnąco (radix na Float64) - w tym liczby ujemne i ułamkowe, żeby sprawdzić sztuczkę bitową ze znakiem', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['n'];
+        provider._allRows = [
+            { key: 0, data: [30] },
+            { key: 1, data: [-10.5] },
+            { key: 2, data: [20] },
+            { key: 3, data: [0] },
+            { key: 4, data: [-0.001] },
+        ];
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        provider._sortKinds = ['number'];
+
+        await provider.applySort();
+
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [-10.5, -0.001, 0, 20, 30]);
+    });
+
+    test('jedno kryterium NUMBER malejąco', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
@@ -189,14 +209,15 @@ suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
             { key: 1, data: [10] },
             { key: 2, data: [20] },
         ];
-        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+        provider._sortKinds = ['number'];
 
-        provider.applySort();
+        await provider.applySort();
 
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [10, 20, 30]);
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [30, 20, 10]);
     });
 
-    test('jedno kryterium, sortowanie tekstowe malejąco z naturalnym porządkiem cyfr ("10" po "9", nie przed)', () => {
+    test('jedno kryterium STRING malejąco - CELOWO zwykły porządek leksykograficzny bez naturalnego sortowania cyfr (patrz compareStrings), więc "item10" < "item2" < "item9"', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
@@ -206,13 +227,34 @@ suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
             { key: 2, data: ['item9'] },
         ];
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+        provider._sortKinds = ['string'];
 
-        provider.applySort();
+        await provider.applySort();
 
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['item10', 'item9', 'item2']);
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['item9', 'item2', 'item10']);
     });
 
-    test('NULL jak w natywnym SQL ORDER BY (najmniejsza możliwa wartość) - pierwszy przy ASC, ostatni przy DESC', () => {
+    test('jedno kryterium STRING - stringi identyczne na pierwszych 8 znakach (ta sama grupa remisowa po radixie, STRING_RADIX_PREFIX_CHARS=8), różniące się dopiero dalej -> pełne porównanie w fallbacku musi je poprawnie rozróżnić', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['n'];
+        provider._allRows = [
+            { key: 0, data: ['12345678-zzz'] },
+            { key: 1, data: ['12345678-aaa'] },
+            { key: 2, data: ['12345678-mmm'] },
+        ];
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        provider._sortKinds = ['string'];
+
+        await provider.applySort();
+
+        assert.deepStrictEqual(
+            provider._allRows.map((r: any) => r.data[0]),
+            ['12345678-aaa', '12345678-mmm', '12345678-zzz']
+        );
+    });
+
+    test('NULL jak w natywnym SQL ORDER BY (najmniejsza możliwa wartość) - pierwszy przy ASC, ostatni przy DESC - dla kind=number', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
@@ -222,17 +264,39 @@ suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
             { key: 2, data: [null] },
             { key: 3, data: [1] },
         ];
+        provider._sortKinds = ['number'];
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
-        provider.applySort();
+        await provider.applySort();
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [null, null, 1, 5]);
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
-        provider.applySort();
+        await provider.applySort();
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [5, 1, null, null]);
     });
 
-    test('dwa kryteria - drugie rozstrzyga remisy pierwszego (ORDER BY col0, col1)', () => {
+    test('NULL jak wyżej, ale dla kind=string', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['n'];
+        provider._allRows = [
+            { key: 0, data: [null] },
+            { key: 1, data: ['b'] },
+            { key: 2, data: [null] },
+            { key: 3, data: ['a'] },
+        ];
+        provider._sortKinds = ['string'];
+
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        await provider.applySort();
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [null, null, 'a', 'b']);
+
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+        await provider.applySort();
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['b', 'a', null, null]);
+    });
+
+    test('dwa kryteria (Shift+klik, ścieżka mergeSortRows, poza radixem) - drugie rozstrzyga remisy pierwszego (ORDER BY col0, col1)', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['dept', 'name'];
@@ -246,8 +310,9 @@ suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
             { columnIndex: 0, direction: 'asc' },
             { columnIndex: 1, direction: 'asc' },
         ];
+        provider._sortKinds = ['string', 'string'];
 
-        provider.applySort();
+        await provider.applySort();
 
         assert.deepStrictEqual(
             provider._allRows.map((r: any) => r.data),
@@ -255,7 +320,7 @@ suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
         );
     });
 
-    test('remis na wszystkich kryteriach naraz -> deterministyczny tie-break po key rosnąco (nie "cokolwiek było w _allRows przed sortowaniem")', () => {
+    test('remis na wszystkich kryteriach naraz -> deterministyczny tie-break po key rosnąco (nie "cokolwiek było w _allRows przed sortowaniem")', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['dept'];
@@ -265,13 +330,48 @@ suite('SqlResultsProvider - applySort (sortowanie wielokolumnowe)', () => {
             { key: 1, data: ['sales'] },
         ];
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        provider._sortKinds = ['string'];
 
-        provider.applySort();
+        await provider.applySort();
 
-        // wszystkie trzy wiersze remisują na jedynym kryterium ('sales' === 'sales') -> applySort jawnie
-        // tie-breakuje po key rosnąco (patrz ostatni `return a.key - b.key` w applySort), więc wynik to [0,1,2],
-        // NIE oryginalna kolejność [2,0,1] sprzed wywołania - to świadomy wybór, nie efekt uboczny stabilności Array.sort
+        // wszystkie trzy wiersze remisują na jedynym kryterium ('sales' === 'sales') -> radixSortSingleColumn jawnie
+        // tie-breakuje po key rosnąco, więc wynik to [0,1,2], NIE oryginalna kolejność [2,0,1] sprzed wywołania
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [0, 1, 2]);
+    });
+
+    test('stres-test radix vs Array.sort jako źródło prawdy: 5000 losowych liczb (w tym ujemne, ułamkowe) i 5000 losowych stringów o różnej długości', async () => {
+        const N = 5000;
+
+        // --- NUMBER ---
+        {
+            const provider = getProvider() as any;
+            provider._headers = ['n'];
+            const rows = Array.from({ length: N }, (_, i) => ({ key: i, data: [(Math.random() - 0.5) * 1_000_000] }));
+            provider._allRows = rows.slice();
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+            provider._sortKinds = ['number'];
+
+            await provider.applySort();
+
+            const expected = rows.slice().sort((a, b) => a.data[0] - b.data[0]).map((r) => r.data[0]);
+            assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), expected);
+        }
+
+        // --- STRING ---
+        {
+            const provider = getProvider() as any;
+            provider._headers = ['s'];
+            const randomString = () => Math.random().toString(36).slice(2, 2 + Math.ceil(Math.random() * 15));
+            const rows = Array.from({ length: N }, (_, i) => ({ key: i, data: [randomString()] }));
+            provider._allRows = rows.slice();
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+            provider._sortKinds = ['string'];
+
+            await provider.applySort();
+
+            const expected = rows.slice().sort((a, b) => (a.data[0] < b.data[0] ? 1 : a.data[0] > b.data[0] ? -1 : 0)).map((r) => r.data[0]);
+            assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), expected);
+        }
     });
 });
 
@@ -365,5 +465,40 @@ suite('SqlResultsProvider - toggleSort (budowanie listy kryteriów z kliknięć)
             { columnIndex: 0, direction: 'asc' },
             { columnIndex: 2, direction: 'asc' },
         ]);
+    });
+});
+
+suite('SqlResultsProvider - computeSortKinds (mapowanie field.type z meta na NUMBER/STRING)', () => {
+
+    test('typy numeryczne z NUMERIC_SORT_TYPE_NAMES -> number', () => {
+        const provider = getProvider() as any;
+        const meta = ['TINY', 'SHORT', 'LONG', 'INT24', 'BIGINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR']
+            .map((type) => ({ type }));
+
+        assert.deepStrictEqual(provider.computeSortKinds(meta), meta.map(() => 'number'));
+    });
+
+    test('CHAR/VARCHAR (raportowane przez driver jako VAR_STRING/STRING), daty i pozostałe typy -> string', () => {
+        const provider = getProvider() as any;
+        const meta = ['VARCHAR', 'VAR_STRING', 'STRING', 'DATE', 'DATETIME', 'TIMESTAMP', 'TIME', 'JSON', 'ENUM', 'SET', 'BLOB']
+            .map((type) => ({ type }));
+
+        assert.deepStrictEqual(provider.computeSortKinds(meta), meta.map(() => 'string'));
+    });
+
+    test('BIGINT konkretnie -> number (nie "LONGLONG" - to nieprawidłowa nazwa typu dla tego drivera, prawdziwa nazwa to BIGINT)', () => {
+        const provider = getProvider() as any;
+        assert.deepStrictEqual(provider.computeSortKinds([{ type: 'BIGINT' }]), ['number']);
+        assert.deepStrictEqual(provider.computeSortKinds([{ type: 'LONGLONG' }]), ['string']);
+    });
+
+    test('typ zapisany małymi literami też jest rozpoznawany (String().toUpperCase())', () => {
+        const provider = getProvider() as any;
+        assert.deepStrictEqual(provider.computeSortKinds([{ type: 'bigint' }]), ['number']);
+    });
+
+    test('brakujące/puste field.type nie wysypuje się, domyślnie string', () => {
+        const provider = getProvider() as any;
+        assert.deepStrictEqual(provider.computeSortKinds([{}, { type: null }]), ['string', 'string']);
     });
 });

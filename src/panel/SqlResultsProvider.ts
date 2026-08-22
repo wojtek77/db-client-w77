@@ -27,6 +27,9 @@ interface SortCriterion {
     direction: 'asc' | 'desc';
 }
 
+// typ danych kolumny na potrzeby wyboru komparatora sortowania - ustalany WYŁĄCZNIE z metadanych SQL (field.type), patrz computeSortKinds; zero UUID/date jako osobnych przypadków - u nas wszystko poza liczbami to string
+type SortKind = 'number' | 'string';
+
 interface FileResultState {
     rows: RowEntry[];
     headers: string[];
@@ -46,7 +49,23 @@ interface FileResultState {
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private static instance: SqlResultsProvider;
-    
+    /**
+     * Nazwy typów z field.type (mariadb driver, enum Types) klasyfikowane jako NUMBER na potrzeby sortowania - reszta (w tym VARCHAR/VAR_STRING/STRING,
+     * DATE/DATETIME/TIMESTAMP/TIME - u nas zawsze stringi z dateStrings:true, patrz Connection.ts) to STRING. DECIMAL/NEWDECIMAL trafiają tu mimo że
+     * driver zwraca je jako JS string (decimalAsNumber nie jest ustawione w Connection.ts) - komparator numeryczny (odejmowanie) działa poprawnie
+     * niezależnie od tego, czy wartość jest JS number czy numerycznym stringiem, bo operator '-' zawsze wymusza konwersję obu argumentów na liczbę.
+     */
+    private static readonly NUMERIC_SORT_TYPE_NAMES = new Set(['TINY', 'SHORT', 'LONG', 'INT24', 'BIGINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR']);
+    // ile pierwszych znaków (jednostek UTF-16) stringa wchodzi do klucza radix sortu - patrz buildStringPrefixWords/STRING_RADIX_WORD_COUNT; reszta rozstrzygana pełnym porównaniem tylko w obrębie grup o identycznym prefiksie
+    private static readonly STRING_RADIX_PREFIX_CHARS = 4;
+    // 2 znaki UTF-16 (2x16 bit) na słowo 32-bitowe -> STRING_RADIX_PREFIX_CHARS/2 słów na string
+    private static readonly STRING_RADIX_WORD_COUNT = SqlResultsProvider.STRING_RADIX_PREFIX_CHARS / 2;
+    // liczba (JS number/Float64) zajmuje dokładnie 2 słowa 32-bitowe (64-bitowa reprezentacja IEEE-754) - patrz buildNumberWords
+    private static readonly NUMBER_RADIX_WORD_COUNT = 2;
+    // pojedynczy, reużywany bufor do konwersji Float64 -> bity IEEE-754 (uint32 x2) - unikamy alokacji nowego ArrayBuffer/DataView dla każdej porównywanej wartości
+    private static readonly float64Scratch = new DataView(new ArrayBuffer(8));
+
+
     static initialize(
         context: vscode.ExtensionContext
     ) {
@@ -85,6 +104,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _lastQueryTime = 0;
     private _meta: any[] = [];
     private _columnTypes: string[] = [];
+    private _sortKinds: SortKind[] = [];
     private _lastSQL = '';
     private _currentPage = 1;
     private _infoMessage = '';
@@ -108,6 +128,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     // numer operacji filtrowania, który pozwala unieważnić poprzednie wyszukiwanie
     private _searchGeneration = 0;
     private readonly SEARCH_YIELD_EVERY = 10000;
+    private readonly SORT_YIELD_EVERY = 10000;
+    // numer operacji sortowania unieważnia starsze sortowanie po kolejnym kliknięciu
+    private _sortGeneration = 0;
 
     private constructor(context: vscode.ExtensionContext) {
         this._extensionUri = context.extensionUri;
@@ -476,8 +499,20 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this.sendPage(1, true, false);
     }
 
-    // porównuje dwie wartości komórek na potrzeby sortowania: NULL traktowany jak w natywnym SQL ORDER BY (najmniejsza możliwa wartość) - pierwszy przy ASC, ostatni przy DESC. Date i liczby porównywane wartościowo, reszta jako tekst z naturalnym porządkiem cyfr ('10' po '9', nie przed)
-    private static compareForSort(a: any, b: any, direction: 'asc' | 'desc'): number {
+    // gołe komparatory bez żadnego sprawdzania typu w środku - typ (NUMBER czy STRING) jest ustalany RAZ na kolumnę PRZED sortowaniem (patrz _sortKinds/computeSortKinds) i tylko na tej podstawie wybierana jest jedna z tych dwóch funkcji jako callback; w samej pętli sortującej nie ma już żadnego if-a na typ
+    private static compareNumbers(a: number | string, b: number | string): number {
+        // DECIMAL/NEWDECIMAL bywają JS stringiem (decimalAsNumber nie jest ustawione w Connection.ts) - Number() wymusza konwersję tak samo jak zrobiłby to operator '-' bezpośrednio na stringu, więc zachowanie jest identyczne niezależnie od tego czy driver zwrócił JS number czy numeryczny string
+        const na = typeof a === 'number' ? a : Number(a);
+        const nb = typeof b === 'number' ? b : Number(b);
+        return na - nb;
+    }
+
+    private static compareStrings(a: string, b: string): number {
+        return a < b ? -1 : a > b ? 1 : 0;
+    }
+
+    // porównuje dwie wartości komórek na potrzeby sortowania: NULL jak w natywnym SQL ORDER BY (najmniejsza wartość - pierwsza przy ASC, ostatnia przy DESC), reszta wg PRZYPISANEGO WCZEŚNIEJ (nie sprawdzanego tutaj) typu kolumny - używane tylko w ścieżce wielokolumnowej (mergeSortRows), bo jednokolumnowa idzie przez szybszy radixSortSingleColumn
+    private static compareForSort(a: any, b: any, direction: 'asc' | 'desc', kind: SortKind): number {
         const aNull = a === null || a === undefined;
         const bNull = b === null || b === undefined;
         if (aNull && bNull) {return 0;}
@@ -485,35 +520,270 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         if (aNull) {return direction === 'desc' ? 1 : -1;}
         if (bNull) {return direction === 'desc' ? -1 : 1;}
 
-        let cmp: number;
-        if (a instanceof Date && b instanceof Date) {
-            cmp = a.getTime() - b.getTime();
-        } else if (typeof a === 'number' && typeof b === 'number') {
-            cmp = a - b;
-        } else {
-            cmp = String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
-        }
-
+        const cmp = kind === 'number' ? SqlResultsProvider.compareNumbers(a, b) : SqlResultsProvider.compareStrings(a, b);
         return direction === 'desc' ? -cmp : cmp;
     }
 
-    // sortuje this._allRows w miejscu wg this._sortCriteria (priorytet = kolejność w tablicy, dokładnie jak SQL ORDER BY col1, col2, ...); pusta tablica -> wraca do naturalnej kolejności z zapytania SQL (rosnąco po stabilnym kluczu wiersza, patrz RowEntry.key)
-    private applySort(): void {
+    // pojedyncza kolumna (zwykły klik) -> szybki radix sort na słowach 32-bitowych (patrz radixSortSingleColumn); kilka kolumn naraz (Shift+klik) -> zwykły stabilny merge sort z komparatorem przypisanym RAZ na kryterium, poza zakresem radixu (ustalone w rozmowie - łączenie wielu kolumn w jeden klucz radix byłoby dużo bardziej złożone dla rzadszego przypadku użycia)
+    private async applySort(generation: number = this._sortGeneration): Promise<boolean> {
+        const rows = this._allRows;
+        if (rows.length < 2) {return generation === this._sortGeneration;}
+
         if (this._sortCriteria.length === 0) {
-            this._allRows.sort((a, b) => a.key - b.key);
-            return;
+            await this.mergeSortRows(rows, (a, b) => a.key - b.key, generation);
+            return generation === this._sortGeneration;
         }
 
-        const criteria = this._sortCriteria;
-        this._allRows.sort((a, b) => {
-            for (const { columnIndex, direction } of criteria) {
-                const cmp = SqlResultsProvider.compareForSort(a.data[columnIndex], b.data[columnIndex], direction);
+        const criteria = [...this._sortCriteria];
+
+        if (criteria.length === 1) {
+            const { columnIndex, direction } = criteria[0];
+            const kind: SortKind = this._sortKinds[columnIndex] === 'number' ? 'number' : 'string';
+            return this.radixSortSingleColumn(rows, columnIndex, kind, direction, generation);
+        }
+
+        // typ każdej sortowanej kolumny wybieramy RAZ tutaj (nie przy każdym porównaniu w pętli) - patrz compareForSort
+        const kindsByCriterion = criteria.map((c) => (this._sortKinds[c.columnIndex] === 'number' ? 'number' : 'string') as SortKind);
+        await this.mergeSortRows(rows, (a, b) => {
+            for (let i = 0; i < criteria.length; i++) {
+                const { columnIndex, direction } = criteria[i];
+                const cmp = SqlResultsProvider.compareForSort(a.data[columnIndex], b.data[columnIndex], direction, kindsByCriterion[i]);
                 if (cmp !== 0) {return cmp;}
             }
-            // remis na wszystkich kryteriach naraz - stabilny tie-break po kluczu wiersza, żeby kolejność nie "skakała" między kolejnymi sortowaniami
+            // remis na wszystkich kryteriach naraz - stabilny tie-break po kluczu wiersza
             return a.key - b.key;
-        });
+        }, generation);
+
+        return generation === this._sortGeneration;
     }
+
+    /**
+     * Sortuje pojedynczą kolumnę radix sortem zamiast komparatorem per-para. NULL/undefined nie mają reprezentacji liczbowej ani prefiksu do
+     * zapakowania w słowa radix - wydzielamy je osobno na początku i sortujemy tylko po kluczu (tak jak przy pełnym remisie wszędzie indziej
+     * w tym pliku), a resztę (realne wartości) sortujemy radixem na 32-bitowych słowach: NUMBER -> pełna wartość (64 bity IEEE-754, bez straty,
+     * więc remis w radixie = naprawdę ta sama liczba), STRING -> tylko pierwsze STRING_RADIX_PREFIX_CHARS znaków (remis w radixie może więc
+     * oznaczać "ten sam prefiks, różna reszta" - takie grupy dostają dopiero pełne porównanie stringów, patrz niżej).
+     */
+    private async radixSortSingleColumn(rows: RowEntry[], columnIndex: number, kind: SortKind, direction: 'asc' | 'desc', generation: number): Promise<boolean> {
+        const length = rows.length;
+
+        const nullRows: RowEntry[] = [];
+        const valueRows: RowEntry[] = [];
+        for (let i = 0; i < length; i++) {
+            const row = rows[i];
+            const value = row.data[columnIndex];
+            if (value === null || value === undefined) {nullRows.push(row);} else {valueRows.push(row);}
+        }
+        // NULL jako najmniejsza wartość w SQL ORDER BY - stabilny porządek po kluczu, zawsze rosnąco niezależnie od direction (ta sama konwencja co tie-break w mergeSortRows)
+        nullRows.sort((a, b) => a.key - b.key);
+
+        if (valueRows.length < 2) {
+            const merged = direction === 'desc' ? [...valueRows, ...nullRows] : [...nullRows, ...valueRows];
+            for (let i = 0; i < length; i++) {rows[i] = merged[i];}
+            return generation === this._sortGeneration;
+        }
+
+        const wordCount = kind === 'number' ? SqlResultsProvider.NUMBER_RADIX_WORD_COUNT : SqlResultsProvider.STRING_RADIX_WORD_COUNT;
+        const words = kind === 'number'
+            ? SqlResultsProvider.buildNumberWords(valueRows, columnIndex)
+            : SqlResultsProvider.buildStringPrefixWords(valueRows, columnIndex);
+
+        const sortedIndices = await this.radixSortIndices(words, valueRows.length, wordCount, generation);
+        if (sortedIndices === null) {return false;}
+
+        if (direction === 'desc') {
+            for (let left = 0, right = sortedIndices.length - 1; left < right; left++, right--) {
+                const tmp = sortedIndices[left];
+                sortedIndices[left] = sortedIndices[right];
+                sortedIndices[right] = tmp;
+            }
+        }
+
+        // grupy o identycznych słowach radix -> doprecyzowanie kolejności w obrębie grupy: dla NUMBER słowa = pełna wartość, więc tylko tie-break po kluczu (zawsze rosnąco); dla STRING słowa = tylko prefiks, więc pełne porównanie stringów z uwzględnieniem direction, a dopiero potem tie-break po kluczu
+        let groupStart = 0;
+        for (let i = 1; i <= sortedIndices.length; i++) {
+            const sameGroup = i < sortedIndices.length && SqlResultsProvider.wordsEqual(words, sortedIndices[groupStart], sortedIndices[i], wordCount);
+            if (sameGroup) {continue;}
+
+            if (i - groupStart > 1) {
+                const group = Array.from(sortedIndices.subarray(groupStart, i));
+                if (kind === 'string') {
+                    group.sort((a, b) => {
+                        const cmp = SqlResultsProvider.compareStrings(valueRows[a].data[columnIndex], valueRows[b].data[columnIndex]);
+                        const directed = direction === 'desc' ? -cmp : cmp;
+                        return directed !== 0 ? directed : valueRows[a].key - valueRows[b].key;
+                    });
+                } else {
+                    group.sort((a, b) => valueRows[a].key - valueRows[b].key);
+                }
+                sortedIndices.set(group, groupStart);
+            }
+
+            groupStart = i;
+        }
+
+        const sortedValueRows = new Array<RowEntry>(valueRows.length);
+        for (let i = 0; i < sortedIndices.length; i++) {
+            sortedValueRows[i] = valueRows[sortedIndices[i]];
+        }
+
+        const merged = direction === 'desc' ? [...sortedValueRows, ...nullRows] : [...nullRows, ...sortedValueRows];
+        for (let i = 0; i < length; i++) {rows[i] = merged[i];}
+
+        return generation === this._sortGeneration;
+    }
+
+    // pakuje wartości liczbowe kolumny w słowa 32-bitowe (2 słowa = 64-bitowa reprezentacja IEEE-754 double) - gęsta tablica indeksowana wprost pozycją w 'rows' (bez cache, bez indeksowania po row.key)
+    private static buildNumberWords(rows: RowEntry[], columnIndex: number): Uint32Array {
+        const length = rows.length;
+        const words = new Uint32Array(length * SqlResultsProvider.NUMBER_RADIX_WORD_COUNT);
+        for (let i = 0; i < length; i++) {
+            const [hi, lo] = SqlResultsProvider.encodeFloat64SortableWords(rows[i].data[columnIndex]);
+            words[i * 2] = hi;
+            words[i * 2 + 1] = lo;
+        }
+        return words;
+    }
+
+    // zamienia liczbę na dwa słowa 32-bitowe tak, żeby zwykłe porównanie bez znaku (jak w radix sorcie) odpowiadało prawdziwemu porządkowi liczbowemu IEEE-754
+    private static encodeFloat64SortableWords(value: number | string): [number, number] {
+        const numericValue = typeof value === 'number' ? value : Number(value);
+        SqlResultsProvider.float64Scratch.setFloat64(0, numericValue, false);
+        let hi = SqlResultsProvider.float64Scratch.getUint32(0, false);
+        let lo = SqlResultsProvider.float64Scratch.getUint32(4, false);
+
+        // standardowa sztuczka bitowa: liczby ujemne (bit znaku=1) odwracamy całe, nieujemne (bit znaku=0) odwracamy tylko bit znaku - bez tego -5 wypadłoby "większe" niż 5 przy prostym porównaniu bitowym
+        if ((hi & 0x80000000) !== 0) {
+            hi = (~hi) >>> 0;
+            lo = (~lo) >>> 0;
+        } else {
+            hi = (hi | 0x80000000) >>> 0;
+        }
+
+        return [hi, lo];
+    }
+
+    // pakuje pierwsze STRING_RADIX_PREFIX_CHARS znaków (jednostek UTF-16) stringa w słowa 32-bitowe, po 2 znaki na słowo - gęsta tablica indeksowana wprost pozycją w 'rows'
+    private static buildStringPrefixWords(rows: RowEntry[], columnIndex: number): Uint32Array {
+        const length = rows.length;
+        const wordCount = SqlResultsProvider.STRING_RADIX_WORD_COUNT;
+        const words = new Uint32Array(length * wordCount);
+
+        for (let i = 0; i < length; i++) {
+            const raw = rows[i].data[columnIndex];
+            const value = typeof raw === 'string' ? raw : String(raw);
+            const offset = i * wordCount;
+            for (let w = 0; w < wordCount; w++) {
+                const charIndex = w * 2;
+                // brakujące znaki (string krótszy niż prefiks) dopełniamy zerami - to sortuje się PRZED każdym prawdziwym znakiem, więc "ab" trafia przed "abc" tak jak w zwykłym porządku leksykograficznym; pełne rozstrzygnięcie w razie potrzeby i tak dostaje grupa remisowa (patrz radixSortSingleColumn)
+                const c0 = charIndex < value.length ? value.charCodeAt(charIndex) : 0;
+                const c1 = charIndex + 1 < value.length ? value.charCodeAt(charIndex + 1) : 0;
+                words[offset + w] = ((c0 << 16) | c1) >>> 0;
+            }
+        }
+
+        return words;
+    }
+
+    // porównuje wordCount słów dwóch pozycji bez odczytywania oryginalnej wartości
+    private static wordsEqual(words: Uint32Array, a: number, b: number, wordCount: number): boolean {
+        const aOffset = a * wordCount, bOffset = b * wordCount;
+        for (let w = 0; w < wordCount; w++) {
+            if (words[aOffset + w] !== words[bOffset + w]) {return false;}
+        }
+        return true;
+    }
+
+    // generyczny LSD radix sort (najmniej znaczący bajt najpierw) na dowolnej liczbie słów 32-bitowych - działa identycznie dla liczb (2 słowa) i prefiksów stringów (4 słowa); zwraca ROSNĄCO posortowaną permutację indeksów 0..length-1 (kierunek/desc obsługiwany przez wywołującego), albo null jeśli generation przestało być aktualne w trakcie oddawania event loop
+    private async radixSortIndices(words: Uint32Array, length: number, wordCount: number, generation: number): Promise<Uint32Array | null> {
+        let source = new Uint32Array(length);
+        for (let i = 0; i < length; i++) {source[i] = i;}
+        let target = new Uint32Array(length);
+        const counts = new Uint32Array(256);
+
+        for (let word = wordCount - 1; word >= 0; word--) {
+            for (let byte = 0; byte < 4; byte++) {
+                counts.fill(0);
+                const shift = byte * 8;
+
+                for (let i = 0; i < length; i++) {
+                    counts[(words[source[i] * wordCount + word] >>> shift) & 0xff]++;
+                }
+
+                let total = 0;
+                for (let i = 0; i < 256; i++) {
+                    const count = counts[i];
+                    counts[i] = total;
+                    total += count;
+                }
+
+                for (let i = 0; i < length; i++) {
+                    const idx = source[i];
+                    const bucket = (words[idx * wordCount + word] >>> shift) & 0xff;
+                    target[counts[bucket]++] = idx;
+                }
+
+                const swap = source;
+                source = target;
+                target = swap;
+
+                // yield PO KAŻDYM przebiegu bajtowym, nie dopiero po całym słowie (4 przebiegi) - inaczej pojedyncza blokada event loop rośnie 4x (zmierzone: po słowie ~108ms max_lag przy 200k, po bajcie ~25-30ms)
+                await new Promise<void>((resolve) => setImmediate(resolve));
+                if (generation !== this._sortGeneration) {return null;}
+            }
+        }
+
+        return source;
+    }
+
+    // wykonuje stabilne sortowanie przez scalanie i oddaje event loop po określonej liczbie porównań - używane dla sortowania wielokolumnowego i sortowania "po kluczu" (brak kryteriów)
+    private async mergeSortRows(rows: RowEntry[], compare: (a: RowEntry, b: RowEntry) => number, generation: number): Promise<void> {
+        const length = rows.length;
+        // źródłowa kopia chroni aktualną kolejność przed częściowym sortowaniem anulowanej operacji
+        let source = rows.slice();
+        let target = new Array<RowEntry>(length);
+        let width = 1;
+        let operations = 0;
+
+        while (width < length) {
+            for (let start = 0; start < length; start += width * 2) {
+                if (generation !== this._sortGeneration) {return;}
+
+                const middle = Math.min(start + width, length);
+                const end = Math.min(start + width * 2, length);
+                let left = start;
+                let right = middle;
+                let output = start;
+
+                while (left < middle && right < end) {
+                    target[output++] = compare(source[left], source[right]) <= 0 ? source[left++] : source[right++];
+                    operations++;
+
+                    if (operations >= this.SORT_YIELD_EVERY) {
+                        operations = 0;
+                        await new Promise<void>((resolve) => setImmediate(resolve));
+                        if (generation !== this._sortGeneration) {return;}
+                    }
+                }
+
+                while (left < middle) {target[output++] = source[left++];}
+                while (right < end) {target[output++] = source[right++];}
+            }
+
+            const swap = source;
+            source = target;
+            target = swap;
+            width *= 2;
+
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            if (generation !== this._sortGeneration) {return;}
+        }
+
+        if (source !== rows) {
+            for (let i = 0; i < length; i++) {rows[i] = source[i];}
+        }
+    }
+
 
     /**
      * Aktualizuje this._sortCriteria na podstawie kliknięcia strzałki sortowania w danej kolumnie.
@@ -552,6 +822,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         if (!this._view) {return;}
         if (columnIndex < 0 || columnIndex >= this._headers.length) {return;}
 
+        this._sortGeneration++;
+        const generation = this._sortGeneration;
         this.toggleSort(columnIndex, additive);
 
         const fileState = this._fileStates.get(this._currentSqlFile);
@@ -559,10 +831,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             fileState.sortCriteria = this._sortCriteria;
         }
 
-        this.applySort();
+        const sorted = await this.applySort(generation);
+        if (!sorted) {return;}
 
         const completed = await this.applySearchFilter();
-        if (!completed) {return;}
+        if (!completed || generation !== this._sortGeneration) {return;}
 
         // nowe sortowanie zawsze wraca na stronę 1 - poprzednia strona mogła nie odpowiadać już tym samym wierszom
         this.sendPage(1, true, false);
@@ -669,6 +942,15 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
      * już to zawierają. Dla pozostałych kolumn zwracamy '', bo nic więcej
      * z tej wartości nie korzysta.
      */
+    // określa strategię sortowania na podstawie metadanych wyniku SQL - WYŁĄCZNIE na podstawie field.type (bez próbkowania wartości, bez specjalnego traktowania UUID/dat - patrz NUMERIC_SORT_TYPE_NAMES); wszystko poza tą listą to 'string', w tym VARCHAR/CHAR (raportowane przez driver jako VAR_STRING/STRING) i daty (u nas zawsze stringi, patrz dateStrings:true w Connection.ts)
+    private computeSortKinds(meta: any[]): SortKind[] {
+        return meta.map((field: any) => {
+            const type = String(field?.type ?? '').toUpperCase();
+            return SqlResultsProvider.NUMERIC_SORT_TYPE_NAMES.has(type) ? 'number' : 'string';
+        });
+    }
+
+
     private computeColumnTypes(meta: any[]): string[] {
         if (!meta || meta.length === 0) {
             return [];
@@ -1551,6 +1833,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._headers = headers;
         this._lastSQL = sql;
         this._meta = meta;
+        this._sortKinds = success && Array.isArray(meta) ? this.computeSortKinds(meta) : [];
         this._columnTypes = success ? this.computeColumnTypes(meta) : [];
         this._connectionName = db.getConnectionName();
         this._connectionTime = db.getConnectionTime();
@@ -1564,7 +1847,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         // ten sam SQL co poprzednio -> sortowanie przeżywa rerun (przeliczone na nowo dla świeżych danych), inaczej/nowy SQL -> sortowanie czyścimy - dokładnie ta sama zasada co przy filtrze wyszukiwania niżej. Musi wykonać się PRZED applySearchFilter, bo ono operuje na this._allRows w kolejności ustalonej właśnie tutaj
         this._sortCriteria = isSameQueryAsBefore ? (previousFileState?.sortCriteria ?? []) : [];
-        this.applySort();
+        this._sortGeneration++;
+        const sortGeneration = this._sortGeneration;
+        const sorted = await this.applySort(sortGeneration);
+        if (!sorted) {return;}
 
         // ten sam SQL co poprzednio -> filtr wyszukiwania przeżywa rerun (przeliczony na nowo dla świeżych danych), inaczej/nowy SQL -> filtr czyścimy
         this._searchQuery = isSameQueryAsBefore ? (previousFileState?.searchQuery ?? '') : '';
@@ -1655,6 +1941,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._lastSQL = state.sql;
         this._meta = state.meta;
         this._columnTypes = state.columnTypes ?? [];
+        this._sortKinds = Array.isArray(this._meta) ? this.computeSortKinds(this._meta) : [];
         this._lastQueryTime = state.queryTime;
         this._connectionName = state.connectionName;
         this._connectionTime = state.connectionTime;
