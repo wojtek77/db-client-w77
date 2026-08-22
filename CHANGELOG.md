@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.12
+
+### Changed
+- `highlightMatchesOnCurrentPage` (`search.js`) no longer sweeps every
+  cell on the page to add/remove search `<mark>`s. Since search
+  results are always a subset of the already-rendered
+  `State.cachedGrid`, which cells are currently highlighted is now
+  tracked explicitly in a new `State.searchHighlightedCells` (a `Set`
+  of `"row-col"` positions) instead of the old boolean
+  `State.hasHighlights`. Each call only touches cells whose status
+  actually changed (newly matching, or previously matching but no
+  longer): newly matching cells get wrapped in `<mark>`, no-longer-
+  matching cells are reverted to plain text, and cells that were
+  never a match are left completely untouched - same DOM node, same
+  children, no rewrite. `messageHandler.js`'s `appendData` handler
+  now checks `searchHighlightedCells.size` instead of the removed
+  `hasHighlights`. No visible behavior change; added a regression
+  test (`search.test.js`) asserting via DOM node identity that an
+  unmatched cell's text node reference never changes across repeated
+  searches and a clear.
+
 ## 1.1.11
 
 ### Fixed
