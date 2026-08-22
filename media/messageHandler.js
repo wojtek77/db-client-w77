@@ -279,7 +279,7 @@ window.addEventListener('message', event => {
         console.timeEnd("⏱️ renderPage time");
 
         // dociąga podświetlenie dopasowanego tekstu na właśnie wyrenderowaną stronę (i przywraca frazę/licznik, gdyby to był powrót do innego pliku)
-        if (State.getInstance().searchQuery || State.getInstance().hasHighlights) {
+        if (State.getInstance().searchQuery || State.getInstance().searchHighlightedCells.size > 0) {
             restoreSearchUI();
         }
         

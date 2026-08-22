@@ -143,21 +143,30 @@ function buildHighlightedFragment(text, lowerQuery) {
  * wystarczy podkreślić, dlaczego dany wiersz się załapał. Surowy tekst bierzemy zawsze z
  * State.currentRows (entry.data), a nie z DOM, żeby nie gubić/dublować oryginalnej wartości
  * przy kolejnych wywołaniach.
+ *
+ * Które komórki są aktualnie podświetlone, trzymamy w osobnym kluczu state.searchHighlightedCells,
+ * zamiast wnioskować to z samego cachedGrid - dzięki temu przy zdejmowaniu podświetleń dotykamy
+ * tylko komórek, które faktycznie miały <mark> (namierzonych po pozycji z poprzedniego wywołania),
+ * a nie zamiatamy całego grida na każde naciśnięcie klawisza w polu wyszukiwania.
  */
 export function highlightMatchesOnCurrentPage() {
     if (!State.hasInstance()) {return;}
     const state = State.getInstance();
     // state.searchQuery jest tu zawsze świeżo ustawione z msg.searchQuery (messageHandler.js), już przyciętego u źródła w SqlResultsProvider.performSearch
     const query = state.searchQuery || '';
+    const previousMatches = state.searchHighlightedCells;
 
     // brak aktywnej frazy i strona nie ma żadnych wcześniejszych podświetleń do zdjęcia - nie ma czego robić, pomijamy przejście po wszystkich komórkach
-    if (!query && !state.hasHighlights) {return;}
+    if (!query && previousMatches.size === 0) {return;}
 
     const lowerQuery = query.toLowerCase();
 
     const rows = state.cachedGrid;
     const currentRows = state.currentRows;
     if (!rows || !currentRows) {return;}
+
+    // nowy komplet pozycji, które po tym przebiegu mają być podświetlone - zastąpi previousMatches na końcu
+    const nextMatches = new Set();
 
     rows.forEach((rowCells, i) => {
         const entry = currentRows[i];
@@ -166,6 +175,7 @@ export function highlightMatchesOnCurrentPage() {
         // od indeksu 1, bo indeks 0 to komórka LP, która nigdy nie jest dopasowaniem
         for (let j = 1; j < rowCells.length; j++) {
             const cell = rowCells[j];
+            const posKey = `${i}-${j}`;
 
             // pole w trakcie edycji (input/textarea) pomijamy - podmiana zawartości zniszczyłaby edytowalny element
             if (cell.querySelector('input, textarea')) {continue;}
@@ -175,18 +185,21 @@ export function highlightMatchesOnCurrentPage() {
             if (cell.classList.contains('cell-edit-pending')) {continue;}
 
             const text = String(entry.data[j - 1] ?? 'NULL');
+            const isMatch = Boolean(query) && text.toLowerCase().includes(lowerQuery);
 
-            if (query && text.toLowerCase().includes(lowerQuery)) {
+            if (isMatch) {
                 cell.replaceChildren(buildHighlightedFragment(text, lowerQuery));
-            } else {
+                nextMatches.add(posKey);
+            } else if (previousMatches.has(posKey)) {
+                // ta komórka miała podświetlenie z poprzedniego wywołania, ale już nie pasuje (fraza się zmieniła/zniknęła) - przywracamy czysty tekst
                 cell.textContent = text;
             }
+            // komórka, która ani teraz, ani poprzednio nie była dopasowaniem - w ogóle jej nie ruszamy
         }
     });
 
-    // zapamiętujemy, czy ta strona ma teraz nałożone podświetlenia, żeby przy kolejnym wywołaniu bez frazy wiedzieć, czy jest jeszcze co zdejmować
-    state.hasHighlights = !!query;
-    
+    state.searchHighlightedCells = nextMatches;
+
     console.log('HIGHLIGHT_MATCHES_ON_CURRENT_PAGE');
 }
 

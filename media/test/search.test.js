@@ -166,6 +166,46 @@ describe('search.js - podświetlanie dopasowań na bieżącej stronie', () => {
         assert.equal(dataCellOf(state, 0, 1).querySelector('mark'), null);
         assert.equal(dataCellOf(state, 0, 1).textContent, 'other');
     });
+
+    test('komórka, która nigdy nie była dopasowaniem, w ogóle nie jest dotykana (referencja jej węzła tekstowego się nie zmienia)', () => {
+        setupDom();
+        const state = buildGrid('search-hl-9.sql', {
+            headers: ['a', 'b'],
+            currentRows: [['foo', 'never-matches-anything']],
+        });
+
+        // komórka spoza dopasowań - zapamiętujemy referencję jej JEDYNEGO węzła tekstowego z chwili initializeGrid/renderPage, jeszcze przed pierwszym wyszukiwaniem
+        const untouchedCell = dataCellOf(state, 0, 1);
+        const originalTextNode = untouchedCell.firstChild;
+        assert.equal(originalTextNode.nodeType, window.Node.TEXT_NODE);
+
+        // pierwsze wyszukiwanie - dopasowuje TYLKO drugą kolumnę
+        state.searchQuery = 'foo';
+        highlightMatchesOnCurrentPage();
+
+        // gdyby highlightMatchesOnCurrentPage nadpisał tę komórkę (np. przez cell.textContent = text), silnik utworzyłby NOWY węzeł tekstowy - referencja by się zmieniła
+        assert.equal(untouchedCell.firstChild, originalTextNode, 'komórka spoza dopasowań nie powinna być w ogóle dotknięta przy pierwszym wyszukiwaniu');
+
+        // zmiana frazy (wciąż bez dopasowania w tej kolumnie) - to właśnie ten przypadek miałby zamiatać cały grid w starym rozwiązaniu (hasHighlights=true -> pełny sweep)
+        state.searchQuery = 'bar';
+        highlightMatchesOnCurrentPage();
+
+        assert.equal(untouchedCell.firstChild, originalTextNode, 'komórka spoza dopasowań nie powinna być dotknięta także przy kolejnym wyszukiwaniu z inną frazą');
+
+        // czyszczenie wyszukiwania - też nie powinno jej ruszyć, bo nigdy nie trafiła do searchHighlightedCells
+        state.searchQuery = '';
+        highlightMatchesOnCurrentPage();
+
+        assert.equal(untouchedCell.firstChild, originalTextNode, 'komórka spoza dopasowań nie powinna być dotknięta także po wyczyszczeniu frazy');
+        assert.equal(untouchedCell.textContent, 'never-matches-anything');
+
+        // sanity check techniki dowodu: komórka, która FAKTYCZNIE była dopasowaniem, musi dostać nowe węzły (referencja się zmienia)
+        const matchingCell = dataCellOf(state, 0, 0);
+        const originalMatchingTextNode = matchingCell.firstChild;
+        state.searchQuery = 'foo';
+        highlightMatchesOnCurrentPage();
+        assert.notEqual(matchingCell.firstChild, originalMatchingTextNode, 'sanity check: dopasowana komórka faktycznie dostaje nowe węzły (inaczej test niczego by nie dowodził)');
+    });
 });
 
 describe('search.js - synchronizacja stanu i UI', () => {

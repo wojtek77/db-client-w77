@@ -45,7 +45,7 @@
  * @property {Array<{columnIndex: number, direction: 'asc'|'desc'}>} sortCriteria - Aktywne kryteria sortowania w kolejności priorytetu (pierwsze = główne, ORDER BY col1, col2, ...), pusta tablica = brak sortowania (backend jest źródłem prawdy, patrz msg.sortCriteria).
  * @property {number} totalRows - Liczba wierszy PO zastosowaniu filtra wyszukiwania (to na jej podstawie liczona jest paginacja).
  * @property {number} totalRowsUnfiltered - Pełna liczba wierszy w wynikach SQL, bez filtra - używana tylko do etykiety "X z Y" przy polu wyszukiwania.
- * @property {boolean} hasHighlights - czy bieżąca strona ma obecnie nałożone podświetlenia wyszukiwania (patrz highlightMatchesOnCurrentPage w search.js)
+ * @property {Set<string>} searchHighlightedCells - pozycje "row-col" (col to indeks w rowCells, czyli z przesunięciem +1 od LP) komórek bieżącej strony, które mają teraz nałożone podświetlenie wyszukiwania - osobny klucz w state zamiast wliczania podświetleń do cachedGrid, dzięki czemu highlightMatchesOnCurrentPage czyści tylko te komórki, które faktycznie były podświetlone, zamiast zamiatać cały grid (patrz highlightMatchesOnCurrentPage w search.js)
  */
 
 export class State {
@@ -86,7 +86,7 @@ export class State {
                 sortCriteria: [],
                 totalRows: 0,
                 totalRowsUnfiltered: 0,
-                hasHighlights: false,
+                searchHighlightedCells: new Set(),
             });
         }
 
