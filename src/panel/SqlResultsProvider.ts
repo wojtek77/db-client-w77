@@ -62,6 +62,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private static readonly STRING_RADIX_WORD_COUNT = SqlResultsProvider.STRING_RADIX_PREFIX_CHARS / 2;
     // liczba (JS number/Float64) zajmuje dokładnie 2 słowa 32-bitowe (64-bitowa reprezentacja IEEE-754) - patrz buildNumberWords
     private static readonly NUMBER_RADIX_WORD_COUNT = 2;
+    // Number.MAX_SAFE_INTEGER ma 16 cyfr - tyle wystarczy żeby dopełniony zerami klucz zawsze zachował poprawny porządek leksykograficzny w tie-breaku grup radix
+    private static readonly SORT_KEY_PAD_LENGTH = 16;
     // pojedynczy, reużywany bufor do konwersji Float64 -> bity IEEE-754 (uint32 x2) - unikamy alokacji nowego ArrayBuffer/DataView dla każdej porównywanej wartości
     private static readonly float64Scratch = new DataView(new ArrayBuffer(8));
 
@@ -608,11 +610,28 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (i - groupStart > 1) {
                 const group = Array.from(sortedIndices.subarray(groupStart, i));
                 if (kind === 'string') {
-                    group.sort((a, b) => {
-                        const cmp = SqlResultsProvider.compareStrings(valueRows[a].data[columnIndex], valueRows[b].data[columnIndex]);
-                        const directed = direction === 'desc' ? -cmp : cmp;
-                        return directed !== 0 ? directed : valueRows[a].key - valueRows[b].key;
-                    });
+                    // zamiast wywoływać komparator (a więc pełne porównanie stringów) osobno dla każdej pary w grupie, budujemy jeden string na wiersz (wartość + dopełniony zerami klucz jako tie-break) i sortujemy CAŁĄ grupę jednym wywołaniem natywnego sort() bez komparatora
+                    const composite = new Map<string, number>();
+                    for (const idx of group) {
+                        const compositeKey = `${valueRows[idx].data[columnIndex]}\u0000${String(valueRows[idx].key).padStart(SqlResultsProvider.SORT_KEY_PAD_LENGTH, '0')}`;
+                        composite.set(compositeKey, idx);
+                    }
+                    const sortedComposite = [...composite.keys()].sort();
+                    for (let pos = 0; pos < sortedComposite.length; pos++) {group[pos] = composite.get(sortedComposite[pos])!;}
+                    if (direction === 'desc') {
+                        // odwracamy całą grupę żeby wartości poszły malejąco, ale tie-break po kluczu ma zawsze zostać rosnący (tak jak w reszcie pliku) - dlatego doprecyzowujemy z powrotem kolejność w obrębie przebiegów o identycznej wartości
+                        group.reverse();
+                        let runStart = 0;
+                        for (let pos = 1; pos <= group.length; pos++) {
+                            const sameValue = pos < group.length && valueRows[group[runStart]].data[columnIndex] === valueRows[group[pos]].data[columnIndex];
+                            if (sameValue) {continue;}
+                            if (pos - runStart > 1) {
+                                const run = group.slice(runStart, pos).reverse();
+                                for (let k = 0; k < run.length; k++) {group[runStart + k] = run[k];}
+                            }
+                            runStart = pos;
+                        }
+                    }
                 } else {
                     group.sort((a, b) => valueRows[a].key - valueRows[b].key);
                 }
