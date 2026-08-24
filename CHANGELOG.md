@@ -1,5 +1,81 @@
 # Changelog
 
+## 1.1.13
+
+### Fixed
+- Sorting large result sets (hundreds of thousands of rows) by clicking a
+  column header could freeze the entire Extension Host for several seconds
+  to over a minute, sometimes triggering VS Code's "Extension host is
+  unresponsive" warning. The cause was `compareForSort` using
+  `String.prototype.localeCompare()` (with `numeric: true, sensitivity:
+  'base'`) for every pairwise comparison - each call implicitly builds an
+  `Intl.Collator`, and doing this ~n·log(n) times on a large result set is
+  extremely expensive. `localeCompare`/`Intl.Collator` have been removed
+  entirely from sorting; see Changed below for the replacement.
+- Editing a single cell (the non-bulk edit path) updated the row's value in
+  the database but never wrote the new value into the in-memory
+  `entry.data[cell.columnIndex]`, so the grid kept showing the pre-edit
+  value until the query was re-run or the file was reloaded. Fixed by
+  restoring the assignment that a prior refactor had accidentally dropped.
+- `BIGINT` columns were misclassified as text for sorting purposes because
+  the type-name lookup checked for `'LONGLONG'`, which is not a type name
+  this driver (`mariadb`) actually reports (it reports `'BIGINT'`). BIGINT
+  is now included in `NUMERIC_SORT_TYPE_NAMES` and sorts numerically.
+
+### Changed
+- Column sorting no longer determines "is this text or a number" by
+  sampling row values. `computeSortKinds` now classifies every column
+  once, up front, purely from the SQL result metadata (`field.type`)
+  against a fixed `NUMERIC_SORT_TYPE_NAMES` list (`TINY`, `SHORT`, `LONG`,
+  `INT24`, `BIGINT`, `FLOAT`, `DOUBLE`, `DECIMAL`, `NEWDECIMAL`, `YEAR`);
+  everything else (`VARCHAR`/`VAR_STRING`/`STRING`, dates, JSON, enums,
+  blobs, ...) is treated as text. `DECIMAL`/`NEWDECIMAL` are classified as
+  numeric even though this driver returns them as JS strings (no
+  `decimalAsNumber` option set) - the numeric comparator's `a - b`
+  coerces numeric-looking strings correctly regardless.
+- Single-column sorts (a plain header click) now use a radix sort
+  (`radixSortSingleColumn`) instead of a comparator-based sort:
+  - `NUMBER` columns are encoded as the raw IEEE-754 bits of the
+    `Float64` value (2 `Uint32` words), with a sign-aware bit-flip so
+    unsigned integer comparison of the encoded words matches true
+    numeric order (`encodeFloat64SortableWords`). Two rows only end up
+    with identical words if they are genuinely the same number, so ties
+    are broken purely by row key (stable, ascending).
+  - `STRING` columns are encoded from their first `STRING_RADIX_PREFIX_CHARS`
+    (4) UTF-16 code units, 2 per word (`buildStringPrefixWords`); shorter
+    strings are zero-padded, which sorts before any real character.
+    Values that collide on this prefix fall into a tie-break group that is
+    resolved with a direct `a < b` comparison (never `localeCompare`),
+    then by row key.
+  - Both paths share one generic LSD radix engine (`radixSortIndices`):
+    a counting sort per byte (least-significant first), yielding to the
+    event loop after every byte pass via `setImmediate` so a single sort
+    never blocks the UI thread for more than one pass's worth of work,
+    regardless of result-set size.
+  - `NULL`/`undefined` values are split out before radix encoding (they
+    have no bit/character representation to sort on) and placed first
+    (ascending) or last (descending) after sorting the rest, matching
+    native SQL `ORDER BY` semantics.
+  - The sorted result is written back into the *same* `RowEntry[]`
+    array in place rather than replacing `this._allRows` with a new
+    array reference, so `fileState.rows` (captured once per query in
+    `_fileStates`, used to restore state when switching between SQL file
+    tabs) stays in sync with the sorted order instead of silently
+    reverting to the pre-sort order on tab switch.
+- Multi-column sorts (Shift+click, i.e. `_sortCriteria.length > 1`) remain
+  out of scope for the radix path and continue to use a stable, chunked
+  merge sort (`mergeSortRows`), also yielding periodically via
+  `setImmediate`. The comparator for each active criterion (number vs.
+  string) is now selected once before the sort starts rather than
+  re-checked on every single comparison inside the loop.
+- Sorting is cancellable: `_sortGeneration` is incremented at the start
+  of every `applySort()` call, and both the radix and merge-sort paths
+  check it after each yield, discarding their result instead of writing
+  into `_allRows` if a newer sort (or a fresh query) started in the
+  meantime. `performSort` additionally re-checks the generation after
+  `applySearchFilter()` completes, since a newer sort can start while the
+  (independently generationed) search filter is still running.
+
 ## 1.1.12
 
 ### Changed
