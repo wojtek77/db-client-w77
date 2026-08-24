@@ -275,6 +275,115 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [5, 1, null, null]);
     });
 
+    test('jedno kryterium DATE kind=date rosnąco - DATETIME z ułamkiem sekundy, zwykły DATE i "zerowy" DATE MySQL (0000-00-00 -> traktowany jako najmniejsza wartość)', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['d'];
+        provider._allRows = [
+            { key: 0, data: ['2024-06-15 10:23:45'] },
+            { key: 1, data: ['2024-06-15 10:23:45.500'] },
+            { key: 2, data: ['2023-01-01'] },
+            { key: 3, data: ['0000-00-00'] },
+            { key: 4, data: ['2024-06-15 10:23:44'] },
+        ];
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        provider._sortKinds = ['date'];
+
+        await provider.applySort();
+
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [
+            '0000-00-00',
+            '2023-01-01',
+            '2024-06-15 10:23:44',
+            '2024-06-15 10:23:45',
+            '2024-06-15 10:23:45.500',
+        ]);
+    });
+
+    test('jedno kryterium TIME kind=date malejąco - wartości ujemne i powyżej 24h dozwolone przez MariaDB/MySQL (zakres -838:59:59..838:59:59)', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['t'];
+        provider._allRows = [
+            { key: 0, data: ['12:00:00'] },
+            { key: 1, data: ['-05:30:00'] },
+            { key: 2, data: ['100:00:00'] },
+            { key: 3, data: ['00:00:00'] },
+        ];
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+        provider._sortKinds = ['date'];
+
+        await provider.applySort();
+
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['100:00:00', '12:00:00', '00:00:00', '-05:30:00']);
+    });
+
+    test('kind=date rozpoznaje "same rok" wiele wierszy z rzędu bez wpadania w wolną ścieżkę stringową - wystarczy że wynik jest poprawnie posortowany', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['d'];
+        provider._allRows = [
+            { key: 0, data: ['2024-01-01 00:00:03'] },
+            { key: 1, data: ['2024-01-01 00:00:01'] },
+            { key: 2, data: ['2024-01-01 00:00:02'] },
+        ];
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        provider._sortKinds = ['date'];
+
+        await provider.applySort();
+
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [
+            '2024-01-01 00:00:01',
+            '2024-01-01 00:00:02',
+            '2024-01-01 00:00:03',
+        ]);
+    });
+
+    test('NULL jak wyżej, ale dla kind=date', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['d'];
+        provider._allRows = [
+            { key: 0, data: [null] },
+            { key: 1, data: ['2024-06-01'] },
+            { key: 2, data: [null] },
+            { key: 3, data: ['2023-01-01'] },
+        ];
+        provider._sortKinds = ['date'];
+
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        await provider.applySort();
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [null, null, '2023-01-01', '2024-06-01']);
+
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+        await provider.applySort();
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['2024-06-01', '2023-01-01', null, null]);
+    });
+
+    test('dwa kryteria z kind=date (Shift+klik, ścieżka mergeSortRows poza radixem) - drugie rozstrzyga remisy pierwszego', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['category', 'created_at'];
+        provider._allRows = [
+            { key: 0, data: ['a', '2024-06-02'] },
+            { key: 1, data: ['a', '2024-06-01'] },
+            { key: 2, data: ['b', '2024-01-01'] },
+        ];
+        provider._sortCriteria = [
+            { columnIndex: 0, direction: 'asc' },
+            { columnIndex: 1, direction: 'asc' },
+        ];
+        provider._sortKinds = ['string', 'date'];
+
+        await provider.applySort();
+
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data), [
+            ['a', '2024-06-01'],
+            ['a', '2024-06-02'],
+            ['b', '2024-01-01'],
+        ]);
+    });
+
     test('NULL jak wyżej, ale dla kind=string', async () => {
         const provider = getProvider() as any;
 
@@ -478,12 +587,19 @@ suite('SqlResultsProvider - computeSortKinds (mapowanie field.type z meta na NUM
         assert.deepStrictEqual(provider.computeSortKinds(meta), meta.map(() => 'number'));
     });
 
-    test('CHAR/VARCHAR (raportowane przez driver jako VAR_STRING/STRING), daty i pozostałe typy -> string', () => {
+    test('CHAR/VARCHAR (raportowane przez driver jako VAR_STRING/STRING) i pozostałe typy -> string', () => {
         const provider = getProvider() as any;
-        const meta = ['VARCHAR', 'VAR_STRING', 'STRING', 'DATE', 'DATETIME', 'TIMESTAMP', 'TIME', 'JSON', 'ENUM', 'SET', 'BLOB']
+        const meta = ['VARCHAR', 'VAR_STRING', 'STRING', 'JSON', 'ENUM', 'SET', 'BLOB']
             .map((type) => ({ type }));
 
         assert.deepStrictEqual(provider.computeSortKinds(meta), meta.map(() => 'string'));
+    });
+
+    test('DATE/DATETIME/TIMESTAMP/TIME z DATE_SORT_TYPE_NAMES -> date', () => {
+        const provider = getProvider() as any;
+        const meta = ['DATE', 'DATETIME', 'TIMESTAMP', 'TIME'].map((type) => ({ type }));
+
+        assert.deepStrictEqual(provider.computeSortKinds(meta), meta.map(() => 'date'));
     });
 
     test('BIGINT konkretnie -> number (nie "LONGLONG" - to nieprawidłowa nazwa typu dla tego drivera, prawdziwa nazwa to BIGINT)', () => {

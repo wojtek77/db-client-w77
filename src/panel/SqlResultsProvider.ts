@@ -27,8 +27,8 @@ interface SortCriterion {
     direction: 'asc' | 'desc';
 }
 
-// typ danych kolumny na potrzeby wyboru komparatora sortowania - ustalany WYŁĄCZNIE z metadanych SQL (field.type), patrz computeSortKinds; zero UUID/date jako osobnych przypadków - u nas wszystko poza liczbami to string
-type SortKind = 'number' | 'string';
+// typ danych kolumny na potrzeby wyboru komparatora sortowania - ustalany WYŁĄCZNIE z metadanych SQL (field.type), patrz computeSortKinds; 'date' to DATE/DATETIME/TIMESTAMP - mimo że wartość przychodzi jako string (dateStrings:true), na potrzeby sortowania jest parsowana na liczbę (patrz parseDateToSortableNumber) i idzie tą samą szybką ścieżką radix co 'number'
+type SortKind = 'number' | 'string' | 'date';
 
 interface FileResultState {
     rows: RowEntry[];
@@ -50,12 +50,18 @@ interface FileResultState {
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private static instance: SqlResultsProvider;
     /**
-     * Nazwy typów z field.type (mariadb driver, enum Types) klasyfikowane jako NUMBER na potrzeby sortowania - reszta (w tym VARCHAR/VAR_STRING/STRING,
-     * DATE/DATETIME/TIMESTAMP/TIME - u nas zawsze stringi z dateStrings:true, patrz Connection.ts) to STRING. DECIMAL/NEWDECIMAL trafiają tu mimo że
-     * driver zwraca je jako JS string (decimalAsNumber nie jest ustawione w Connection.ts) - komparator numeryczny (odejmowanie) działa poprawnie
-     * niezależnie od tego, czy wartość jest JS number czy numerycznym stringiem, bo operator '-' zawsze wymusza konwersję obu argumentów na liczbę.
+     * Nazwy typów z field.type (mariadb driver, enum Types) klasyfikowane jako NUMBER na potrzeby sortowania - reszta (w tym VARCHAR/VAR_STRING/STRING)
+     * to STRING, poza DATE_SORT_TYPE_NAMES niżej. DECIMAL/NEWDECIMAL trafiają tu mimo że driver zwraca je jako JS string (decimalAsNumber nie jest
+     * ustawione w Connection.ts) - komparator numeryczny (odejmowanie) działa poprawnie niezależnie od tego, czy wartość jest JS number czy numerycznym
+     * stringiem, bo operator '-' zawsze wymusza konwersję obu argumentów na liczbę. YEAR jest już liczbą 4-cyfrową, więc nie potrzebuje osobnego parsera dat.
      */
     private static readonly NUMERIC_SORT_TYPE_NAMES = new Set(['TINY', 'SHORT', 'LONG', 'INT24', 'BIGINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR']);
+    // nazwy typów z field.type klasyfikowane jako DATE na potrzeby sortowania - wszystkie u nas zawsze stringi (dateStrings:true, patrz Connection.ts), więc idą przez parseDateOrTimeToSortableNumber zamiast wprost przez Number()
+    private static readonly DATE_SORT_TYPE_NAMES = new Set(['DATE', 'DATETIME', 'TIMESTAMP', 'TIME']);
+    // dopasowuje 'YYYY-MM-DD' albo 'YYYY-MM-DD HH:MM:SS[.ułamek]' (DATE/DATETIME/TIMESTAMP z dateStrings:true) - patrz parseDateOrTimeToSortableNumber
+    private static readonly DATE_STRING_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?)?$/;
+    // dopasowuje TIME MariaDB/MySQL: opcjonalny minus, godziny 1-3 cyfry (zakres do 838), MM:SS, opcjonalny ułamek sekundy - patrz parseDateOrTimeToSortableNumber
+    private static readonly TIME_STRING_PATTERN = /^(-)?(\d{1,3}):(\d{2}):(\d{2})(?:\.(\d+))?$/;
     // ile pierwszych znaków (jednostek UTF-16) stringa wchodzi do klucza radix sortu - patrz buildStringPrefixWords/STRING_RADIX_WORD_COUNT; reszta rozstrzygana pełnym porównaniem tylko w obrębie grup o identycznym prefiksie
     private static readonly STRING_RADIX_PREFIX_CHARS = 4;
     // 2 znaki UTF-16 (2x16 bit) na słowo 32-bitowe -> STRING_RADIX_PREFIX_CHARS/2 słów na string
@@ -511,6 +517,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         return a < b ? -1 : a > b ? 1 : 0;
     }
 
+    // jak compareNumbers, tylko wartości to stringi DATE/DATETIME/TIMESTAMP/TIME parsowane na liczbę porządkującą (patrz parseDateOrTimeToSortableNumber)
+    private static compareDates(a: string, b: string): number {
+        const na = SqlResultsProvider.parseDateOrTimeToSortableNumber(typeof a === 'string' ? a : String(a));
+        const nb = SqlResultsProvider.parseDateOrTimeToSortableNumber(typeof b === 'string' ? b : String(b));
+        return na - nb;
+    }
+
     // porównuje dwie wartości komórek na potrzeby sortowania: NULL jak w natywnym SQL ORDER BY (najmniejsza wartość - pierwsza przy ASC, ostatnia przy DESC), reszta wg PRZYPISANEGO WCZEŚNIEJ (nie sprawdzanego tutaj) typu kolumny - używane tylko w ścieżce wielokolumnowej (mergeSortRows), bo jednokolumnowa idzie przez szybszy radixSortSingleColumn
     private static compareForSort(a: any, b: any, direction: 'asc' | 'desc', kind: SortKind): number {
         const aNull = a === null || a === undefined;
@@ -520,7 +533,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         if (aNull) {return direction === 'desc' ? 1 : -1;}
         if (bNull) {return direction === 'desc' ? -1 : 1;}
 
-        const cmp = kind === 'number' ? SqlResultsProvider.compareNumbers(a, b) : SqlResultsProvider.compareStrings(a, b);
+        const cmp = kind === 'number' ? SqlResultsProvider.compareNumbers(a, b)
+            : kind === 'date' ? SqlResultsProvider.compareDates(a, b)
+            : SqlResultsProvider.compareStrings(a, b);
         return direction === 'desc' ? -cmp : cmp;
     }
 
@@ -538,12 +553,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         if (criteria.length === 1) {
             const { columnIndex, direction } = criteria[0];
-            const kind: SortKind = this._sortKinds[columnIndex] === 'number' ? 'number' : 'string';
+            const kind: SortKind = this._sortKinds[columnIndex] ?? 'string';
             return this.radixSortSingleColumn(rows, columnIndex, kind, direction, generation);
         }
 
         // typ każdej sortowanej kolumny wybieramy RAZ tutaj (nie przy każdym porównaniu w pętli) - patrz compareForSort
-        const kindsByCriterion = criteria.map((c) => (this._sortKinds[c.columnIndex] === 'number' ? 'number' : 'string') as SortKind);
+        const kindsByCriterion = criteria.map((c) => this._sortKinds[c.columnIndex] ?? 'string');
         await this.mergeSortRows(rows, (a, b) => {
             for (let i = 0; i < criteria.length; i++) {
                 const { columnIndex, direction } = criteria[i];
@@ -560,9 +575,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     /**
      * Sortuje pojedynczą kolumnę radix sortem zamiast komparatorem per-para. NULL/undefined nie mają reprezentacji liczbowej ani prefiksu do
      * zapakowania w słowa radix - wydzielamy je osobno na początku i sortujemy tylko po kluczu (tak jak przy pełnym remisie wszędzie indziej
-     * w tym pliku), a resztę (realne wartości) sortujemy radixem na 32-bitowych słowach: NUMBER -> pełna wartość (64 bity IEEE-754, bez straty,
-     * więc remis w radixie = naprawdę ta sama liczba), STRING -> tylko pierwsze STRING_RADIX_PREFIX_CHARS znaków (remis w radixie może więc
-     * oznaczać "ten sam prefiks, różna reszta" - takie grupy dostają dopiero pełne porównanie stringów, patrz niżej).
+     * w tym pliku), a resztę (realne wartości) sortujemy radixem na 32-bitowych słowach: NUMBER/DATE -> pełna wartość (64 bity IEEE-754, bez straty,
+     * DATE dopiero po sparsowaniu stringa na liczbę - patrz resolveNumericValue - więc remis w radixie = naprawdę ta sama liczba), STRING -> tylko
+     * pierwsze STRING_RADIX_PREFIX_CHARS znaków (remis w radixie może więc oznaczać "ten sam prefiks, różna reszta" - takie grupy dostają dopiero
+     * pełne porównanie stringów, patrz niżej).
      */
     private async radixSortSingleColumn(rows: RowEntry[], columnIndex: number, kind: SortKind, direction: 'asc' | 'desc', generation: number): Promise<boolean> {
         const length = rows.length;
@@ -583,10 +599,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             return generation === this._sortGeneration;
         }
 
-        const wordCount = kind === 'number' ? SqlResultsProvider.NUMBER_RADIX_WORD_COUNT : SqlResultsProvider.STRING_RADIX_WORD_COUNT;
-        const words = kind === 'number'
-            ? SqlResultsProvider.buildNumberWords(valueRows, columnIndex)
-            : SqlResultsProvider.buildStringPrefixWords(valueRows, columnIndex);
+        // 'date' idzie tą samą ścieżką co 'number' (buildNumberWords) - różni się tylko sposobem zamiany wartości komórki na liczbę, patrz resolveNumericValue
+        const wordCount = kind === 'string' ? SqlResultsProvider.STRING_RADIX_WORD_COUNT : SqlResultsProvider.NUMBER_RADIX_WORD_COUNT;
+        const words = kind === 'string'
+            ? SqlResultsProvider.buildStringPrefixWords(valueRows, columnIndex)
+            : SqlResultsProvider.buildNumberWords(valueRows, columnIndex, kind);
 
         const sortedIndices = await this.radixSortIndices(words, valueRows.length, wordCount, generation);
         if (sortedIndices === null) {return false;}
@@ -648,12 +665,19 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         return generation === this._sortGeneration;
     }
 
-    // pakuje wartości liczbowe kolumny w słowa 32-bitowe (2 słowa = 64-bitowa reprezentacja IEEE-754 double) - gęsta tablica indeksowana wprost pozycją w 'rows' (bez cache, bez indeksowania po row.key)
-    private static buildNumberWords(rows: RowEntry[], columnIndex: number): Uint32Array {
+    // zamienia surową wartość komórki na liczbę do zapakowania w słowa radix - 'number' wprost przez Number() (patrz buildNumberWords/compareNumbers), 'date' przez parser DATE/DATETIME/TIMESTAMP/TIME (patrz parseDateOrTimeToSortableNumber)
+    private static resolveNumericValue(value: number | string, kind: SortKind): number {
+        if (kind === 'date') {return SqlResultsProvider.parseDateOrTimeToSortableNumber(typeof value === 'string' ? value : String(value));}
+        return typeof value === 'number' ? value : Number(value);
+    }
+
+    // pakuje wartości liczbowe/datowe kolumny w słowa 32-bitowe (2 słowa = 64-bitowa reprezentacja IEEE-754 double) - gęsta tablica indeksowana wprost pozycją w 'rows' (bez cache, bez indeksowania po row.key)
+    private static buildNumberWords(rows: RowEntry[], columnIndex: number, kind: SortKind): Uint32Array {
         const length = rows.length;
         const words = new Uint32Array(length * SqlResultsProvider.NUMBER_RADIX_WORD_COUNT);
         for (let i = 0; i < length; i++) {
-            const [hi, lo] = SqlResultsProvider.encodeFloat64SortableWords(rows[i].data[columnIndex]);
+            const numericValue = SqlResultsProvider.resolveNumericValue(rows[i].data[columnIndex], kind);
+            const [hi, lo] = SqlResultsProvider.encodeFloat64SortableWords(numericValue);
             words[i * 2] = hi;
             words[i * 2 + 1] = lo;
         }
@@ -661,8 +685,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
 
     // zamienia liczbę na dwa słowa 32-bitowe tak, żeby zwykłe porównanie bez znaku (jak w radix sorcie) odpowiadało prawdziwemu porządkowi liczbowemu IEEE-754
-    private static encodeFloat64SortableWords(value: number | string): [number, number] {
-        const numericValue = typeof value === 'number' ? value : Number(value);
+    private static encodeFloat64SortableWords(numericValue: number): [number, number] {
         SqlResultsProvider.float64Scratch.setFloat64(0, numericValue, false);
         let hi = SqlResultsProvider.float64Scratch.getUint32(0, false);
         let lo = SqlResultsProvider.float64Scratch.getUint32(4, false);
@@ -957,12 +980,51 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
      * już to zawierają. Dla pozostałych kolumn zwracamy '', bo nic więcej
      * z tej wartości nie korzysta.
      */
-    // określa strategię sortowania na podstawie metadanych wyniku SQL - WYŁĄCZNIE na podstawie field.type (bez próbkowania wartości, bez specjalnego traktowania UUID/dat - patrz NUMERIC_SORT_TYPE_NAMES); wszystko poza tą listą to 'string', w tym VARCHAR/CHAR (raportowane przez driver jako VAR_STRING/STRING) i daty (u nas zawsze stringi, patrz dateStrings:true w Connection.ts)
+    // określa strategię sortowania na podstawie metadanych wyniku SQL - WYŁĄCZNIE na podstawie field.type (bez próbkowania wartości, bez specjalnego traktowania UUID - patrz NUMERIC_SORT_TYPE_NAMES/DATE_SORT_TYPE_NAMES); wszystko poza tymi listami to 'string', w tym VARCHAR/CHAR (raportowane przez driver jako VAR_STRING/STRING)
     private computeSortKinds(meta: any[]): SortKind[] {
         return meta.map((field: any) => {
             const type = String(field?.type ?? '').toUpperCase();
-            return SqlResultsProvider.NUMERIC_SORT_TYPE_NAMES.has(type) ? 'number' : 'string';
+            if (SqlResultsProvider.NUMERIC_SORT_TYPE_NAMES.has(type)) {return 'number';}
+            if (SqlResultsProvider.DATE_SORT_TYPE_NAMES.has(type)) {return 'date';}
+            return 'string';
         });
+    }
+
+    /**
+     * Zamienia string DATE/DATETIME/TIMESTAMP/TIME (dateStrings:true, patrz Connection.ts) na liczbę porządkującą wartości tak samo jak
+     * natywny SQL ORDER BY - dzięki temu kolumna typu 'date' idzie tą samą szybką ścieżką radix co 'number' (pełna wartość w kluczu,
+     * bez dużych grup remisowych jak przy sortowaniu prefiksu stringa - patrz buildStringPrefixWords). Nie jest to prawdziwy unix time
+     * (DATE/DATETIME są bez strefy czasowej), liczy się wyłącznie monotoniczność względem innych wartości tej samej kolumny.
+     * '0000-00-00'/'0000-00-00 00:00:00' (MySQL dopuszcza taki "zerowy" DATE/DATETIME) oraz wartości niepasujące do żadnego wzorca -> 0,
+     * czyli najmniejsza możliwa wartość, tak jak sugerował użytkownik.
+     */
+    private static parseDateOrTimeToSortableNumber(value: string): number {
+        const trimmed = value.trim();
+
+        const dateMatch = SqlResultsProvider.DATE_STRING_PATTERN.exec(trimmed);
+        if (dateMatch) {
+            const [, yearStr, monthStr, dayStr, hourStr, minuteStr, secondStr, fracStr] = dateMatch;
+            const year = Number(yearStr);
+            const month = Number(monthStr);
+            const day = Number(dayStr);
+            if (year === 0 || month === 0 || day === 0) {return 0;} // zerowy DATE/DATETIME MySQL
+            const hour = hourStr ? Number(hourStr) : 0;
+            const minute = minuteStr ? Number(minuteStr) : 0;
+            const second = secondStr ? Number(secondStr) : 0;
+            const fracMs = fracStr ? Number(fracStr.padEnd(3, '0').slice(0, 3)) : 0; // mikrosekundy (fsp do 6 cyfr) obcinamy do milisekund - wystarczająca precyzja do sortowania
+            return Date.UTC(year, month - 1, day, hour, minute, second, fracMs);
+        }
+
+        const timeMatch = SqlResultsProvider.TIME_STRING_PATTERN.exec(trimmed);
+        if (timeMatch) {
+            const [, signStr, hourStr, minuteStr, secondStr, fracStr] = timeMatch;
+            const sign = signStr === '-' ? -1 : 1;
+            const totalMs = ((Number(hourStr) * 3600 + Number(minuteStr) * 60 + Number(secondStr)) * 1000)
+                + (fracStr ? Number(fracStr.padEnd(3, '0').slice(0, 3)) : 0);
+            return sign * totalMs;
+        }
+
+        return 0; // wartość niepasująca do żadnego znanego formatu - traktujemy jak zerowy DATE/DATETIME
     }
 
 
