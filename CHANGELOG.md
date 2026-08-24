@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.1.14
+
+### Changed
+- Within `radixSortSingleColumn`, tie-break groups for `STRING` columns
+  (rows that collide on the `STRING_RADIX_PREFIX_CHARS` prefix) are no
+  longer resolved with `group.sort()` calling `compareStrings` once per
+  pairwise comparison. Instead, each group is sorted with a single
+  native `Array.prototype.sort()` call: a composite string (value +
+  row key zero-padded to `SORT_KEY_PAD_LENGTH`, 16 chars) is built per
+  row and sorted once with no comparator; for `desc` direction the
+  group is reversed and runs of equal values are re-fixed so the key
+  tie-break stays ascending, matching the existing convention. Sort
+  output is unchanged - verified against the previous implementation
+  with 200 randomized trials (asc/desc, heavy duplication) - only the
+  number of comparisons performed for large tie groups is reduced.
+  `compareStrings` itself, the multi-column merge-sort path
+  (`compareForSort`), and all numeric sorting are unaffected.
+
 ## 1.1.13
 
 ### Fixed
