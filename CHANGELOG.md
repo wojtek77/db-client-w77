@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.1.15
+
+### Changed
+- Within `radixSortSingleColumn`, tie-break groups for `STRING`
+  columns (rows colliding on the `STRING_RADIX_PREFIX_CHARS` prefix)
+  are now resolved by bucketing indices into per-unique-value queues
+  (`Map<string, number[]>`, filled from a group pre-sorted by row key
+  so each queue is already in the correct order) and sorting only the
+  *distinct* values with a single native `Array.prototype.sort()` call
+  - no custom comparator. For `desc`, reversing the sorted unique-value
+  array is enough to flip value order while leaving each queue's
+  key-ascending order intact, so the tie-break stays correct with no
+  extra fix-up step.
+- This replaces the previous `group.sort()` call, which invoked
+  `compareStrings` once per pairwise comparison (O(m log m) calls for
+  a group of m rows), and is faster than an earlier composite-string
+  approach in every duplication scenario benchmarked: 58-68% faster
+  with heavy duplication, 11-15% faster with light duplication, and
+  equal when no tie-break groups occur at all (sanity baseline).
+  Sort output is unchanged - verified against the previous
+  implementation with 300 randomized trials (asc/desc, heavy
+  duplication). `compareStrings`, the multi-column merge-sort path
+  (`compareForSort`), and all numeric sorting are unaffected.
+
 ## 1.1.14
 
 ### Changed
