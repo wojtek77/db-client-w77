@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.1.16
+
+### Changed
+- Added a `date` `SortKind` for `DATE`/`DATETIME`/`TIMESTAMP`/`TIME`
+  columns, alongside the existing `number` and `string` kinds
+  (`computeSortKinds`). These columns arrive from the driver as
+  strings (`dateStrings:true`, `Connection.ts`) and were previously
+  sorted through the `STRING` radix path, which keys on only the
+  first `STRING_RADIX_PREFIX_CHARS` characters. For datetime strings
+  that prefix is mostly just the year, so a large share of rows with
+  the same year collide into one tie-break group and fall back to a
+  native `sort()` over every unique value in that group - measured
+  ~10s for 2M rows vs 3-5s for plain string columns.
+- Values with `kind=date` are now parsed into a sortable number
+  before being packed into radix words, reusing the `NUMBER` radix
+  path instead: epoch milliseconds (via `Date.UTC`) for
+  `DATE`/`DATETIME`/`TIMESTAMP`, and signed milliseconds for `TIME`
+  (to support MariaDB's `-838:59:59`..`838:59:59` range, which isn't
+  a real time-of-day). Since the full value now discriminates rows
+  in a single radix pass, the large tie-break groups - and their
+  fallback to native `sort()` - no longer occur.
+- `'0000-00-00'` and any other unparseable date/time string sort as
+  `0`, the lowest possible value.
+- `radixSortSingleColumn` (single-column path) and `compareForSort`
+  (multi-column merge-sort path, used for shift-click sorting) both
+  updated to dispatch on the new `date` kind. `compareStrings` and
+  all existing `number`/`string` sorting are unaffected.
+
 ## 1.1.15
 
 ### Changed
