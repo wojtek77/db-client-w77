@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.1.17
+
+### Changed
+- Sorting (`applySort`) no longer re-sorts the whole result set on
+  every ASC/DESC/multi-column click. `this._allRows` is never
+  mutated in place anymore - it's derived on demand from
+  `this._naturalOrderRows` (an immutable, key-ascending copy of the
+  query result) plus a per-column cache (`this._sortColumnCache`,
+  built lazily the first time a column is used in any sort
+  criteria).
+- New `buildColumnSortCache`: groups a column's row keys by value
+  once (same radix/tie-break logic as before), stored as flat
+  `Int32Array` structures (CSR-style: `flatKeysAsc` + `bucketStart`
+  + `keyToBucket`) instead of nested `number[][]`/`Map`. Avoids the
+  per-object overhead of millions of tiny arrays/map entries on
+  high-cardinality columns (e.g. primary keys) - measured ~150-190MB
+  down to ~25-30MB per cached column on a 2M-row table.
+- New `composeSortOrder`: recombines any combination of already-
+  cached columns (processed least-to-most significant, like an LSD
+  radix sort) purely by regrouping buckets - no comparisons and no
+  re-sorting, for any ASC/DESC/multi-column combination once every
+  involved column has been cached at least once.
+- `this._naturalOrderRowsByKey` (key -> row lookup) is now built
+  once per data load instead of being rebuilt on every single sort
+  click.
+- Re-running a query (Ctrl+Enter) always resets to the unsorted view
+  and clears all sort state (`resetStateBeforeQuery`) *before* the
+  query runs, instead of after. This also releases the previous
+  result set and its sort cache still referenced by the per-file
+  state (`_fileStates`) for the same file, which previously kept
+  the old (potentially multi-million-row) dataset and every column
+  cache built during the session reachable - and thus impossible to
+  garbage-collect - for the entire duration of the next query,
+  which could exhaust available memory on large tables.
+- Column sort cache is invalidated for the affected column(s) only
+  on cell edits, and cleared entirely on row deletion.
+- Removed the now-superseded `radixSortSingleColumn`,
+  `mergeSortRows`, `compareForSort`, `compareNumbers`,
+  `compareStrings`, and `compareDates`.
+
 ## 1.1.16
 
 ### Changed
