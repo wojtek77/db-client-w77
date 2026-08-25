@@ -162,17 +162,36 @@ suite('SqlResultsProvider - large result search cancellation', () => {
     });
 });
 
-suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort dla wielu)', () => {
+suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, patrz buildColumnSortCache/composeSortOrder)', () => {
+
+    // provider to singleton dzielony między testami (patrz getProvider) - _sortColumnCache zbudowany przez jeden test PRZEŻYWA do
+    // następnego, więc każdy test musi zacząć od setNaturalOrder(), które go czyści; inaczej test mógłby po cichu użyć cache'a
+    // zbudowanego na zupełnie innych danych przez poprzedni test w tym samym pliku.
+    // UWAGA: applySort czyta WEJŚCIE z _naturalOrderRows (nie z _allRows - to jest teraz tylko WYJŚCIE, patrz applySort), a końcowe
+    // odwzorowanie key -> RowEntry czyta z _naturalOrderRowsByKey, więc trzeba je przeliczyć (rebuildNaturalOrderRowsByKey) po każdej
+    // zmianie _naturalOrderRows - dokładnie tak, jak robi to executeQuery/showResultsForFile/deleteRowsInDB w prawdziwym kodzie.
+    function setNaturalOrder(provider: any, rows: any[]) {
+        provider._naturalOrderRows = rows;
+        provider.rebuildNaturalOrderRowsByKey();
+        provider._sortColumnCache = new Map();
+    }
 
     test('pusta lista kryteriów -> naturalna kolejność z zapytania SQL (rosnąco po key), niezależnie od bieżącej kolejności _allRows', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['value'];
+        // _allRows celowo w INNEJ kolejności niż _naturalOrderRows - applySort z pustymi kryteriami ma zignorować bieżące _allRows
+        // i wrócić do _naturalOrderRows (key-ascending), zgodnie z tym, co ustaliliśmy: _allRows to tylko WYJŚCIE, nigdy źródło prawdy
         provider._allRows = [
             { key: 2, data: ['c'] },
+            { key: 1, data: ['b'] },
+            { key: 0, data: ['a'] },
+        ];
+        setNaturalOrder(provider, [
             { key: 0, data: ['a'] },
             { key: 1, data: ['b'] },
-        ];
+            { key: 2, data: ['c'] },
+        ]);
         provider._sortCriteria = [];
         provider._sortKinds = ['string'];
 
@@ -185,13 +204,13 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: [30] },
             { key: 1, data: [-10.5] },
             { key: 2, data: [20] },
             { key: 3, data: [0] },
             { key: 4, data: [-0.001] },
-        ];
+        ]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider._sortKinds = ['number'];
 
@@ -204,11 +223,11 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: [30] },
             { key: 1, data: [10] },
             { key: 2, data: [20] },
-        ];
+        ]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         provider._sortKinds = ['number'];
 
@@ -217,15 +236,15 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [30, 20, 10]);
     });
 
-    test('jedno kryterium STRING malejąco - CELOWO zwykły porządek leksykograficzny bez naturalnego sortowania cyfr (patrz compareStrings), więc "item10" < "item2" < "item9"', async () => {
+    test('jedno kryterium STRING malejąco - CELOWO zwykły porządek leksykograficzny bez naturalnego sortowania cyfr, więc "item10" < "item2" < "item9"', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: ['item2'] },
             { key: 1, data: ['item10'] },
             { key: 2, data: ['item9'] },
-        ];
+        ]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         provider._sortKinds = ['string'];
 
@@ -238,11 +257,11 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: ['12345678-zzz'] },
             { key: 1, data: ['12345678-aaa'] },
             { key: 2, data: ['12345678-mmm'] },
-        ];
+        ]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider._sortKinds = ['string'];
 
@@ -258,18 +277,19 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: [null] },
             { key: 1, data: [5] },
             { key: 2, data: [null] },
             { key: 3, data: [1] },
-        ];
+        ]);
         provider._sortKinds = ['number'];
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         await provider.applySort();
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [null, null, 1, 5]);
 
+        // ten sam _naturalOrderRows, druga strona cache'a (patrz composeSortOrder) - nie trzeba nic resetować między wywołaniami
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         await provider.applySort();
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [5, 1, null, null]);
@@ -279,13 +299,13 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         const provider = getProvider() as any;
 
         provider._headers = ['d'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: ['2024-06-15 10:23:45'] },
             { key: 1, data: ['2024-06-15 10:23:45.500'] },
             { key: 2, data: ['2023-01-01'] },
             { key: 3, data: ['0000-00-00'] },
             { key: 4, data: ['2024-06-15 10:23:44'] },
-        ];
+        ]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider._sortKinds = ['date'];
 
@@ -304,12 +324,12 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         const provider = getProvider() as any;
 
         provider._headers = ['t'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: ['12:00:00'] },
             { key: 1, data: ['-05:30:00'] },
             { key: 2, data: ['100:00:00'] },
             { key: 3, data: ['00:00:00'] },
-        ];
+        ]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         provider._sortKinds = ['date'];
 
@@ -322,11 +342,11 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         const provider = getProvider() as any;
 
         provider._headers = ['d'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: ['2024-01-01 00:00:03'] },
             { key: 1, data: ['2024-01-01 00:00:01'] },
             { key: 2, data: ['2024-01-01 00:00:02'] },
-        ];
+        ]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider._sortKinds = ['date'];
 
@@ -343,12 +363,12 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         const provider = getProvider() as any;
 
         provider._headers = ['d'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: [null] },
             { key: 1, data: ['2024-06-01'] },
             { key: 2, data: [null] },
             { key: 3, data: ['2023-01-01'] },
-        ];
+        ]);
         provider._sortKinds = ['date'];
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
@@ -360,15 +380,15 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['2024-06-01', '2023-01-01', null, null]);
     });
 
-    test('dwa kryteria z kind=date (Shift+klik, ścieżka mergeSortRows poza radixem) - drugie rozstrzyga remisy pierwszego', async () => {
+    test('dwa kryteria z kind=date (Shift+klik, composeSortOrder łączy dwie kolumny) - drugie rozstrzyga remisy pierwszego', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['category', 'created_at'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: ['a', '2024-06-02'] },
             { key: 1, data: ['a', '2024-06-01'] },
             { key: 2, data: ['b', '2024-01-01'] },
-        ];
+        ]);
         provider._sortCriteria = [
             { columnIndex: 0, direction: 'asc' },
             { columnIndex: 1, direction: 'asc' },
@@ -388,12 +408,12 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: [null] },
             { key: 1, data: ['b'] },
             { key: 2, data: [null] },
             { key: 3, data: ['a'] },
-        ];
+        ]);
         provider._sortKinds = ['string'];
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
@@ -405,16 +425,16 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['b', 'a', null, null]);
     });
 
-    test('dwa kryteria (Shift+klik, ścieżka mergeSortRows, poza radixem) - drugie rozstrzyga remisy pierwszego (ORDER BY col0, col1)', async () => {
+    test('dwa kryteria (Shift+klik, composeSortOrder łączy dwie kolumny) - drugie rozstrzyga remisy pierwszego (ORDER BY col0, col1)', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['dept', 'name'];
-        provider._allRows = [
+        setNaturalOrder(provider, [
             { key: 0, data: ['sales', 'bob'] },
             { key: 1, data: ['eng', 'zoe'] },
             { key: 2, data: ['sales', 'alice'] },
             { key: 3, data: ['eng', 'amy'] },
-        ];
+        ]);
         provider._sortCriteria = [
             { columnIndex: 0, direction: 'asc' },
             { columnIndex: 1, direction: 'asc' },
@@ -429,22 +449,26 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
         );
     });
 
-    test('remis na wszystkich kryteriach naraz -> deterministyczny tie-break po key rosnąco (nie "cokolwiek było w _allRows przed sortowaniem")', async () => {
+    test('remis na wszystkich kryteriach naraz -> deterministyczny tie-break po key rosnąco, bo _naturalOrderRows jest ZAWSZE key-ascending (gwarancja strukturalna, nie ponowne sortowanie w applySort)', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['dept'];
-        provider._allRows = [
-            { key: 2, data: ['sales'] },
+        // UWAGA: w przeciwieństwie do starej wersji tego testu, _naturalOrderRows MUSI tu być podane w kolejności key-ascending -
+        // to jest inwariant, na którym opiera się buildColumnSortCache (patrz komentarz przy tej metodzie) i który w prawdziwym
+        // kodzie jest gwarantowany przez konstrukcję (executeQuery nadaje klucze sekwencyjnie w kolejności wierszy z zapytania).
+        // Determinizm tie-breaku nie pochodzi już z jawnego sortowania po key WEWNĄTRZ applySort (jak w starym radixSortSingleColumn),
+        // tylko z tego, że _naturalOrderRows z definicji nigdy nie jest "poprzestawiane" - patrz cała nasza wcześniejsza dyskusja
+        setNaturalOrder(provider, [
             { key: 0, data: ['sales'] },
             { key: 1, data: ['sales'] },
-        ];
+            { key: 2, data: ['sales'] },
+        ]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider._sortKinds = ['string'];
 
         await provider.applySort();
 
-        // wszystkie trzy wiersze remisują na jedynym kryterium ('sales' === 'sales') -> radixSortSingleColumn jawnie
-        // tie-breakuje po key rosnąco, więc wynik to [0,1,2], NIE oryginalna kolejność [2,0,1] sprzed wywołania
+        // wszystkie trzy wiersze remisują na jedynym kryterium ('sales' === 'sales') -> wynik to naturalna (key-ascending) kolejność
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [0, 1, 2]);
     });
 
@@ -456,7 +480,7 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
             const provider = getProvider() as any;
             provider._headers = ['n'];
             const rows = Array.from({ length: N }, (_, i) => ({ key: i, data: [(Math.random() - 0.5) * 1_000_000] }));
-            provider._allRows = rows.slice();
+            setNaturalOrder(provider, rows.slice());
             provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
             provider._sortKinds = ['number'];
 
@@ -472,7 +496,7 @@ suite('SqlResultsProvider - applySort (radix sort dla jednej kolumny, merge sort
             provider._headers = ['s'];
             const randomString = () => Math.random().toString(36).slice(2, 2 + Math.ceil(Math.random() * 15));
             const rows = Array.from({ length: N }, (_, i) => ({ key: i, data: [randomString()] }));
-            provider._allRows = rows.slice();
+            setNaturalOrder(provider, rows.slice());
             provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
             provider._sortKinds = ['string'];
 
