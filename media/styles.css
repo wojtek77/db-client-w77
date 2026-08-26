@@ -92,15 +92,26 @@ html, body {
     white-space: nowrap;
 }
 
-/* strzałka sortowania - domyślnie niewidoczna, delikatna po najechaniu na nagłówek, w pełni widoczna gdy ta kolumna jest aktywnie posortowana. Szerokość liczona z zapasem na numer priorytetu (np. "▼2") przy sortowaniu wielokolumnowym */
+/* kontener strzałki (+ spinnera) sortowania - osobny flex item, żeby header-cell nadal miał tylko 2 dzieci dla justify-content: space-between */
+.sort-indicator-wrap {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+/* strzałka sortowania - domyślnie niewidoczna, delikatna po najechaniu na nagłówek, w pełni widoczna gdy ta kolumna jest aktywnie posortowana. Szerokość liczona z zapasem na numer priorytetu (np. "▼2") przy sortowaniu wielokolumnowym. Powiększona o 50% (10px->15px, 16px->24px) i z paddingiem 2px, żeby łatwiej było trafić myszką */
 .sort-indicator {
     flex-shrink: 0;
-    min-width: 16px;
+    min-width: 24px;
+    padding: 2px;
+    box-sizing: border-box;
     text-align: center;
-    font-size: 10px;
+    font-size: 15px;
     line-height: 1;
     opacity: 0;
     cursor: pointer;
+    border-radius: 3px;
 }
 
 .header-cell:hover .sort-indicator {
@@ -109,11 +120,30 @@ html, body {
 
 .sort-indicator:hover {
     opacity: 1 !important;
+    background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
 }
 
 .sort-indicator.sort-active {
     opacity: 1;
     color: var(--vscode-focusBorder);
+}
+
+/* mały spinner obok strzałki sortowania - ten sam wygląd co .search-spinner, pokazywany z opóźnieniem i przytrzymywany minimalny czas (patrz SORT_INDICATOR_* w sorting.js), żeby nie migać przy szybkich sortowaniach */
+.sort-spinner {
+    display: none;
+
+    width: 11px;
+    height: 11px;
+    flex: none;
+
+    border: 2px solid rgba(128, 128, 128, 0.3);
+    border-top: 2px solid var(--vscode-descriptionForeground, #3794ff);
+    border-radius: 50%;
+
+    animation: spin 0.8s linear infinite;
+}
+.sort-spinner.visible {
+    display: inline-block;
 }
 .lp-cell {
     background: var(--vscode-editor-background);

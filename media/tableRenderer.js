@@ -71,6 +71,14 @@ export function renderHeaders(pageRows) {
         label.textContent = headers[i];
         th.appendChild(label);
 
+        // wrap trzyma spinner + strzałkę razem jako JEDEN flex item obok header-label, żeby justify-content: space-between w .header-cell nadal działało na 2 elementach
+        const sortWrap = document.createElement('span');
+        sortWrap.className = 'sort-indicator-wrap';
+
+        const sortSpinner = document.createElement('span');
+        sortSpinner.className = 'sort-spinner';
+        sortWrap.appendChild(sortSpinner);
+
         const sortIndicator = document.createElement('span');
         sortIndicator.className = 'sort-indicator';
         const sortState = sortStateByColumn.get(i);
@@ -83,7 +91,8 @@ export function renderHeaders(pageRows) {
             sortIndicator.textContent = showPriority ? `${arrow}${sortState.criterionIndex + 1}` : arrow;
             sortIndicator.classList.add('sort-active');
         }
-        th.appendChild(sortIndicator);
+        sortWrap.appendChild(sortIndicator);
+        th.appendChild(sortWrap);
 
         fragment.appendChild(th);
     }

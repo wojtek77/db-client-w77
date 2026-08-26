@@ -2,6 +2,7 @@ import { State } from './state.js';
 import { renderHeaders, initializeGrid, restoreGridFromCache, restoreHeaderFromCache, renderPage, updateSortIndicators } from './tableRenderer.js';
 import { cancelAllColumnEdits, reapplyAllColumnEdits, updateDeleteButtonVisibility, updateSaveColumnEditsButtonVisibility, cancelPendingCellEdits, reapplyPendingCellEdits, updateSaveCellEditsButtonVisibility, clearRowSelection, clearColumnSelection, clearCellSelection, hideToolsButtons } from './editor.js';
 import { restoreSearchUI, resetSearch, hideSearchIndicator } from './search.js';
+import { hideSortSpinner } from './sorting.js';
 
 let sqlFile;
 let queryTimer = null;
@@ -179,6 +180,8 @@ window.addEventListener('message', event => {
 
         // każde appendData oznacza, że jeśli w tle trwało wyszukiwanie, to właśnie się rozstrzygnęło (wygrało najnowsze zapytanie) - bezpieczne no-op, gdy wskaźnik i tak nie był aktywny
         hideSearchIndicator();
+        // to samo dla sortowania - appendData to też odpowiedź na sortColumn, więc chowamy ewentualny spinner przy strzałce
+        hideSortSpinner();
 
         const duration = Date.now() - msg.sentAt;
         console.log(`🚀 Travel time via postMessage: ${duration} ms`);
