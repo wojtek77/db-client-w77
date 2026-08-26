@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.1.20
+
+### Fixed
+- Sorting a column while a search filter is active no longer rebuilds
+  the per-column sort cache (`buildColumnSortCache`) or recomputes
+  `applySort`/`composeSortOrder` over the full result set. `performSort`
+  now sorts only the already-filtered `_filteredEntries` in place
+  (`resortFilteredEntries`, using a new lightweight, cache-free
+  multi-column comparator - `compareRowsBySortCriteria`/
+  `compareCellValues`). Previously, sorting while searching still built
+  or reversed a per-column cache over `this._naturalOrderRows` and then
+  re-ran `applySearchFilter` over the entire (potentially multi-million-
+  row) `_allRows` on every single click, even when the search had
+  already narrowed the results down to a single row - visible as a
+  multi-second delay per sort click, with `DESC` appearing no faster
+  than the initial `ASC` sort despite the column cache being reused.
+- `applySearchFilter` now always filters from `this._naturalOrderRows`
+  instead of `this._allRows`, so the filtered result no longer depends
+  on the full result set being sorted first. `performSearch` now forces
+  one full `applySort()` when the search query is cleared and sort
+  criteria are active, to catch up `this._allRows` with any sorting
+  that happened while search was active (sorting no longer touches
+  `_allRows` in that case - see above).
+- `INT` columns were misclassified as text for sorting purposes because
+  `NUMERIC_SORT_TYPE_NAMES` checked for `'LONG'` (the `mysql2` driver's
+  type name), while this driver (`mariadb`) reports `'INT'`
+  (`node_modules/mariadb/lib/const/field-type.js`). `INT` columns
+  sorted lexicographically (`1, 10, 2`) instead of numerically
+  (`1, 2, 10`); fixed by replacing `'LONG'` with `'INT'` in
+  `NUMERIC_SORT_TYPE_NAMES`. Verified the rest of
+  `NUMERIC_SORT_TYPE_NAMES`/`DATE_SORT_TYPE_NAMES` against the driver's
+  full type-name table - no other mismatches.
+
 ## 1.1.19
 
 ### Changed
