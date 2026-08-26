@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.18
+
+### Fixed
+- Sorting a column in descending order (`DESC`) no longer reverses
+  the relative order of rows with duplicate/`NULL` values in that
+  column. Previously, flipping a single column between `ASC` and
+  `DESC` would also flip the order of tied rows within it; now ties
+  keep their original relative order and only the order of distinct
+  value groups changes - matching native SQL `ORDER BY` behavior
+  (verified against phpMyAdmin).
+
 ## 1.1.17
 
 ### Changed
