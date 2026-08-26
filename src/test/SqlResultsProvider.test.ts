@@ -472,6 +472,85 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [0, 1, 2]);
     });
 
+    test('DESC z duplikatami wartości NIE odwraca ich wzajemnej kolejności (standard SQL, zweryfikowany w phpMyAdmin) - regresja na wcześniejszą, świadomie inną konwencję', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['n'];
+        // wartości: 10 (key0,key2 - duplikat), 20 (key1,key4 - duplikat), 5 (key3, unikat)
+        setNaturalOrder(provider, [
+            { key: 0, data: [10] },
+            { key: 1, data: [20] },
+            { key: 2, data: [10] },
+            { key: 3, data: [5] },
+            { key: 4, data: [20] },
+        ]);
+        provider._sortKinds = ['number'];
+
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        await provider.applySort();
+        // ASC: 5(key3), 10(key0,key2 - rosnąco po key), 20(key1,key4 - rosnąco po key)
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [3, 0, 2, 1, 4]);
+
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+        await provider.applySort();
+        // DESC: odwraca się tylko kolejność GRUP wartości (20, potem 10, potem 5) - wewnątrz każdej grupy key0/key2 i key1/key4
+        // zostają w tej samej (rosnącej po key) kolejności co przy ASC, NIE zamieniają się miejscami
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [1, 4, 0, 2, 3]);
+    });
+
+    test('sortowanie wielokolumnowe: colA DESC (zmieniane), colB ASC (NIE zmieniane) - colB nie może zostać przypadkiem odwrócone razem z colA', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['colA', 'colB'];
+        setNaturalOrder(provider, [
+            { key: 0, data: ['x', 2] },
+            { key: 1, data: ['y', 1] },
+            { key: 2, data: ['x', 1] },
+            { key: 3, data: ['y', 2] },
+        ]);
+        provider._sortKinds = ['string', 'number'];
+
+        // ORDER BY colA ASC, colB ASC - punkt odniesienia
+        provider._sortCriteria = [
+            { columnIndex: 0, direction: 'asc' },
+            { columnIndex: 1, direction: 'asc' },
+        ];
+        await provider.applySort();
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data), [['x', 1], ['x', 2], ['y', 1], ['y', 2]]);
+
+        // ORDER BY colA DESC, colB ASC - użytkownik zmienił TYLKO kierunek colA (Shift+klik), colB zostaje ASC
+        // naiwne "odwróć całą tablicę ASC" dałoby błędnie [['y',2],['y',1],['x',2],['x',1]] - colB wyszłoby DESC, mimo że nikt go nie ruszał
+        provider._sortCriteria = [
+            { columnIndex: 0, direction: 'desc' },
+            { columnIndex: 1, direction: 'asc' },
+        ];
+        await provider.applySort();
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data), [['y', 1], ['y', 2], ['x', 1], ['x', 2]]);
+    });
+
+    test('klucze NIECIĄGŁE (symulacja stanu po usunięciu części wierszy - key nigdy nie jest przenumerowywany) - poprawne grupowanie i brak przekroczenia zakresu w keyToBucket', async () => {
+        const provider = getProvider() as any;
+
+        provider._headers = ['n'];
+        // klucze 2 i 4 "usunięte" - najwyższy obecny klucz (5) jest większy niż liczba wierszy (4), keyToBucket musi być zaalokowany wg klucza, nie wg długości tablicy
+        setNaturalOrder(provider, [
+            { key: 0, data: [30] },
+            { key: 1, data: [10] },
+            { key: 3, data: [20] },
+            { key: 5, data: [10] },
+        ]);
+        provider._sortKinds = ['number'];
+
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+        await provider.applySort();
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [1, 5, 3, 0]);
+
+        provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
+        await provider.applySort();
+        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [0, 3, 1, 5]);
+    });
+
+
     test('stres-test radix vs Array.sort jako źródło prawdy: 5000 losowych liczb (w tym ujemne, ułamkowe) i 5000 losowych stringów o różnej długości', async () => {
         const N = 5000;
 

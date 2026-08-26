@@ -560,12 +560,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
      * Składa finalną kolejność kluczy dla DOWOLNEJ kombinacji kryteriów z gotowych cache'y per kolumna - bez żadnych porównań, tylko
      * przegrupowanie do koszyków. Przetwarzamy kryteria od NAJMNIEJ do NAJBARDZIEJ istotnego (LSD, jak radix sort na kartach perforowanych):
      * - najmniej istotna kolumna (przetwarzana jako pierwsza, gdy jeszcze nie ma żadnego wyniku niżej do ochrony) - jej flatKeysAsc już JEST
-     *   gotową spłaszczoną kolejnością ASC; dla DESC pełne odwrócenie CAŁEJ tablicy, łącznie z kolejnością duplikatów/NULL wewnątrz grup -
-     *   świadoma decyzja (ustalona w rozmowie), inna (równie poprawna) konwencja niż SQL "ORDER BY value DESC, id ASC" - u nas duplikaty też
-     *   się odwracają
+     *   gotową spłaszczoną kolejnością ASC, pogrupowaną wg bucketStart; dla DESC odwracamy TYLKO kolejność grup (bucketów), zachowując
+     *   kolejność WEWNĄTRZ każdej grupy bez zmian - dokładnie tak, jak działa natywny SQL ORDER BY (sprawdzone w phpMyAdmin): remisy
+     *   (duplikaty wartości, w tym NULL-e) nie zamieniają się wzajemnie miejscami przy zmianie ASC<->DESC, zmienia się tylko kolejność
+     *   samych grup wartości
      * - każda kolejna, istotniejsza kolumna - przegrupowuje OBECNY wynik do swoich koszyków (wg keyToBucket) i skleja koszyki rosnąco/malejąco,
-     *   NIE ruszając kolejności WEWNĄTRZ koszyka (bo to ona niesie porządek ustalony przez mniej istotne kolumny - odwrócenie całości na tym
-     *   poziomie zepsułoby np. "colA DESC, colB ASC", odwracając przy okazji colB, którego użytkownik nie ruszał)
+     *   tym samym mechanizmem co powyżej (NIE ruszając kolejności WEWNĄTRZ koszyka - to ona niesie porządek ustalony przez mniej istotne
+     *   kolumny; odwrócenie całości na tym poziomie zepsułoby np. "colA DESC, colB ASC", odwracając przy okazji colB, którego użytkownik
+     *   nie ruszał)
      * Całość na Int32Array (żadnych zagnieżdżonych tablic/Map) - patrz komentarz przy ColumnSortCache, ten sam powód (pamięć przy dużych zbiorach).
      */
     private async composeSortOrder(criteria: SortCriterion[], generation: number): Promise<Int32Array | null> {
@@ -587,8 +589,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                     // NIE kopiujemy - cache.flatKeysAsc jest tylko CZYTANE na kolejnych, wyższych poziomach (nigdy modyfikowane w miejscu), więc bezpiecznie dzielimy tę samą tablicę z cache'em
                     order = cache.flatKeysAsc;
                 } else {
+                    // odwracamy TYLKO kolejność grup (bucketStart[b]..bucketStart[b+1]), NIE elementów wewnątrz grupy - patrz komentarz przy funkcji
                     const reversed = new Int32Array(cache.flatKeysAsc.length);
-                    for (let p = 0, q = cache.flatKeysAsc.length - 1; p < cache.flatKeysAsc.length; p++, q--) {reversed[p] = cache.flatKeysAsc[q];}
+                    let pos = 0;
+                    for (let b = cache.bucketStart.length - 2; b >= 0; b--) {
+                        for (let p = cache.bucketStart[b]; p < cache.bucketStart[b + 1]; p++) {reversed[pos++] = cache.flatKeysAsc[p];}
+                    }
                     order = reversed;
                 }
                 continue;
