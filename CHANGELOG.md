@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.21
+
+### Added
+- Column headers in the SQL results grid now show the full column
+  name in a tooltip on hover (`label.title` on `.header-label` in
+  `tableRenderer.js`), so names truncated by the `text-overflow:
+  ellipsis` CSS rule are still fully readable.
+
 ## 1.1.20
 
 ### Fixed
