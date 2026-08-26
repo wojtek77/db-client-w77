@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.19
+
+### Changed
+- Sort arrow (`.sort-indicator`) is now 50% bigger (font-size
+  10px -> 15px, min-width 16px -> 24px) with 2px padding, so hovering
+  close to it is enough to click it - no more pixel-precise aiming.
+
+### Added
+- Loading spinner next to the sort arrow while a sort is in
+  progress, matching the existing search spinner (same look, same
+  delayed-show/min-hold timing so it doesn't flicker on fast sorts).
+  Useful on large tables (e.g. millions of rows) where sorting can
+  take a few seconds.
+
 ## 1.1.18
 
 ### Fixed
