@@ -464,7 +464,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         // wyszukiwanie bez rozróżniania wielkości liter, tak jak filtr w większości narzędzi tabelarycznych
         const needle = query.toLowerCase();
         const columnCount = this._headers.length;
-        const source = this._allRows;
+        // ZAWSZE this._naturalOrderRows, nigdy this._allRows - dzięki temu wyszukiwanie nigdy nie zależy od tego, czy pełny (potencjalnie milionowy) zbiór jest już posortowany, patrz performSort
+        const source = this._naturalOrderRows;
         const filteredEntries: RowEntry[] = [];
 
         // przetwarzamy rekordy partiami, aby event loop mógł obsłużyć nowe wyszukiwanie
@@ -498,6 +499,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             return false;
         }
 
+        // przefiltrowany zbiór jest zwykle mały - sortujemy go na żywo (bez cache'a per kolumna), patrz compareRowsBySortCriteria
+        if (this._sortCriteria.length > 0) {
+            filteredEntries.sort((a, b) => this.compareRowsBySortCriteria(a, b));
+        }
+
         this._filteredEntries = filteredEntries;
         return true;
     }
@@ -512,6 +518,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const fileState = this._fileStates.get(this._currentSqlFile);
         if (fileState) {
             fileState.searchQuery = this._searchQuery;
+        }
+
+        // wyszukiwanie mogło działać z sortowaniem, którego this._allRows jeszcze nie odzwierciedla (performSort pomija applySort przy aktywnym query, patrz tam) - domykamy to tutaj, jednorazowo przy czyszczeniu frazy, zamiast przy każdym kliknięciu sortowania w trakcie wyszukiwania
+        if (!this._searchQuery && this._sortCriteria.length > 0) {
+            const sortGeneration = ++this._sortGeneration;
+            const sorted = await this.applySort(sortGeneration);
+            if (!sorted) {return;}
         }
 
         const completed = await this.applySearchFilter();
@@ -712,6 +725,38 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         return typeof value === 'number' ? value : Number(value);
     }
 
+    // null-aware porównanie dwóch surowych wartości komórki wg typu kolumny, do sortowania NA ŻYWO małych zbiorów (patrz compareRowsBySortCriteria) - NULL zawsze najmniejszy, tak jak bucket 0 w buildColumnSortCache; string porównywany operatorami < > (ten sam porządek UTF-16 co charCodeAt w buildStringPrefixWords), number/date przez resolveNumericValue
+    private static compareCellValues(a: any, b: any, kind: SortKind): number {
+        const aNull = a === null || a === undefined;
+        const bNull = b === null || b === undefined;
+        if (aNull || bNull) {return aNull === bNull ? 0 : (aNull ? -1 : 1);}
+
+        if (kind === 'string') {
+            const av = typeof a === 'string' ? a : String(a);
+            const bv = typeof b === 'string' ? b : String(b);
+            return av < bv ? -1 : (av > bv ? 1 : 0);
+        }
+
+        const av = SqlResultsProvider.resolveNumericValue(a, kind);
+        const bv = SqlResultsProvider.resolveNumericValue(b, kind);
+        return av < bv ? -1 : (av > bv ? 1 : 0);
+    }
+
+    // komparator wielokolumnowy do sortowania NA ŻYWO this._filteredEntries (patrz resortFilteredEntries/applySearchFilter) - bez cache'a per kolumna, bo przefiltrowany zbiór jest zwykle mały; remis wszystkich kryteriów zwraca 0, a stabilność Array.prototype.sort zachowuje wtedy naturalną (key-ascending) kolejność, dokładnie jak bucketowa ścieżka dla pełnego zbioru
+    private compareRowsBySortCriteria(a: RowEntry, b: RowEntry): number {
+        for (const { columnIndex, direction } of this._sortCriteria) {
+            const cmp = SqlResultsProvider.compareCellValues(a.data[columnIndex], b.data[columnIndex], this._sortKinds[columnIndex] ?? 'string');
+            if (cmp !== 0) {return direction === 'asc' ? cmp : -cmp;}
+        }
+        return 0;
+    }
+
+    // sortuje this._filteredEntries w miejscu wg aktualnych this._sortCriteria, bez ponownego przeliczania samego wyszukiwania - dopasowania się nie zmieniają, zmienia się tylko ich kolejność, patrz performSort
+    private resortFilteredEntries(): void {
+        if (!this._filteredEntries || this._sortCriteria.length === 0) {return;}
+        this._filteredEntries.sort((a, b) => this.compareRowsBySortCriteria(a, b));
+    }
+
     // pakuje wartości liczbowe/datowe kolumny w słowa 32-bitowe (2 słowa = 64-bitowa reprezentacja IEEE-754 double) - gęsta tablica indeksowana wprost pozycją w 'rows' (bez cache, bez indeksowania po row.key)
     private static buildNumberWords(rows: RowEntry[], columnIndex: number, kind: SortKind): Uint32Array {
         const length = rows.length;
@@ -860,6 +905,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const fileState = this._fileStates.get(this._currentSqlFile);
         if (fileState) {
             fileState.sortCriteria = this._sortCriteria;
+        }
+
+        if (this._searchQuery) {
+            // przy aktywnym wyszukiwaniu w ogóle nie dotykamy pełnego zbioru/cache'a kolumn - sortujemy tylko już przefiltrowany (zwykle mały) podzbiór, patrz resortFilteredEntries; this._allRows zostaje na razie nieaktualne, domykane dopiero przy skasowaniu wyszukiwania w performSearch
+            this.resortFilteredEntries();
+            this.sendPage(1, true, false);
+            return;
         }
 
         const sorted = await this.applySort(generation);
