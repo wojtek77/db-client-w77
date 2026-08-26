@@ -69,6 +69,7 @@ export function renderHeaders(pageRows) {
         const label = document.createElement('span');
         label.className = 'header-label';
         label.textContent = headers[i];
+        label.title = headers[i]; // pokazuje pełną nazwę kolumny w tooltipie po najechaniu, gdy jest obcięta przez ellipsis
         th.appendChild(label);
 
         // wrap trzyma spinner + strzałkę razem jako JEDEN flex item obok header-label, żeby justify-content: space-between w .header-cell nadal działało na 2 elementach
