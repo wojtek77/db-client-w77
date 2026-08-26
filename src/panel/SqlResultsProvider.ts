@@ -65,11 +65,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private static instance: SqlResultsProvider;
     /**
      * Nazwy typów z field.type (mariadb driver, enum Types) klasyfikowane jako NUMBER na potrzeby sortowania - reszta (w tym VARCHAR/VAR_STRING/STRING)
-     * to STRING, poza DATE_SORT_TYPE_NAMES niżej. DECIMAL/NEWDECIMAL trafiają tu mimo że driver zwraca je jako JS string (decimalAsNumber nie jest
+     * to STRING, poza DATE_SORT_TYPE_NAMES niżej. Nazwy dokładnie wg node_modules/mariadb/lib/const/field-type.js (sterownik 'mariadb', nie 'mysql2' - stąd 'INT', nie 'LONG'). DECIMAL/NEWDECIMAL trafiają tu mimo że driver zwraca je jako JS string (decimalAsNumber nie jest
      * ustawione w Connection.ts) - komparator numeryczny (odejmowanie) działa poprawnie niezależnie od tego, czy wartość jest JS number czy numerycznym
      * stringiem, bo operator '-' zawsze wymusza konwersję obu argumentów na liczbę. YEAR jest już liczbą 4-cyfrową, więc nie potrzebuje osobnego parsera dat.
      */
-    private static readonly NUMERIC_SORT_TYPE_NAMES = new Set(['TINY', 'SHORT', 'LONG', 'INT24', 'BIGINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR']);
+    private static readonly NUMERIC_SORT_TYPE_NAMES = new Set(['TINY', 'SHORT', 'INT', 'INT24', 'BIGINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR']);
     // nazwy typów z field.type klasyfikowane jako DATE na potrzeby sortowania - wszystkie u nas zawsze stringi (dateStrings:true, patrz Connection.ts), więc idą przez parseDateOrTimeToSortableNumber zamiast wprost przez Number()
     private static readonly DATE_SORT_TYPE_NAMES = new Set(['DATE', 'DATETIME', 'TIMESTAMP', 'TIME']);
     // dopasowuje 'YYYY-MM-DD' albo 'YYYY-MM-DD HH:MM:SS[.ułamek]' (DATE/DATETIME/TIMESTAMP z dateStrings:true) - patrz parseDateOrTimeToSortableNumber
