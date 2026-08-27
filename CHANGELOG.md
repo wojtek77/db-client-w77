@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.23
+
+### Added
+- New rename ("pencil") button in the recent SQL files picker (F3),
+  shown to the left of the trash button on each list item. Clicking
+  it opens an input box pre-filled with the current file name
+  (without the `.sql` extension), validates that the new name is
+  non-empty and different from the current one, and blocks it if a
+  file with that name already exists in the same directory. On
+  Enter, the file is renamed on disk and the entry in `sqlFiles` is
+  updated (moved to the end of the list, since the map key can't be
+  renamed in place) and persisted. If the rename on disk fails (e.g.
+  no permissions), an error is shown and the existing entry is left
+  unchanged. Solves files being dropped from the recent list when
+  renamed manually outside the extension.
+
 ## 1.1.22
 
 ### Added
