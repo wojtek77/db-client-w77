@@ -55,3 +55,23 @@ export function formatSqlValue(value: unknown, field?: any): string {
     // string (w tym daty) i reszta nieobsłużonych wyżej typów -> escapowany literał tekstowy
     return `'${String(value).replace(/'/g, "''")}'`;
 }
+
+// normalizuje wartość z inputu w webview (zawsze string) na typ zgodny z parametrem db.query() - wspólne dla wszystkich trzech miejsc edycji danych (pojedyncza komórka, zbiorcza edycja komórek, zbiorcza edycja kolumny)
+export function normalizeValueForField(value: unknown, field?: any): unknown {
+    if (typeof value !== 'string') {
+        return value;
+    }
+
+    const trimmed = value.trim();
+
+    if (trimmed.toUpperCase() === 'NULL') {
+        return null;
+    }
+
+    // BIT: driver wysyła string jako cudzysłowiony literał, a MariaDB dla BIT traktuje to jako bajty a nie liczbę (inaczej niż INT), stąd ręczna konwersja na number
+    if (field?.type === 'BIT' && trimmed !== '' && !Number.isNaN(Number(trimmed))) {
+        return Number(trimmed);
+    }
+
+    return value;
+}

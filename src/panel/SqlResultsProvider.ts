@@ -8,7 +8,7 @@ import * as os from 'os';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
 import { ConnectionColors } from '../db/ConnectionColors.js';
 import { TableColumnsCache } from '../cache/TableColumnsCache.js';
-import { formatSqlValue } from '../sql/formatSqlValue.js';
+import { formatSqlValue, normalizeValueForField } from '../sql/formatSqlValue.js';
 import { resolvePrimaryKeyColumns, resolveTableColumns } from '../sql/resolvePrimaryKeyColumns.js';
 
 /** Wiersz wyniku SQL razem ze stabilnym, permanentnym identyfikatorem (key). Klucz jest
@@ -1177,10 +1177,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 WHERE ${whereParts.join(' AND ')}
             `;
 
-            // obsługa NULL (można wpisywać tak: null, NULL)
-            if (typeof value === 'string' && value.trim().toUpperCase() === 'NULL') {
-                value = null;
-            }
+            // obsługa NULL (można wpisywać tak: null, NULL) i konwersja typu zgodnie z kolumną (np. BIT: string -> number)
+            value = normalizeValueForField(value, field);
             
             await db.query(updateSQL, [value, ...whereValues]);
 
@@ -1435,15 +1433,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 whereValues = pkValueTuples.flat();
             }
 
+            const columnInfoByName = new Map(columns.map((c) => [c.name, c]));
+
             const normalizedEdits = edits.map((edit) => {
-                let value = edit.value;
-                if (typeof value === 'string' && value.trim().toUpperCase() === 'NULL') {
-                    value = null;
-                }
+                const value = normalizeValueForField(edit.value, columnInfoByName.get(edit.columnName)?.field);
                 return { ...edit, value };
             });
-
-            const columnInfoByName = new Map(columns.map((c) => [c.name, c]));
 
             const changesPreview = normalizedEdits
                 .map((edit) => {
@@ -1554,9 +1549,17 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            let normalizedValue = value;
-            if (typeof normalizedValue === 'string' && normalizedValue.trim().toUpperCase() === 'NULL') {
-                normalizedValue = null;
+            const columnInfoByName = new Map(columns.map((c) => [c.name, c]));
+
+            // normalizeValueForField zależy od typu kolumny (np. BIT), a ta sama wartość może trafić do różnych kolumn - liczymy normalizację osobno per nazwa kolumny
+            const normalizedValueByColumnName = new Map<string, unknown>();
+            for (const cell of cells) {
+                if (!normalizedValueByColumnName.has(cell.columnName)) {
+                    normalizedValueByColumnName.set(
+                        cell.columnName,
+                        normalizeValueForField(value, columnInfoByName.get(cell.columnName)?.field)
+                    );
+                }
             }
 
             // grupujemy komórki wg rowKey - wiersz z kilkoma zaznaczonymi kolumnami dostanie jeden UPDATE z wieloma SET (ta sama wartość w każdym SET)
@@ -1607,7 +1610,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 }
 
                 const setClause = columnNames.map((name) => `\`${name}\` = ?`).join(', ');
-                const setValues = columnNames.map(() => normalizedValue);
+                const setValues = columnNames.map((name) => normalizedValueByColumnName.get(name));
 
                 updates.push({
                     sql: `UPDATE ${qualifiedTable} SET ${setClause} WHERE ${whereClause}`,
@@ -1615,9 +1618,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 });
             }
 
-            const columnInfoByName = new Map(columns.map((c) => [c.name, c]));
             const firstColumnName = cells[0].columnName;
-            const valuePreview = formatSqlValue(normalizedValue, columnInfoByName.get(firstColumnName)?.field);
+            const valuePreview = formatSqlValue(normalizedValueByColumnName.get(firstColumnName), columnInfoByName.get(firstColumnName)?.field);
 
             const db = await this.getDbForCurrentFile();
 
@@ -1646,7 +1648,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             // backend jest źródłem prawdy - odzwierciedlamy zmianę w this._allRows dla wszystkich edytowanych komórek
             for (const cell of cells) {
                 const entry = entryByRowKey.get(cell.rowKey)!;
-                entry.data[cell.columnIndex] = normalizedValue;
+                entry.data[cell.columnIndex] = normalizedValueByColumnName.get(cell.columnName);
             }
             // wartości w tych kolumnach mogły się zmienić - ich cache grupowania jest nieaktualny (patrz this._sortColumnCache), pozostałe kolumny zostają ważne
             for (const cell of cells) {this._sortColumnCache.delete(cell.columnIndex);}
