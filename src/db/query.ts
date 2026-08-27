@@ -40,6 +40,7 @@ export async function executeQuery(db: Connection, sql: string) {
             rows = queryData;
             meta = queryMeta;
             headers = meta.map((field: any) => field.name());
+            convertBitColumnsToNumber(rows, meta);
         } else {
             // nie-SELECT (np. SET, INSERT, UPDATE, DELETE): queryData to OkPacket, więc budujemy własną tabelę wyniku
             headers = ['Name', 'Value'];
@@ -317,5 +318,30 @@ export async function getTableIndexesBatch(
             err
         );
         return [];
+    }
+}
+
+// zamienia BIT(n) o dowolnej długości na liczbę - Buffer to bajty big-endian, więc dla BIT(64) z ustawionym najwyższym bitem trzeba przejść przez BigInt, żeby nie stracić precyzji ponad Number.MAX_SAFE_INTEGER
+function bitBufferToNumber(buf: Buffer): number {
+    let result = 0n;
+    for (const byte of buf) {
+        result = (result << 8n) | BigInt(byte);
+    }
+    return Number(result);
+}
+
+// mutuje wiersze w miejscu (rows to tablice, indeks kolumny odpowiada pozycji w meta - patrz rowsAsArray:true) - jeśli meta nie zawiera żadnej kolumny BIT, kończy natychmiast bez dotykania wierszy
+function convertBitColumnsToNumber(rows: any[][], meta: any[]): void {
+    const bitColumnIndexes: number[] = [];
+    meta.forEach((field: any, index: number) => {
+        if (field.type === 'BIT') {bitColumnIndexes.push(index);}
+    });
+    if (bitColumnIndexes.length === 0) {return;}
+
+    for (const row of rows) {
+        for (const colIndex of bitColumnIndexes) {
+            const value = row[colIndex];
+            if (Buffer.isBuffer(value)) {row[colIndex] = bitBufferToNumber(value);}
+        }
     }
 }

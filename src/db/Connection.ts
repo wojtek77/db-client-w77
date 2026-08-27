@@ -70,6 +70,7 @@ export class Connection {
             bigIntAsNumber: true,
             dateStrings: true,
             foundRows: false,
+            bitOneIsBoolean: false, // bez tego BIT(1) przychodzi jako boolean zamiast Buffer, a wtedy convertBitColumnsToNumber w query.ts by go pominął
         });
 
         const startConn = performance.now();
