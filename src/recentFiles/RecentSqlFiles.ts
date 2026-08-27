@@ -243,6 +243,8 @@ export class RecentSqlFiles {
                 });
         };
 
+        // przycisk (ikona "+" w lewym górnym rogu QuickPick) do tworzenia nowego pliku SQL
+        const ADD_FILE_TOOLTIP = 'Create new SQL file';
         // przycisk (ikona kosza w prawym górnym rogu QuickPick) do przycinania listy
         const TRIM_TOOLTIP = 'Trim list (keep only N most recent files)';
         // tooltip przycisku filtra zmienia się w zależności od stanu - jasno mówi, co zrobi kliknięcie
@@ -251,7 +253,7 @@ export class RecentSqlFiles {
         const CURRENT_CONNECTION_TOOLTIP = 'Filter by current connection';
         const CLEAR_CURRENT_CONNECTION_TOOLTIP = 'Show all connections';
 
-        // buduje aktualny zestaw przycisków - skrót do aktualnego połączenia (gwiazdka), filtr (lejek) i przycinanie listy (kosz)
+        // buduje aktualny zestaw przycisków - "+" (nowy plik), gwiazdka, filtr (lejek) i przycinanie listy (kosz)
         const buildButtons = (): vscode.QuickInputButton[] => {
             const currentConnectionName = ConnectionManager.getInstance().getCurrentNameConnection();
             // gwiazdka jest "aktywna" tylko wtedy, gdy filtr zawęża listę dokładnie do aktualnie aktywnego połączenia
@@ -261,7 +263,17 @@ export class RecentSqlFiles {
             // lejek reaguje tylko na filtr ustawiony przez siebie - filtr ustawiony gwiazdką nie zmienia jego ikony ani zachowania
             const isFunnelFilterActive = !!filterConnections && !isQuickCurrentConnectionFilter;
 
-            return [
+            const buttons: vscode.QuickInputButton[] = [];
+
+            // "+" pojawia się tylko gdy mapa sqlFiles nie jest pusta - inaczej nie da się wyznaczyć katalogu docelowego
+            if (RecentSqlFiles.getInstance().getSqlFiles().size > 0) {
+                buttons.push({
+                    iconPath: new vscode.ThemeIcon('add'),
+                    tooltip: ADD_FILE_TOOLTIP
+                });
+            }
+
+            buttons.push(
                 {
                     iconPath: new vscode.ThemeIcon(isCurrentConnectionFilterActive ? 'star-full' : 'star-empty'),
                     tooltip: isCurrentConnectionFilterActive ? CLEAR_CURRENT_CONNECTION_TOOLTIP : CURRENT_CONNECTION_TOOLTIP
@@ -275,13 +287,76 @@ export class RecentSqlFiles {
                     iconPath: new vscode.ThemeIcon('trash'),
                     tooltip: TRIM_TOOLTIP
                 }
-            ];
+            );
+
+            return buttons;
         };
 
         // zwraca tekst placeholdera, uwzględniając aktualnie aktywny filtr połączeń
         const buildPlaceholder = () => filterConnections
             ? `select SQL file(s) - filtered by: ${Array.from(filterConnections).join(', ')}`
             : 'select SQL file(s)';
+
+        // obsługa przycisku "+" - pyta o nazwę, tworzy pusty plik .sql i otwiera go w edytorze
+        const handleAddNewFile = async () => {
+            const instance = RecentSqlFiles.getInstance();
+            const lastEntry = Array.from(instance.getSqlFiles().entries()).pop(); // ostatni wpis w Map = ostatnio dodany/przesunięty plik
+
+            if (!lastEntry) {
+                return; // w praktyce nie powinno się zdarzyć, bo przycisk jest widoczny tylko gdy mapa nie jest pusta
+            }
+
+            const targetDir = path.dirname(lastEntry[0]);
+            if (!fs.existsSync(targetDir)) {
+                throw new Error(`Directory "${targetDir}" no longer exists`);
+            }
+
+            const defaultName = instance.getDefaultScriptName(targetDir);
+
+            isShowingSubPicker = true;
+            quickPick.hide();
+
+            const enteredName = await vscode.window.showInputBox({
+                title: 'New SQL file',
+                prompt: `File will be created in: ${targetDir}`,
+                value: defaultName,
+                valueSelection: [0, defaultName.length],
+                ignoreFocusOut: true,
+                validateInput: (value) => {
+                    const trimmed = value.trim();
+                    if (!trimmed) {
+                        return 'File name cannot be empty';
+                    }
+
+                    // blokada zamiast auto-sufiksu - użytkownik musi sam wybrać inną, wolną nazwę
+                    if (fs.existsSync(path.join(targetDir, `${trimmed}.sql`))) {
+                        return `"${trimmed}.sql" already exists - choose a different name`;
+                    }
+
+                    return undefined;
+                }
+            });
+
+            isShowingSubPicker = false;
+
+            if (enteredName === undefined) {
+                quickPick.show(); // anulowano (Esc) - wracamy do listy bez zmian
+                return;
+            }
+
+            const finalName = enteredName.trim(); // walidacja pola już zagwarantowała, że taka nazwa jest wolna, więc dodatkowe wyliczanie sufiksu nie jest potrzebne
+            const finalPath = path.join(targetDir, `${finalName}.sql`);
+
+            fs.writeFileSync(finalPath, '', 'utf-8');
+
+            const fileUri = vscode.Uri.file(finalPath);
+            await vscode.window.showTextDocument(fileUri, {
+                preview: false,       // pełne otwarcie, nie preview
+                preserveFocus: false  // od razu aktywuje edytor
+            });
+
+            quickPick.hide(); // to samo wywołanie co przy zwykłym anulowaniu - naturalnie domknie i zwolni cały QuickPick przez istniejący onDidHide
+        };
 
         const quickPick = vscode.window.createQuickPick<{ label: string; description: string; value: string; connectionName: string; iconPath?: vscode.Uri; buttons?: readonly vscode.QuickInputButton[] }>();
         quickPick.items = buildQuickPickItems();
@@ -293,8 +368,19 @@ export class RecentSqlFiles {
             quickPick.activeItems = [quickPick.items[0]]; // domyślnie podświetlony pierwszy element, tak jak dawniej przy pojedynczym wyborze
         }
 
-        // obsługa kliknięcia przycisków (filtr połączeń / skrót do aktualnego połączenia / przycinanie listy) - rozpoznajemy przycisk po tooltipie, bo przyciski są tworzone od nowa przy każdym buildButtons()
+        // obsługa kliknięcia przycisków (nowy plik / filtr połączeń / skrót do aktualnego połączenia / przycinanie listy) - rozpoznajemy przycisk po tooltipie, bo przyciski są tworzone od nowa przy każdym buildButtons()
         quickPick.onDidTriggerButton(async (button) => {
+            if (button.tooltip === ADD_FILE_TOOLTIP) {
+                try {
+                    await handleAddNewFile();
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Could not create new SQL file: ${error instanceof Error ? error.message : error}`);
+                    isShowingSubPicker = false;
+                    quickPick.show(); // po błędzie wracamy do widocznej listy, żeby użytkownik nie został z "zawieszonym" ekranem
+                }
+                return;
+            }
+
             if (button.tooltip === CLEAR_CURRENT_CONNECTION_TOOLTIP) {
                 // gwiazdka jest już aktywna - drugie kliknięcie w nią czyści filtr i pokazuje znów wszystkie połączenia
                 filterConnections = null;
@@ -513,5 +599,20 @@ export class RecentSqlFiles {
     private moveToEnd(sqlFile: string, connectionName: string) {
         this.delete(sqlFile);
         this.set(sqlFile, connectionName);
+    }
+
+    // wylicza domyślną nazwę wzorem DBeaver - "Script-N", gdzie N to pierwszy wolny numer wśród plików "Script-*.sql" w katalogu docelowym
+    private getDefaultScriptName(dir: string): string {
+        const scriptPattern = /^Script-(\d+)\.sql$/i;
+        let maxNumber = 0;
+
+        for (const fileName of fs.readdirSync(dir)) {
+            const match = fileName.match(scriptPattern);
+            if (match) {
+                maxNumber = Math.max(maxNumber, Number(match[1]));
+            }
+        }
+
+        return `Script-${maxNumber + 1}`;
     }
 }
