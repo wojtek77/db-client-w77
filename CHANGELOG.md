@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.25
+
+### Fixed
+- Pressing Esc in the recent SQL files picker (F3) could leave the
+  UI in a broken state. In the "New SQL file", "Rename SQL file" and
+  "Trim" sub-dialogs, Esc now fully closes the whole picker
+  (`quickPick.hide()`) instead of calling `quickPick.show()`, which
+  used to leave a stray, sometimes unresponsive "select SQL file(s)"
+  window behind. In the connection filter sub-dialog, Esc still
+  returns to the main list as intended, but `quickPick.items` is now
+  rebuilt before `quickPick.show()` is called again - previously the
+  list came back empty because the items were never reassigned after
+  VS Code hid/replaced the picker. The same items refresh was applied
+  to the three error-recovery paths (rename-on-disk failure, add-file
+  failure, unexpected rename error) that had the same gap.
+
 ## 1.1.24
 
 ### Fixed
