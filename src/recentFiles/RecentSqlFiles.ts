@@ -310,7 +310,6 @@ export class RecentSqlFiles {
             const oldBaseName = path.basename(oldPath, '.sql'); // sama nazwa, bez rozszerzenia .sql
 
             isShowingSubPicker = true;
-            quickPick.hide();
 
             const enteredName = await vscode.window.showInputBox({
                 title: 'Rename SQL file',
@@ -337,7 +336,7 @@ export class RecentSqlFiles {
             isShowingSubPicker = false;
 
             if (enteredName === undefined) {
-                quickPick.show(); // anulowano (Esc) - wracamy do listy bez zmian
+                quickPick.hide(); // anulowano (Esc) - zamykamy całość, wracamy do edytora
                 return;
             }
 
@@ -349,6 +348,7 @@ export class RecentSqlFiles {
                 fs.renameSync(oldPath, newPath);
             } catch (error) {
                 vscode.window.showErrorMessage(`Could not rename file: ${error instanceof Error ? error.message : error}`);
+                quickPick.items = buildQuickPickItems(); // bez tego lista wracała pusta
                 quickPick.show();
                 return;
             }
@@ -387,7 +387,6 @@ export class RecentSqlFiles {
             const defaultName = instance.getDefaultScriptName(targetDir);
 
             isShowingSubPicker = true;
-            quickPick.hide();
 
             const enteredName = await vscode.window.showInputBox({
                 title: 'New SQL file',
@@ -413,7 +412,7 @@ export class RecentSqlFiles {
             isShowingSubPicker = false;
 
             if (enteredName === undefined) {
-                quickPick.show(); // anulowano (Esc) - wracamy do listy bez zmian
+                quickPick.hide(); // anulowano (Esc) - zamykamy całość, wracamy do edytora
                 return;
             }
 
@@ -449,6 +448,7 @@ export class RecentSqlFiles {
                 } catch (error) {
                     vscode.window.showErrorMessage(`Could not create new SQL file: ${error instanceof Error ? error.message : error}`);
                     isShowingSubPicker = false;
+                    quickPick.items = buildQuickPickItems(); // bez tego lista wracała pusta
                     quickPick.show(); // po błędzie wracamy do widocznej listy, żeby użytkownik nie został z "zawieszonym" ekranem
                 }
                 return;
@@ -526,6 +526,7 @@ export class RecentSqlFiles {
                 isShowingSubPicker = false;
 
                 if (chosenNames === undefined) {
+                    quickPick.items = buildQuickPickItems(); // bez tego lista wracała pusta po Esc
                     quickPick.show(); // anulowano wybór filtra (Esc) - przywracamy główną listę bez zmian
                     return;
                 }
@@ -564,7 +565,7 @@ export class RecentSqlFiles {
             isShowingSubPicker = false;
 
             if (input === undefined) {
-                quickPick.show(); // anulowano - wracamy do listy bez zmian
+                quickPick.hide(); // anulowano (Esc) - zamykamy całość, wracamy do edytora
                 return;
             }
 
@@ -594,6 +595,7 @@ export class RecentSqlFiles {
             } catch (error) {
                 vscode.window.showErrorMessage(`Could not rename file: ${error instanceof Error ? error.message : error}`);
                 isShowingSubPicker = false;
+                quickPick.items = buildQuickPickItems(); // bez tego lista wracała pusta
                 quickPick.show();
             }
         });
