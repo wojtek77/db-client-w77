@@ -173,6 +173,12 @@ export class RecentSqlFiles {
     
     public async openRecentFiles() {
     
+        // przycisk (ikona ołówka) przy każdej pozycji na liście - pozwala zmienić nazwę pliku na dysku
+        const editItemButton: vscode.QuickInputButton = {
+            iconPath: new vscode.ThemeIcon('edit'),
+            tooltip: 'Rename this file'
+        };
+
         // przycisk (ikona kosza) przy każdej pozycji na liście - usuwa tylko tę jedną pozycję
         const removeItemButton: vscode.QuickInputButton = {
             iconPath: new vscode.ThemeIcon('trash'),
@@ -238,7 +244,7 @@ export class RecentSqlFiles {
                         value: filePath,                     // Ukryta wartość, którą chcemy wyciągnąć
                         connectionName: connectionName,      // nazwa połączenia (potrzebna np. przy komunikacie o usunięciu z listy)
                         iconPath: ConnectionColors.getInstance().getColorIconUri(connectionName), // kolorowa ikona zgodna z kolorem przypisanym do połączenia
-                        buttons: [removeItemButton]          // ikona kosza przy tej pozycji - usuwa tylko ją
+                        buttons: [editItemButton, removeItemButton] // ikona ołówka (zmiana nazwy) i ikona kosza (usuwa tylko ją) - w tej kolejności, ołówek na lewo od kosza
                     };
                 });
         };
@@ -296,6 +302,73 @@ export class RecentSqlFiles {
         const buildPlaceholder = () => filterConnections
             ? `select SQL file(s) - filtered by: ${Array.from(filterConnections).join(', ')}`
             : 'select SQL file(s)';
+
+        // obsługa ikony ołówka przy pozycji - pyta o nową nazwę i zmienia nazwę pliku na dysku
+        const handleRenameItem = async (item: { value: string; connectionName: string }) => {
+            const oldPath = item.value;
+            const dir = path.dirname(oldPath);
+            const oldBaseName = path.basename(oldPath, '.sql'); // sama nazwa, bez rozszerzenia .sql
+
+            isShowingSubPicker = true;
+            quickPick.hide();
+
+            const enteredName = await vscode.window.showInputBox({
+                title: 'Rename SQL file',
+                prompt: `Enter a new name for "${oldBaseName}.sql"`,
+                value: oldBaseName,
+                valueSelection: [0, oldBaseName.length],
+                ignoreFocusOut: true,
+                validateInput: (value) => {
+                    const trimmed = value.trim();
+                    if (!trimmed) {
+                        return 'File name cannot be empty';
+                    }
+                    if (trimmed === oldBaseName) {
+                        return 'Please enter a different name';
+                    }
+                    // blokada zamiast auto-sufiksu - tak samo jak przy tworzeniu nowego pliku
+                    if (fs.existsSync(path.join(dir, `${trimmed}.sql`))) {
+                        return `"${trimmed}.sql" already exists - choose a different name`;
+                    }
+                    return undefined;
+                }
+            });
+
+            isShowingSubPicker = false;
+
+            if (enteredName === undefined) {
+                quickPick.show(); // anulowano (Esc) - wracamy do listy bez zmian
+                return;
+            }
+
+            const finalName = enteredName.trim();
+            const newPath = path.join(dir, `${finalName}.sql`);
+
+            try {
+                // fizyczna zmiana nazwy na dysku - jeśli się nie powiedzie, wpis w liście zostaje bez zmian
+                fs.renameSync(oldPath, newPath);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Could not rename file: ${error instanceof Error ? error.message : error}`);
+                quickPick.show();
+                return;
+            }
+
+            const instance = RecentSqlFiles.getInstance();
+
+            // nie da się w prosty sposób zmienić nazwy klucza w środku Map, więc wpis ląduje na końcu listy (jako najnowszy)
+            instance.delete(oldPath);
+            instance.set(newPath, item.connectionName);
+
+            // jeśli zmieniany plik był zapamiętany jako "lastSqlFile", uaktualniamy też go, żeby cache nie wskazywał na nieistniejącą ścieżkę
+            if (instance.lastSqlFile === oldPath) {
+                instance.lastSqlFile = newPath;
+            }
+
+            void instance.persist();
+
+            quickPick.items = buildQuickPickItems();
+            quickPick.show();
+        };
 
         // obsługa przycisku "+" - pyta o nazwę, tworzy pusty plik .sql i otwiera go w edytorze
         const handleAddNewFile = async () => {
@@ -508,6 +581,21 @@ export class RecentSqlFiles {
             quickPick.items = buildQuickPickItems();
             quickPick.show();
             vscode.window.showInformationMessage(`Recent SQL files list trimmed - kept ${trimmedEntries.length} most recent entries`);
+        });
+
+        // obsługa kliknięcia w ołówek przy pojedynczej pozycji na liście - zmienia nazwę tylko tej jednej pozycji
+        quickPick.onDidTriggerItemButton(async (event) => {
+            if (event.button !== editItemButton) {
+                return;
+            }
+
+            try {
+                await handleRenameItem(event.item);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Could not rename file: ${error instanceof Error ? error.message : error}`);
+                isShowingSubPicker = false;
+                quickPick.show();
+            }
         });
 
         // obsługa kliknięcia w kosz przy pojedynczej pozycji na liście - usuwa tylko tę jedną pozycję
