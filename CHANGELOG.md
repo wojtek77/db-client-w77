@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.22
+
+### Added
+- New "+" button in the recent SQL files picker (F3), shown to the
+  left of the star/funnel/trash buttons whenever the recent files
+  list is non-empty. Prompts for a file name (defaulting to
+  `Script-N`, based on existing `Script-*.sql` files found in the
+  target directory), creates an empty `.sql` file in the same
+  directory as the most recently used SQL file, and opens it in the
+  editor. If a file with the entered name already exists, submission
+  is blocked until a different, free name is entered.
+
 ## 1.1.21
 
 ### Added
