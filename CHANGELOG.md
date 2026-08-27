@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.1.24
+
+### Fixed
+- `BIT` columns in SQL query results no longer show up as
+  `[object Object]`. The `mariadb` driver returns `BIT` values as a
+  raw `Buffer` regardless of length (`bitOneIsBoolean: false` in
+  `Connection.ts` now makes `BIT(1)` behave the same way as longer
+  `BIT(n)` columns). `executeQuery` in `query.ts` inspects `meta` for
+  columns of type `BIT` and converts only those columns' `Buffer`
+  values to a `number` (via `bitBufferToNumber`, safe up to `BIT(64)`
+  through `BigInt`) - if no `BIT` column is present, no extra work is
+  done per row. `BIT` was also added to `NUMERIC_SORT_TYPE_NAMES` in
+  `SqlResultsProvider.ts` so the column sorts numerically instead of
+  as a string.
+- Editing a `BIT` column cell no longer writes the wrong value (e.g.
+  entering `1` stored `49`, entering `2` stored `50`). The value from
+  the webview input is always a string, and MariaDB interprets a
+  string literal sent to a `BIT` column as raw bytes rather than a
+  numeric text representation, unlike `INT`. A new shared
+  `normalizeValueForField(value, field)` helper in
+  `formatSqlValue.ts` now converts a numeric string to a `number` for
+  `BIT` columns (and unifies the existing `"NULL"` string handling)
+  before the value is sent to `db.query()`. It's used consistently by
+  all three editing flows in `SqlResultsProvider.ts` -
+  `updateCellInDB` (single cell), `saveCellEdits` (bulk edit of
+  selected cells, normalized per column name since a shared value can
+  target columns of different types) and `saveColumnEdits` (bulk edit
+  of an entire column).
+
 ## 1.1.23
 
 ### Added
