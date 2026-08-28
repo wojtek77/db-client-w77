@@ -168,9 +168,16 @@ function startEditingCell(cell, vscode) {
         cell.textContent = newValue;
 
         // rowKey to stabilny identyfikator wiersza z backendu (patrz RowEntry.key) - nim adresujemy wiersz w bazie; rowIndex jedzie tylko po to, żeby backend odesłał go bez zmian w 'updateConfirmed' i dało się namierzyć komórkę do animacji
+        const rowKey = State.getInstance().currentRows?.[rowIndex]?.key;
+
+        // ta edycja nie ma jawnego cancel/rollback (w odróżnieniu od edycji zbiorczych) - unieważniamy cache renderPage na undefined, żeby przy kolejnym renderPage rowsEqual zawsze wykryło "zmianę" i wymusiło realny re-render, zamiast zaufać staremu cache'owi, gdyby zapis się nie powiódł albo baza po cichu obcięła wartość (np. BIT(1) poza zakresem) - undefined nigdy nie występuje jako prawdziwa wartość z SQL-a (SQL NULL to zawsze null), więc nie koliduje z żadnymi realnymi danymi
+        if (State.getInstance().currentRows?.[rowIndex]) {
+            State.getInstance().currentRows[rowIndex].data[colIndex] = undefined;
+        }
+
         vscode.postMessage({
             command: 'updateCell',
-            rowKey: State.getInstance().currentRows?.[rowIndex]?.key,
+            rowKey: rowKey,
             rowIndex: rowIndex,
             columnIndex: colIndex,
             value: newValue
