@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.26
+
+### Fixed
+- Editing a single cell could leave a stale, never-actually-saved
+  value visible in the grid if the write silently failed or was
+  coerced by the database (e.g. entering `2` into a `BIT(1)` column).
+  `saveEdit()` in `editor.js` updated the DOM immediately as an
+  optimistic preview, but had no revert path, and `renderPage`'s
+  row-diff cache in `tableRenderer.js` would then skip re-rendering
+  the row on the next query run if the freshly fetched value matched
+  the (unchanged) cached one - masking the fact that the displayed
+  value was never real. `saveEdit()` now also invalidates
+  `State.currentRows` for that cell (`undefined`, a value that never
+  occurs in real SQL results) right after the optimistic write, so
+  the next render always detects a mismatch and shows the real value.
+
 ## 1.1.25
 
 ### Fixed
