@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.27
+
+### Changed
+- Column header names now use the full header width when the sort
+  arrow isn't shown, instead of always leaving space for it.
+  `.sort-indicator-wrap` collapses to zero width by default and
+  only expands on hover, when the column is actively sorted, or
+  while the sort spinner is visible - at which point
+  `.header-label` shrinks and truncates with an ellipsis as needed.
+
 ## 1.1.26
 
 ### Fixed
