@@ -190,49 +190,51 @@ window.addEventListener('message', event => {
             throw new Error("Missing: msg.sqlFile");
         }
         State.init(msg.sqlFile);
+        // jedno pobranie instancji zamiast wielokrotnych State.getInstance() poniżej - sam getter jest tani, ale to i tak zbędne powtarzanie property lookupu w gorącej ścieżce
+        const state = State.getInstance();
         // ustaw stronę na podstawie odpowiedzi z backendu, nie 'optymistycznej' wartości z pagination.js – zawsze zgodny z tym, co faktycznie przyszło
         if (typeof msg.currentPage === 'number') {
-            State.getInstance().currentPage = msg.currentPage;
+            state.currentPage = msg.currentPage;
         }
         // oblicz całkowitą liczbę stron
-        State.getInstance().totalPages = Math.ceil(
-            msg.totalRows / State.getInstance().ROWS_PER_PAGE
+        state.totalPages = Math.ceil(
+            msg.totalRows / state.ROWS_PER_PAGE
         );
         if (msg.headers) {
-            State.getInstance().headers = msg.headers;
+            state.headers = msg.headers;
         }
-        State.getInstance().columnTypes = msg.columnTypes ?? [];
-        State.getInstance().connectionName = msg.connectionName;
-        State.getInstance().connectionTime = msg.connectionTime;
-        State.getInstance().queryTime = msg.queryTime;
-        State.getInstance().connectionColor = msg.connectionColor ?? null;
-        State.getInstance().isProduction = msg.isProduction ?? false;
-        State.getInstance().isReadOnly = msg.isReadOnly ?? false;
-        State.getInstance().infoMessage = msg.infoMessage;
-        State.getInstance().errorMessage = msg.errorMessage;
+        state.columnTypes = msg.columnTypes ?? [];
+        state.connectionName = msg.connectionName;
+        state.connectionTime = msg.connectionTime;
+        state.queryTime = msg.queryTime;
+        state.connectionColor = msg.connectionColor ?? null;
+        state.isProduction = msg.isProduction ?? false;
+        state.isReadOnly = msg.isReadOnly ?? false;
+        state.infoMessage = msg.infoMessage;
+        state.errorMessage = msg.errorMessage;
         // backend jest źródłem prawdy dla frazy wyszukiwania - wpisana fraza i liczby wierszy zawsze odzwierciedlają to, co faktycznie wysłał
-        State.getInstance().searchQuery = typeof msg.searchQuery === 'string' ? msg.searchQuery : '';
+        state.searchQuery = typeof msg.searchQuery === 'string' ? msg.searchQuery : '';
         // backend jest źródłem prawdy też dla sortowania - strzałki w nagłówku zawsze odzwierciedlają to, co faktycznie wysłał
-        State.getInstance().sortCriteria = Array.isArray(msg.sortCriteria) ? msg.sortCriteria : [];
-        State.getInstance().totalRows = msg.totalRows ?? 0;
-        State.getInstance().totalRowsUnfiltered = msg.totalRowsUnfiltered ?? msg.totalRows ?? 0;
-        updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
-        updateInfoMessage(State.getInstance().infoMessage);
-        updateErrorMessage(State.getInstance().errorMessage);
-        updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
+        state.sortCriteria = Array.isArray(msg.sortCriteria) ? msg.sortCriteria : [];
+        state.totalRows = msg.totalRows ?? 0;
+        state.totalRowsUnfiltered = msg.totalRowsUnfiltered ?? msg.totalRows ?? 0;
+        updateDbAndTimes(state.connectionName, state.connectionTime, state.queryTime, state.connectionColor, state.isProduction, state.isReadOnly);
+        updateInfoMessage(state.infoMessage);
+        updateErrorMessage(state.errorMessage);
+        updatePagination(state.currentPage, state.totalPages);
         
         if (msg.flashMessage) {showFlashMessage(msg.flashMessage, 4);}
         
         const currentRows = msg.isEncoded ? JSON.parse(decoder.decode(msg.rows)) : msg.rows;
         
-        const shape = `${currentRows.length}x${State.getInstance().headers.join('|')}`;
+        const shape = `${currentRows.length}x${state.headers.join('|')}`;
 
         let isSameQuery = Boolean(msg.isSameQuery);
         let headerFreshlyRendered = false;
 
         if (sqlFile && sqlFile === msg.sqlFile) { // kiedy jest powtórne uruchomienie SQL w tym samym pliku
             // header DOM już jest poprawny (ten sam plik, poprzednie renderHeaders) – przebudowujemy go tylko gdy zmienił się kształt albo nazwy kolumn
-            if (State.getInstance().gridShape !== shape) {
+            if (state.gridShape !== shape) {
                 console.time("⏱️ renderHeaders time");
                 renderHeaders(currentRows);
                 console.timeEnd("⏱️ renderHeaders time");
@@ -240,15 +242,15 @@ window.addEventListener('message', event => {
                 console.time("⏱️ initializeGrid time");
                 initializeGrid(currentRows);
                 console.timeEnd("⏱️ initializeGrid time");
-                State.getInstance().currentRows = undefined;
-                State.getInstance().gridShape = shape;
+                state.currentRows = undefined;
+                state.gridShape = shape;
                 headerFreshlyRendered = true;
 
                 isSameQuery = false;
             }
         } else { // kiedy jest nowe uruchomienie pliku lub zmiana pliku
             // header DOM mógł należeć do innego, poprzednio otwartego pliku – przy korzystaniu z cache tego pliku przywracamy też jego nagłówek z cache
-            if (State.getInstance().gridShape === shape) {
+            if (state.gridShape === shape) {
                 console.time("⏱️ restoreHeaderFromCache time");
                 restoreHeaderFromCache();
                 console.timeEnd("⏱️ restoreHeaderFromCache time");
@@ -261,9 +263,9 @@ window.addEventListener('message', event => {
                 console.timeEnd("⏱️ renderHeaders time");
                 console.time("⏱️ initializeGrid time");
                 initializeGrid(currentRows);
-                State.getInstance().currentRows = undefined;
+                state.currentRows = undefined;
                 console.timeEnd("⏱️ initializeGrid time");
-                State.getInstance().gridShape = shape;
+                state.gridShape = shape;
                 headerFreshlyRendered = true;
             }
             sqlFile = msg.sqlFile;
@@ -282,7 +284,7 @@ window.addEventListener('message', event => {
         console.timeEnd("⏱️ renderPage time");
 
         // dociąga podświetlenie dopasowanego tekstu na właśnie wyrenderowaną stronę (i przywraca frazę/licznik, gdyby to był powrót do innego pliku)
-        if (State.getInstance().searchQuery || State.getInstance().searchHighlightedCells.size > 0) {
+        if (state.searchQuery || state.searchHighlightedCells.size > 0) {
             restoreSearchUI();
         }
         

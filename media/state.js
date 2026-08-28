@@ -51,6 +51,7 @@
 export class State {
     static #instance = null;
     static #globalFiles = new Map();
+    #fileStateRef;
 
     constructor(filename) {
         this.filename = filename;
@@ -92,6 +93,8 @@ export class State {
 
         const fileState = State.#globalFiles.get(this.filename);
         this[this.filename] = fileState;
+        // trzymamy referencję do obiektu z mapy, żeby State.init() mógł wykryć, czy State.clear() go w międzyczasie unieważnił
+        this.#fileStateRef = fileState;
 
         Object.keys(fileState).forEach(key => {
             Object.defineProperty(this, key, {
@@ -111,6 +114,10 @@ export class State {
     static init(filename) {
         if (!filename) {
             throw new Error("A filename is required to initialize.");
+        }
+        // pomijamy przebudowę property descriptorów tylko gdy to ten sam plik I dane w #globalFiles wciąż są tym samym obiektem (nie przeszły przez State.clear())
+        if (State.#instance && State.#instance.filename === filename && State.#instance.#fileStateRef === State.#globalFiles.get(filename)) {
+            return State.#instance;
         }
         State.#instance = new State(filename);
         return State.#instance;
