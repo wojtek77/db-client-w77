@@ -120,6 +120,7 @@ suite('SqlResultsProvider - large result search cancellation', () => {
 
         provider._headers = ['value'];
         provider._allRows = rows;
+        provider._naturalOrderRows = rows;
 
         provider._searchQuery = 'a';
         const firstSearch = provider.applySearchFilter();
@@ -144,10 +145,12 @@ suite('SqlResultsProvider - large result search cancellation', () => {
         const provider = getProvider() as any;
 
         provider._headers = ['value'];
-        provider._allRows = Array.from({ length: 20000 }, (_, i) => ({
+        const rows = Array.from({ length: 20000 }, (_, i) => ({
             key: i,
             data: ['aaaa']
         }));
+        provider._allRows = rows;
+        provider._naturalOrderRows = rows;
         provider._searchQuery = 'a';
 
         const search = provider.applySearchFilter();
@@ -684,7 +687,7 @@ suite('SqlResultsProvider - computeSortKinds (mapowanie field.type z meta na NUM
 
     test('typy numeryczne z NUMERIC_SORT_TYPE_NAMES -> number', () => {
         const provider = getProvider() as any;
-        const meta = ['TINY', 'SHORT', 'LONG', 'INT24', 'BIGINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR']
+        const meta = ['TINY', 'SHORT', 'INT', 'INT24', 'BIGINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR']
             .map((type) => ({ type }));
 
         assert.deepStrictEqual(provider.computeSortKinds(meta), meta.map(() => 'number'));
