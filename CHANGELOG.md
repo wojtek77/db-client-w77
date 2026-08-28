@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.1.28
+
+### Fixed
+- `appendData` in the webview redefined ~26 property descriptors on every
+  message via `Object.defineProperty`, even when the SQL file hadn't
+  changed since the previous message - firing on every page change, sort,
+  and search. `State.init()` now skips the rebuild when both the filename
+  and the underlying per-file state object are unchanged (still correctly
+  rebuilds after `State.clear()`, which invalidates that object). The
+  `appendData` handler also now caches `State.getInstance()` in a local
+  variable instead of calling it 18+ times per message.
+- Search cancellation in `SqlResultsProvider` (`applySearchFilter`) wasn't
+  covered by a real test - the test set `_allRows` instead of
+  `_naturalOrderRows`, which is the field the method actually reads, so
+  the 20k-row scenario never hit the code path meant to yield to the
+  event loop and support cancellation. Test data now sets
+  `_naturalOrderRows` as well.
+
 ## 1.1.27
 
 ### Changed
