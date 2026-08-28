@@ -51,13 +51,11 @@
 export class State {
     static #instance = null;
     static #globalFiles = new Map();
-    #fileStateRef;
 
     constructor(filename) {
-        this.filename = filename;
-
-        if (!State.#globalFiles.has(this.filename)) {
-            State.#globalFiles.set(this.filename, {
+        if (!State.#globalFiles.has(filename)) {
+            State.#globalFiles.set(filename, {
+                filename,
                 currentRows: [],
                 headers: [],
                 columnTypes: [],
@@ -91,19 +89,9 @@ export class State {
             });
         }
 
-        const fileState = State.#globalFiles.get(this.filename);
-        this[this.filename] = fileState;
-        // trzymamy referencję do obiektu z mapy, żeby State.init() mógł wykryć, czy State.clear() go w międzyczasie unieważnił
-        this.#fileStateRef = fileState;
-
-        Object.keys(fileState).forEach(key => {
-            Object.defineProperty(this, key, {
-                get: () => fileState[key],
-                set: (value) => { fileState[key] = value; },
-                enumerable: true,
-                configurable: true
-            });
-        });
+        const fileState = State.#globalFiles.get(filename);
+        // zwracamy z konstruktora sam obiekt z mapy zamiast owijać go w defineProperty/gettery - dzięki temu każdy odczyt/zapis pola to zwykły property access na jednym obiekcie, bez warstwy pośredniej i bez pętli po kluczach przy każdym przełączeniu pliku
+        return Object.setPrototypeOf(fileState, State.prototype);
     }
 
     /**
@@ -115,8 +103,8 @@ export class State {
         if (!filename) {
             throw new Error("A filename is required to initialize.");
         }
-        // pomijamy przebudowę property descriptorów tylko gdy to ten sam plik I dane w #globalFiles wciąż są tym samym obiektem (nie przeszły przez State.clear())
-        if (State.#instance && State.#instance.filename === filename && State.#instance.#fileStateRef === State.#globalFiles.get(filename)) {
+        // pomijamy tworzenie nowej instancji tylko gdy to ten sam plik I wciąż ten sam obiekt w #globalFiles (nie przeszedł przez State.clear())
+        if (State.#instance && State.#instance.filename === filename && State.#instance === State.#globalFiles.get(filename)) {
             return State.#instance;
         }
         State.#instance = new State(filename);
