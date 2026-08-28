@@ -90,6 +90,8 @@ html, body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0; /* bez tego flex item nie chce się skurczyć poniżej długości tekstu i ellipsis nie działa */
+    flex-shrink: 1;
 }
 
 /* kontener strzałki (+ spinnera) sortowania - osobny flex item, żeby header-cell nadal miał tylko 2 dzieci dla justify-content: space-between */
@@ -98,6 +100,16 @@ html, body {
     align-items: center;
     gap: 2px;
     flex-shrink: 0;
+    max-width: 0; /* domyślnie zwinięty, żeby header-label mógł zająć całą szerokość nagłówka */
+    overflow: hidden;
+    transition: max-width 0.12s ease;
+}
+
+/* rozwija wrap na hover nagłówka, gdy ta kolumna jest aktywnie posortowana, albo gdy kręci się spinner - w każdym z tych przypadków header-label się skróci i dostanie ellipsis */
+.header-cell:hover .sort-indicator-wrap,
+.sort-indicator-wrap:has(.sort-active),
+.sort-indicator-wrap:has(.sort-spinner.visible) {
+    max-width: 50px; /* z zapasem na priorytet wielokolumnowy typu "▼12" + spinner obok */
 }
 
 /* strzałka sortowania - domyślnie niewidoczna, delikatna po najechaniu na nagłówek, w pełni widoczna gdy ta kolumna jest aktywnie posortowana. Szerokość liczona z zapasem na numer priorytetu (np. "▼2") przy sortowaniu wielokolumnowym. Powiększona o 50% (10px->15px, 16px->24px) i z paddingiem 2px, żeby łatwiej było trafić myszką */
