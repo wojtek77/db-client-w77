@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.29
+
+### Changed
+- `State`'s constructor redefined ~25 property descriptors via
+  `Object.defineProperty` on every `new State()` call, wrapping each
+  field in a closure-based getter/setter over the shared per-file
+  object - paid on every file switch that wasn't a cache hit. The
+  constructor now returns the per-file object directly (with
+  `Object.setPrototypeOf` to keep `State.prototype`), so field access
+  is a plain property lookup instead of going through getters/setters,
+  and switching files no longer rebuilds any descriptors at all.
+  `init()`'s cache-hit check now compares `State.#instance` directly
+  against the object in `#globalFiles` instead of the removed
+  `#fileStateRef` field. No change in behavior or public API.
+
 ## 1.1.28
 
 ### Fixed
