@@ -9,8 +9,8 @@ export function openRecentFiles() {
 
 // export do CSV
 export function exportToCSV() {
-    // currentRows to teraz {key, data}[] (patrz JSDoc State.currentRows) - backend i tak ignoruje ten payload (czyta własne _allRows), ale wysyłamy poprawny kształt
-    const rows = State.getInstance().currentRows?.map((entry) => entry.data);
+    // currentRows to teraz wprost any[][] (patrz JSDoc State.currentRows) - backend i tak ignoruje ten payload (czyta własne _allRows), ale wysyłamy poprawny kształt
+    const rows = State.getInstance().currentRows;
     const headers = State.getInstance().headers;
     
     if (!rows || rows.length === 0) {return;}
@@ -26,8 +26,8 @@ export function exportToCSV() {
 
 // export do TXT (format tabelaryczny)
 export function exportToTXT() {
-    // currentRows to teraz {key, data}[] (patrz JSDoc State.currentRows) - backend i tak ignoruje ten payload (czyta własne _allRows), ale wysyłamy poprawny kształt
-    const rows = State.getInstance().currentRows?.map((entry) => entry.data);
+    // currentRows to teraz wprost any[][] (patrz JSDoc State.currentRows) - backend i tak ignoruje ten payload (czyta własne _allRows), ale wysyłamy poprawny kształt
+    const rows = State.getInstance().currentRows;
     const headers = State.getInstance().headers;
     
     if (!rows || rows.length === 0) {return;}

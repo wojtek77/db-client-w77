@@ -1,11 +1,13 @@
 /**
  * @typedef {Object} FileState
  * @property {string} filename - Nazwa aktualnie załadowanego pliku.
- * @property {Array<{key: number, data: Array}>} currentRows - Ostatnio wyrenderowane wiersze bieżącej
- *   strony. Każdy wpis to {key, data}: key to stabilny identyfikator wiersza z backendu (patrz RowEntry.key
- *   w SqlResultsProvider.ts, page-relative index = pozycja w tej tablicy), data to jego wartości kolumn.
- *   Trzymane razem (nie jako dwie równoległe tablice), żeby nie było dwóch struktur do zsynchronizowania.
- *   Wysyłany z powrotem do backendu przy edycji/usuwaniu, żeby backend nie musiał przeliczać page-relative -> global.
+ * @property {Array<Array>} currentRows - Ostatnio wyrenderowane wiersze bieżącej strony, same surowe dane kolumn (bez identyfikatora wiersza).
+ * @property {Array<number>} currentRowKeys - Indeksy do backendowej this._allRows (patrz SqlResultsProvider.ts), równoległe do currentRows -
+ *   currentRowKeys[i] to backendowy identyfikator wiersza currentRows[i]. Osobna tablica (nie {key,data}[] jak dawniej), bo indeksowanie
+ *   samych danych w gorących ścieżkach (renderPage, highlightMatchesOnCurrentPage) nie musi wtedy przechodzić przez .data.
+ *   Wysyłane z powrotem do backendu przy edycji/usuwaniu, żeby backend nie musiał przeliczać page-relative -> global.
+ * @property {Map<number, number>|undefined} currentRowKeyToIndex - odwrotność currentRowKeys (rowKey -> page-relative rowIndex),
+ *   budowana raz na stronę w renderPage - O(1) zamiast liniowego przeszukiwania przy każdym rowKey z podglądu edycji (patrz applyCellGroupPreview/clearCellGroupPreview w tableRenderer.js i collectSelectedRowKeys w editor.js)
  * @property {Array<string>} headers - Tablica z nagłówkami kolumn.
  * @property {Array<string>} columnTypes - Typy danych kolumn (np. 'varchar', 'text'), równoległe do headers.
  * @property {number} currentPage - Numer aktualnej strony.
@@ -57,6 +59,8 @@ export class State {
             State.#globalFiles.set(filename, {
                 filename,
                 currentRows: [],
+                currentRowKeys: [],
+                currentRowKeyToIndex: undefined,
                 headers: [],
                 columnTypes: [],
                 currentPage: 1,

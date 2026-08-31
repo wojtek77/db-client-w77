@@ -260,7 +260,7 @@ export function clearColumnPreview(columnIndex) {
             // nie nadpisuj komórki, która akurat jest w trakcie edycji (ma input/textarea)
             if (cell.querySelector('input, textarea')) {return;}
 
-            const rowData = currentRows ? currentRows[i]?.data : undefined;
+            const rowData = currentRows ? currentRows[i] : undefined;
             cell.textContent = rowData ? (rowData[columnIndex] ?? 'NULL') : '';
         });
     }
@@ -277,13 +277,13 @@ export function clearColumnPreview(columnIndex) {
  */
 export function applyCellGroupPreview(positions, value) {
     const rows = State.getInstance().cachedGrid;
-    const currentRows = State.getInstance().currentRows;
-    if (!rows || !currentRows) {return;}
+    const keyToIndex = State.getInstance().currentRowKeyToIndex;
+    if (!rows || !keyToIndex) {return;}
 
     positions.forEach((key) => {
         const [rowKey, colIndex] = key.split('-').map(Number);
-        const rowIndex = currentRows.findIndex(entry => entry?.key === rowKey);
-        if (rowIndex === -1) {return;}
+        const rowIndex = keyToIndex.get(rowKey);
+        if (rowIndex === undefined) {return;}
         const cell = rows[rowIndex]?.[colIndex + 1];
         if (!cell) {return;}
         cell.textContent = value;
@@ -299,12 +299,13 @@ export function applyCellGroupPreview(positions, value) {
 export function clearCellGroupPreview(positions) {
     const rows = State.getInstance().cachedGrid;
     const currentRows = State.getInstance().currentRows;
-    if (!rows || !currentRows) {return;}
+    const keyToIndex = State.getInstance().currentRowKeyToIndex;
+    if (!rows || !currentRows || !keyToIndex) {return;}
 
     positions.forEach((key) => {
         const [rowKey, colIndex] = key.split('-').map(Number);
-        const rowIndex = currentRows.findIndex(entry => entry?.key === rowKey);
-        if (rowIndex === -1) {return;}
+        const rowIndex = keyToIndex.get(rowKey);
+        if (rowIndex === undefined) {return;}
         const cell = rows[rowIndex]?.[colIndex + 1];
         if (!cell) {return;}
 
@@ -313,7 +314,7 @@ export function clearCellGroupPreview(positions) {
         // nie nadpisuj komórki, która akurat jest w trakcie edycji (ma input/textarea)
         if (cell.querySelector('input, textarea')) {return;}
 
-        const rowData = currentRows[rowIndex]?.data;
+        const rowData = currentRows[rowIndex];
         cell.textContent = rowData ? (rowData[colIndex] ?? 'NULL') : '';
     });
 }
@@ -337,39 +338,41 @@ function rowsEqual(rowA, rowB, headerCount) {
 }
 
 /**
- * Renderuje stronę wyników. entries to tablica wpisów {key, data} (patrz RowEntry
- * w SqlResultsProvider.ts) - key to stabilny identyfikator wiersza z backendu, data
- * to jego wartości kolumn. Trzymamy je razem (zamiast osobnych currentRows/currentRowKeys),
- * żeby nie było dwóch struktur, które muszą się zgadzać co do kolejności/długości.
- * @param {Array<{key: number, data: Array}>} entries
+ * Renderuje stronę wyników. rows to surowe dane wierszy (any[][]), rowKeys to równoległa tablica
+ * backendowych identyfikatorów (indeksów do this._allRows w SqlResultsProvider.ts) - rowKeys[i]
+ * odpowiada rows[i]. Dwie osobne tablice zamiast dawnego {key, data}[], bo renderowanie samych
+ * danych nie musi wtedy przechodzić przez .data w gorącej pętli.
+ * @param {Array<Array>} rows
+ * @param {Array<number>} rowKeys
  */
-export function renderPage(entries) {
+export function renderPage(rows, rowKeys) {
     const headers = State.getInstance().headers;
-    const rows = State.getInstance().cachedGrid;
-    const dataCount = entries.length;
+    const gridRows = State.getInstance().cachedGrid;
+    const dataCount = rows.length;
     const headerCount = headers.length;
-    const lastEntries = State.getInstance().currentRows;
+    const lastRows = State.getInstance().currentRows;
 
     for (let i = 0; i < dataCount; ++i) {
-        const lastData = lastEntries ? lastEntries[i]?.data : undefined;
-        if (lastData && rowsEqual(lastData, entries[i].data, headerCount)) {
+        const lastData = lastRows ? lastRows[i] : undefined;
+        if (lastData && rowsEqual(lastData, rows[i], headerCount)) {
             continue;
         }
-        
-        const rowData = entries[i].data;
-        const rowCells = rows[i];
+
+        const rowData = rows[i];
+        const rowCells = gridRows[i];
 
         for (let j = 0; j < headerCount; ++j) {
-            
+
             const value = rowData[j] ?? 'NULL';
             const cell = rowCells[j + 1];
 
-            // if (cell.textContent !== value) {
-            //     cell.textContent = value;
-            // }
             cell.textContent = value;
         }
     }
-    
-    State.getInstance().currentRows = entries;
+
+    const state = State.getInstance();
+    state.currentRows = rows;
+    state.currentRowKeys = rowKeys;
+    // budowana raz na stronę - O(1) lookup rowKey -> page-relative rowIndex zamiast liniowego przeszukiwania przy każdej pozycji (patrz applyCellGroupPreview/clearCellGroupPreview/collectSelectedRowKeys)
+    state.currentRowKeyToIndex = new Map(rowKeys.map((key, i) => [key, i]));
 }

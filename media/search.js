@@ -141,7 +141,7 @@ function buildHighlightedFragment(text, lowerQuery) {
  * wyszukiwania - czysto kosmetyczne, o TYM, KTÓRE wiersze w ogóle są widoczne, decyduje już
  * backend (filtruje this._allRows przed wysłaniem strony - patrz applySearchFilter), więc tu
  * wystarczy podkreślić, dlaczego dany wiersz się załapał. Surowy tekst bierzemy zawsze z
- * State.currentRows (entry.data), a nie z DOM, żeby nie gubić/dublować oryginalnej wartości
+ * State.currentRows (wprost, bez pośredniej struktury), a nie z DOM, żeby nie gubić/dublować oryginalnej wartości
  * przy kolejnych wywołaniach.
  *
  * Które komórki są aktualnie podświetlone, trzymamy w osobnym kluczu state.searchHighlightedCells,
@@ -169,8 +169,8 @@ export function highlightMatchesOnCurrentPage() {
     const nextMatches = new Set();
 
     rows.forEach((rowCells, i) => {
-        const entry = currentRows[i];
-        if (!entry) {return;}
+        const rowData = currentRows[i];
+        if (!rowData) {return;}
 
         // od indeksu 1, bo indeks 0 to komórka LP, która nigdy nie jest dopasowaniem
         for (let j = 1; j < rowCells.length; j++) {
@@ -184,7 +184,7 @@ export function highlightMatchesOnCurrentPage() {
             // to samo dla niezapisanego podglądu zbiorczej edycji niezależnie zaznaczonych komórek (patrz applyCellGroupPreview w tableRenderer.js)
             if (cell.classList.contains('cell-edit-pending')) {continue;}
 
-            const text = String(entry.data[j - 1] ?? 'NULL');
+            const text = String(rowData[j - 1] ?? 'NULL');
             const isMatch = Boolean(query) && text.toLowerCase().includes(lowerQuery);
 
             if (isMatch) {

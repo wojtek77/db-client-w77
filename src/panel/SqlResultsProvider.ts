@@ -11,30 +11,20 @@ import { TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatSqlValue, normalizeValueForField } from '../sql/formatSqlValue.js';
 import { resolvePrimaryKeyColumns, resolveTableColumns } from '../sql/resolvePrimaryKeyColumns.js';
 
-/** Wiersz wyniku SQL razem ze stabilnym, permanentnym identyfikatorem (key). Klucz jest
- * niezależny od pozycji w tablicy - nigdy nie jest przypisywany ponownie innemu wierszowi,
- * nawet gdy inne wiersze zostaną usunięte (this._allRows.filter() przesuwa pozycje, ale
- * nie dotyka wartości .key). Dzięki temu webview może zawsze zaadresować konkretny wiersz
- * przez jego key, niezależnie od tego, która strona/w jakiej kolejności jest renderowana. */
-interface RowEntry {
-    key: number;
-    data: any[];
-}
-
 /** Pojedyncze kryterium sortowania wielokolumnowego - kolejność w tablicy this._sortCriteria decyduje o priorytecie (pierwszy element = główne sortowanie, kolejne rozstrzygają remisy poprzedniego), dokładnie jak w SQL ORDER BY col1, col2, ... */
 interface SortCriterion {
     columnIndex: number;
     direction: 'asc' | 'desc';
 }
 
-/** Cache jednej kolumny na potrzeby składania dowolnej kombinacji sortowań bez ponownego sortowania - patrz buildColumnSortCache/composeSortOrder. Budowany leniwie (dopiero gdy kolumna pierwszy raz wystąpi w jakimkolwiek kryterium) zawsze na bazie this._naturalOrderRows (nigdy this._allRows, bo to ono może być akurat w dowolnej, złożonej kolejności).
+/** Cache jednej kolumny na potrzeby składania dowolnej kombinacji sortowań bez ponownego sortowania - patrz buildColumnSortCache/composeSortOrder. Budowany leniwie (dopiero gdy kolumna pierwszy raz wystąpi w jakimkolwiek kryterium) zawsze na bazie this._allRows (niezmiennej, jedynej kolejności).
  * CELOWO same typed arrays (Int32Array), nie zagnieżdżone number[][]/Map - dla kolumny o wysokiej kardynalności (np. klucz główny, prawie każda wartość unikalna) number[][] tworzyłby prawie tyle osobnych obiektów Array ile jest wierszy, co dla kilku milionów wierszy kosztuje nawet kilkaset MB na SAMĄ jedną kolumnę (zmierzone), bo każdy obiekt Array ma spory narzut stały niezależnie od tego, ile elementów trzyma. Płaska reprezentacja (CSR - compressed sparse row) tego problemu nie ma niezależnie od kardynalności kolumny. */
 interface ColumnSortCache {
-    // klucze wierszy w jednej płaskiej tablicy, ułożone grupami wg wartości rosnąco (pierwsza grupa = zawsze NULL, może być pusta); wewnątrz grupy klucze rosnąco
+    // indeksy wierszy (pozycje w this._allRows) w jednej płaskiej tablicy, ułożone grupami wg wartości rosnąco (pierwsza grupa = zawsze NULL, może być pusta); wewnątrz grupy indeksy rosnąco
     flatKeysAsc: Int32Array;
     // granice grup we flatKeysAsc - grupa g to flatKeysAsc.subarray(bucketStart[g], bucketStart[g + 1]); length = liczba grup + 1
     bucketStart: Int32Array;
-    // key wiersza -> indeks jego grupy w bucketStart; indeksowane BEZPOŚREDNIO przez key (klucze to zawsze 0..n-1 nadawane sekwencyjnie przy wczytaniu, patrz nextKey w executeQuery), więc zwykła Int32Array zamiast Map - szybciej i bez narzutu pamięciowego struktury haszującej
+    // indeks wiersza -> indeks jego grupy w bucketStart; indeksowane BEZPOŚREDNIO przez indeks (this._allRows nigdy nie traci elementów, więc indeksy to zawsze ciągłe 0..n-1), więc zwykła Int32Array zamiast Map - szybciej i bez narzutu pamięciowego struktury haszującej
     keyToBucket: Int32Array;
 }
 
@@ -42,8 +32,8 @@ interface ColumnSortCache {
 type SortKind = 'number' | 'string' | 'date';
 
 interface FileResultState {
-    // ZAWSZE naturalna kolejność z zapytania SQL (nigdy zapamiętany widok posortowany) - patrz this._naturalOrderRows; po przywróceniu pliku this._allRows jest odtwarzane z tego + sortCriteria przez applySort()
-    rows: RowEntry[];
+    // dane dokładnie w kolejności z zapytania SQL, nigdy nieprzestawiane - patrz this._allRows; po przywróceniu pliku this._sortedOrder jest odtwarzane z tego + sortCriteria przez applySort()
+    rows: any[][];
     headers: string[];
     sql: string;
     meta: any[];
@@ -119,12 +109,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _isProduction = false;
     private _isReadOnly = false;
     private _extensionUri: vscode.Uri;
-    // AKTUALNA kolejność wyświetlania (naturalna, gdy brak sortowania, albo złożona z cache'y kolumn, gdy sortowanie aktywne) - patrz applySort. Wszystko poza applySort/buildColumnSortCache (sendPage, applySearchFilter, edycje...) czyta/pisze do tego pola dokładnie tak jak dotychczas.
-    private _allRows: RowEntry[] = [];
-    // niezmienna (nigdy nie przestawiana) kolejność wierszy z zapytania SQL - JEDYNE źródło, z którego buildColumnSortCache buduje grupy; dzięki temu cache zawsze da się poprawnie zbudować niezależnie od tego, w jakiej kolejności aktualnie jest this._allRows
-    private _naturalOrderRows: RowEntry[] = [];
-    // key -> RowEntry, indeksowane bezpośrednio przez key - budowane RAZ przy każdej zmianie this._naturalOrderRows (patrz rebuildNaturalOrderRowsByKey), a nie przy każdym applySort() - dawniej budowane od nowa przy KAŻDYM kliknięciu sortowania, co dokładało zbędny koszt O(n) do każdej pojedynczej interakcji zamiast tylko do wczytania/zmiany danych
-    private _naturalOrderRowsByKey: RowEntry[] = [];
+    // dane wyniku SQL dokładnie w kolejności, w jakiej przyszły z bazy - NIGDY nieprzestawiane (edycja komórki mutuje wartość w miejscu, ale nie kolejność/skład tablicy); indeks w tej tablicy pełni rolę stabilnego identyfikatora wiersza (dawny "key") używanego przy adresowaniu z webview
+    private _allRows: any[][] = [];
+    // aktualna kolejność WYŚWIETLANIA jako permutacja indeksów do this._allRows (patrz applySort/composeSortOrder) - null = brak sortowania, czyli kolejność naturalna (sama this._allRows)
+    private _sortedOrder: Int32Array | null = null;
     private _headers: string[] = [];
     private _lastQueryTime = 0;
     private _meta: any[] = [];
@@ -138,10 +126,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private readonly ROWS_PER_PAGE = 200;
     // pusty string = brak aktywnego wyszukiwania; niepusty = aktywna fraza (patrz applySearchFilter/performSearch)
     private _searchQuery = '';
-    // podzbiór this._allRows pasujący do _searchQuery, w kolejności wyświetlania; null = brak aktywnego filtra (wtedy sendPage używa całego _allRows).
-    // Trzymamy same RowEntry (z ich .key), nie osobne indeksy - dzięki temu updateCellInDB/deleteRowsInDB/resolveSelectedRows w ogóle nie muszą wiedzieć,
-    // czy filtr jest aktywny: zawsze adresują wiersz przez .key w this._allRows, niezależnie od tego, co jest akurat wyświetlane.
-    private _filteredEntries: RowEntry[] | null = null;
+    // indeksy do this._allRows pasujące do _searchQuery, w kolejności wyświetlania; null = brak aktywnego filtra (wtedy sendPage używa całego this._allRows/this._sortedOrder)
+    private _filteredIndices: number[] | null = null;
     // pusta tablica = brak aktywnego sortowania (this._allRows w naturalnej kolejności z zapytania SQL); patrz applySort/toggleSort/performSort
     private _sortCriteria: SortCriterion[] = [];
     // cache per kolumna używany przez applySort/composeSortOrder do składania dowolnego sortowania bez ponownego sortowania - patrz ColumnSortCache/buildColumnSortCache. Czyszczony bezwarunkowo przy każdym Ctrl+Enter (executeQuery) i przy usuwaniu wierszy; pojedyncza kolumna jest czyszczona osobno przy edycji komórki w tej kolumnie
@@ -457,16 +443,16 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const query = this._searchQuery;
 
         if (!query) {
-            this._filteredEntries = null;
+            this._filteredIndices = null;
             return true;
         }
 
         // wyszukiwanie bez rozróżniania wielkości liter, tak jak filtr w większości narzędzi tabelarycznych
         const needle = query.toLowerCase();
         const columnCount = this._headers.length;
-        // ZAWSZE this._naturalOrderRows, nigdy this._allRows - dzięki temu wyszukiwanie nigdy nie zależy od tego, czy pełny (potencjalnie milionowy) zbiór jest już posortowany, patrz performSort
-        const source = this._naturalOrderRows;
-        const filteredEntries: RowEntry[] = [];
+        // zawsze this._allRows (niezmienne), nigdy przez this._sortedOrder - dzięki temu wyszukiwanie nigdy nie zależy od tego, czy pełny (potencjalnie milionowy) zbiór jest już posortowany, patrz performSort
+        const source = this._allRows;
+        const filteredIndices: number[] = [];
 
         // przetwarzamy rekordy partiami, aby event loop mógł obsłużyć nowe wyszukiwanie
         for (let i = 0; i < source.length; i++) {
@@ -475,15 +461,15 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 return false;
             }
 
-            const entry = source[i];
+            const row = source[i];
 
             for (let j = 0; j < columnCount; j++) {
-                const value = entry.data[j];
+                const value = row[j];
                 // null i undefined są wyświetlane jako NULL, więc wyszukiwanie null powinno je znaleźć
                 const text = (value === null || value === undefined) ? 'NULL' : String(value);
 
                 if (text.toLowerCase().includes(needle)) {
-                    filteredEntries.push(entry);
+                    filteredIndices.push(i);
                     break; // wystarczy jedno trafienie w wierszu
 
                 }
@@ -501,10 +487,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         // przefiltrowany zbiór jest zwykle mały - sortujemy go na żywo (bez cache'a per kolumna), patrz compareRowsBySortCriteria
         if (this._sortCriteria.length > 0) {
-            filteredEntries.sort((a, b) => this.compareRowsBySortCriteria(a, b));
+            filteredIndices.sort((a, b) => this.compareRowsBySortCriteria(a, b));
         }
 
-        this._filteredEntries = filteredEntries;
+        this._filteredIndices = filteredIndices;
         return true;
     }
 
@@ -520,7 +506,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             fileState.searchQuery = this._searchQuery;
         }
 
-        // wyszukiwanie mogło działać z sortowaniem, którego this._allRows jeszcze nie odzwierciedla (performSort pomija applySort przy aktywnym query, patrz tam) - domykamy to tutaj, jednorazowo przy czyszczeniu frazy, zamiast przy każdym kliknięciu sortowania w trakcie wyszukiwania
+        // wyszukiwanie mogło działać z sortowaniem, którego this._sortedOrder jeszcze nie odzwierciedla (performSort pomija applySort przy aktywnym query, patrz tam) - domykamy to tutaj, jednorazowo przy czyszczeniu frazy, zamiast przy każdym kliknięciu sortowania w trakcie wyszukiwania
         if (!this._searchQuery && this._sortCriteria.length > 0) {
             const sortGeneration = ++this._sortGeneration;
             const sorted = await this.applySort(sortGeneration);
@@ -538,34 +524,23 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this.sendPage(1, true, false);
     }
 
-    // przelicza this._naturalOrderRowsByKey - wołane WYŁĄCZNIE przy każdej zmianie this._naturalOrderRows (executeQuery, showResultsForFile, deleteRowsInDB, clearActiveFile), nigdy przy sortowaniu - patrz komentarz przy polu
-    private rebuildNaturalOrderRowsByKey(): void {
-        const rows = this._naturalOrderRows;
-        const maxKey = rows.length > 0 ? rows[rows.length - 1].key : -1;
-        const byKey = new Array<RowEntry>(maxKey + 1);
-        for (const row of rows) {byKey[row.key] = row;}
-        this._naturalOrderRowsByKey = byKey;
-    }
-
     /**
-     * Ustawia this._allRows na aktualnie obowiązującą kolejność wyświetlania. Brak kryteriów -> po prostu this._naturalOrderRows (zero pracy).
-     * Kryteria aktywne -> composeSortOrder składa finalną kolejność kluczy z cache'y per kolumna (patrz buildColumnSortCache), bez żadnego
+     * Ustawia this._sortedOrder na aktualnie obowiązującą permutację indeksów do this._allRows. Brak kryteriów -> null (kolejność naturalna, zero pracy).
+     * Kryteria aktywne -> composeSortOrder składa finalną kolejność indeksów z cache'y per kolumna (patrz buildColumnSortCache), bez żadnego
      * porównawczego sortowania całego zbioru - jedyna "prawdziwa" praca sortująca to (leniwe, per kolumna) budowanie cache'a przy jego
      * pierwszym użyciu; każda kolejna kombinacja kryteriów (w tym każde zwykłe ASC<->DESC) to już tylko przegrupowanie gotowych danych.
+     * this._allRows sam w sobie NIGDY nie jest przestawiany - tylko ta permutacja mówi, w jakiej kolejności go czytać (patrz sendPage).
      */
     private async applySort(generation: number = this._sortGeneration): Promise<boolean> {
-        if (this._naturalOrderRows.length < 2 || this._sortCriteria.length === 0) {
-            this._allRows = this._naturalOrderRows;
+        if (this._allRows.length < 2 || this._sortCriteria.length === 0) {
+            this._sortedOrder = null;
             return generation === this._sortGeneration;
         }
 
         const order = await this.composeSortOrder([...this._sortCriteria], generation);
         if (order === null || generation !== this._sortGeneration) {return false;}
 
-        const keyToRow = this._naturalOrderRowsByKey;
-        const sortedRows = new Array<RowEntry>(order.length);
-        for (let i = 0; i < order.length; i++) {sortedRows[i] = keyToRow[order[i]];}
-        this._allRows = sortedRows;
+        this._sortedOrder = order;
         return true;
     }
 
@@ -640,41 +615,40 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Buduje (leniwie, raz na kolumnę - patrz this._sortColumnCache) grupowanie kluczy wg wartości komórki, rosnąco - dokładnie to samo, co
+     * Buduje (leniwie, raz na kolumnę - patrz this._sortColumnCache) grupowanie indeksów wg wartości komórki, rosnąco - dokładnie to samo, co
      * dawniej liczył jednorazowy radixSortSingleColumn, tylko że wynik (podział na grupy) zostaje zapamiętany zamiast zaraz wyrzucony. ZAWSZE
-     * czyta z this._naturalOrderRows (nigdy this._allRows), dzięki czemu grupy remisowe (ta sama wartość) wychodzą stabilnie w kolejności
-     * rosnącej po key - bo naturalOrderRows samo jest już key-ascending, a radixSortIndices jest stabilny (counting sort per bajt).
+     * czyta z this._allRows (niezmienna, jedyna kolejność), dzięki czemu grupy remisowe (ta sama wartość) wychodzą stabilnie w kolejności
+     * rosnącej po indeksie - bo this._allRows jest z definicji index-ascending, a radixSortIndices jest stabilny (counting sort per bajt).
      */
     private async buildColumnSortCache(columnIndex: number, generation: number): Promise<ColumnSortCache | null> {
-        const rows = this._naturalOrderRows;
+        const rows = this._allRows;
         const length = rows.length;
         const kind: SortKind = this._sortKinds[columnIndex] ?? 'string';
 
         const nullKeys: number[] = [];
-        const valueRows: RowEntry[] = [];
+        const valueIndices: number[] = [];
         for (let i = 0; i < length; i++) {
-            const row = rows[i];
-            const value = row.data[columnIndex];
-            if (value === null || value === undefined) {nullKeys.push(row.key);} else {valueRows.push(row);}
+            const value = rows[i][columnIndex];
+            if (value === null || value === undefined) {nullKeys.push(i);} else {valueIndices.push(i);}
         }
 
-        // flatKeysAsc: grupa NULL na początku (indeks 0 - najmniejsza wartość w SQL ORDER BY), potem realne wartości rosnąco - naturalOrderRows jest już key-ascending, więc nullKeys też, bez dodatkowego sortowania
+        // flatKeysAsc: grupa NULL na początku (indeks 0 - najmniejsza wartość w SQL ORDER BY), potem realne wartości rosnąco - this._allRows jest już index-ascending, więc nullKeys też, bez dodatkowego sortowania
         const flatKeysAsc = new Int32Array(length);
         flatKeysAsc.set(nullKeys, 0);
         // granice grup zbieramy do zwykłej (płaskiej, nie zagnieżdżonej) tablicy liczb podczas budowy, dopiero na końcu zamieniamy na Int32Array - sama liczba grup może być duża dla kolumn wysokiej kardynalności, ale to JEDNA płaska tablica liczb, nie miliony osobnych obiektów Array
         const bucketStarts: number[] = [0, nullKeys.length];
 
-        if (valueRows.length === 1) {
-            flatKeysAsc[nullKeys.length] = valueRows[0].key;
+        if (valueIndices.length === 1) {
+            flatKeysAsc[nullKeys.length] = valueIndices[0];
             bucketStarts.push(nullKeys.length + 1);
-        } else if (valueRows.length > 1) {
+        } else if (valueIndices.length > 1) {
             // 'date' idzie tą samą ścieżką co 'number' (buildNumberWords) - różni się tylko sposobem zamiany wartości komórki na liczbę, patrz resolveNumericValue
             const wordCount = kind === 'string' ? SqlResultsProvider.STRING_RADIX_WORD_COUNT : SqlResultsProvider.NUMBER_RADIX_WORD_COUNT;
             const words = kind === 'string'
-                ? SqlResultsProvider.buildStringPrefixWords(valueRows, columnIndex)
-                : SqlResultsProvider.buildNumberWords(valueRows, columnIndex, kind);
+                ? SqlResultsProvider.buildStringPrefixWords(rows, valueIndices, columnIndex)
+                : SqlResultsProvider.buildNumberWords(rows, valueIndices, columnIndex, kind);
 
-            const sortedIndices = await this.radixSortIndices(words, valueRows.length, wordCount, generation);
+            const sortedIndices = await this.radixSortIndices(words, valueIndices.length, wordCount, generation);
             if (sortedIndices === null) {return null;}
 
             let writePos = nullKeys.length;
@@ -685,21 +659,21 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 if (sameWordGroup) {continue;}
 
                 if (kind === 'string' && i - groupStart > 1) {
-                    // dogrupowanie po pełnej wartości w obrębie identycznego prefiksu - Map (lokalna, ograniczona do rozmiaru TEJ grupy, nie całego zbioru) zachowuje kolejność pierwszego wystąpienia, a ta jest już key-ascending (radix jest stabilny, valueRows key-ascending u źródła)
+                    // dogrupowanie po pełnej wartości w obrębie identycznego prefiksu - Map (lokalna, ograniczona do rozmiaru TEJ grupy, nie całego zbioru) zachowuje kolejność pierwszego wystąpienia, a ta jest już index-ascending (radix jest stabilny, valueIndices index-ascending u źródła)
                     const queues = new Map<string, number[]>();
                     for (let j = groupStart; j < i; j++) {
                         const idx = sortedIndices[j];
-                        const value = valueRows[idx].data[columnIndex] as string;
+                        const value = rows[valueIndices[idx]][columnIndex] as string;
                         let queue = queues.get(value);
                         if (!queue) {queue = []; queues.set(value, queue);}
-                        queue.push(valueRows[idx].key);
+                        queue.push(valueIndices[idx]);
                     }
                     for (const value of [...queues.keys()].sort()) {
                         for (const key of queues.get(value)!) {flatKeysAsc[writePos++] = key;}
                         bucketStarts.push(writePos);
                     }
                 } else {
-                    for (let j = groupStart; j < i; j++) {flatKeysAsc[writePos++] = valueRows[sortedIndices[j]].key;}
+                    for (let j = groupStart; j < i; j++) {flatKeysAsc[writePos++] = valueIndices[sortedIndices[j]];}
                     bucketStarts.push(writePos);
                 }
 
@@ -709,9 +683,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         const bucketStart = Int32Array.from(bucketStarts);
 
-        // key -> indeks grupy, indeksowane bezpośrednio przez key (patrz komentarz przy interfejsie ColumnSortCache) - rozmiar wg NAJWIĘKSZEGO klucza obecnego w zbiorze (nie liczby wierszy!), bo po usunięciu wierszy klucze przestają być ciągłe 0..n-1 (patrz deleteRowsInDB - key nigdy nie jest przenumerowywany)
-        const maxKey = length > 0 ? rows[length - 1].key : -1;
-        const keyToBucket = new Int32Array(maxKey + 1);
+        // indeks wiersza -> indeks grupy, indeksowane bezpośrednio przez indeks (patrz komentarz przy interfejsie ColumnSortCache) - this._allRows nigdy nie traci elementów, więc rozmiar to zawsze po prostu length
+        const keyToBucket = new Int32Array(length);
         for (let b = 0; b < bucketStart.length - 1; b++) {
             for (let p = bucketStart[b]; p < bucketStart[b + 1]; p++) {keyToBucket[flatKeysAsc[p]] = b;}
         }
@@ -742,27 +715,29 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         return av < bv ? -1 : (av > bv ? 1 : 0);
     }
 
-    // komparator wielokolumnowy do sortowania NA ŻYWO this._filteredEntries (patrz resortFilteredEntries/applySearchFilter) - bez cache'a per kolumna, bo przefiltrowany zbiór jest zwykle mały; remis wszystkich kryteriów zwraca 0, a stabilność Array.prototype.sort zachowuje wtedy naturalną (key-ascending) kolejność, dokładnie jak bucketowa ścieżka dla pełnego zbioru
-    private compareRowsBySortCriteria(a: RowEntry, b: RowEntry): number {
+    // komparator wielokolumnowy do sortowania NA ŻYWO this._filteredIndices (patrz resortFilteredEntries/applySearchFilter) - bez cache'a per kolumna, bo przefiltrowany zbiór jest zwykle mały; remis wszystkich kryteriów zwraca 0, a stabilność Array.prototype.sort zachowuje wtedy naturalną (index-ascending) kolejność, dokładnie jak bucketowa ścieżka dla pełnego zbioru
+    private compareRowsBySortCriteria(a: number, b: number): number {
+        const rowA = this._allRows[a];
+        const rowB = this._allRows[b];
         for (const { columnIndex, direction } of this._sortCriteria) {
-            const cmp = SqlResultsProvider.compareCellValues(a.data[columnIndex], b.data[columnIndex], this._sortKinds[columnIndex] ?? 'string');
+            const cmp = SqlResultsProvider.compareCellValues(rowA[columnIndex], rowB[columnIndex], this._sortKinds[columnIndex] ?? 'string');
             if (cmp !== 0) {return direction === 'asc' ? cmp : -cmp;}
         }
         return 0;
     }
 
-    // sortuje this._filteredEntries w miejscu wg aktualnych this._sortCriteria, bez ponownego przeliczania samego wyszukiwania - dopasowania się nie zmieniają, zmienia się tylko ich kolejność, patrz performSort
+    // sortuje this._filteredIndices w miejscu wg aktualnych this._sortCriteria, bez ponownego przeliczania samego wyszukiwania - dopasowania się nie zmieniają, zmienia się tylko ich kolejność, patrz performSort
     private resortFilteredEntries(): void {
-        if (!this._filteredEntries || this._sortCriteria.length === 0) {return;}
-        this._filteredEntries.sort((a, b) => this.compareRowsBySortCriteria(a, b));
+        if (!this._filteredIndices || this._sortCriteria.length === 0) {return;}
+        this._filteredIndices.sort((a, b) => this.compareRowsBySortCriteria(a, b));
     }
 
-    // pakuje wartości liczbowe/datowe kolumny w słowa 32-bitowe (2 słowa = 64-bitowa reprezentacja IEEE-754 double) - gęsta tablica indeksowana wprost pozycją w 'rows' (bez cache, bez indeksowania po row.key)
-    private static buildNumberWords(rows: RowEntry[], columnIndex: number, kind: SortKind): Uint32Array {
-        const length = rows.length;
+    // pakuje wartości liczbowe/datowe kolumny w słowa 32-bitowe (2 słowa = 64-bitowa reprezentacja IEEE-754 double) - gęsta tablica indeksowana wprost pozycją w 'indices' (bez cache)
+    private static buildNumberWords(rows: any[][], indices: number[], columnIndex: number, kind: SortKind): Uint32Array {
+        const length = indices.length;
         const words = new Uint32Array(length * SqlResultsProvider.NUMBER_RADIX_WORD_COUNT);
         for (let i = 0; i < length; i++) {
-            const numericValue = SqlResultsProvider.resolveNumericValue(rows[i].data[columnIndex], kind);
+            const numericValue = SqlResultsProvider.resolveNumericValue(rows[indices[i]][columnIndex], kind);
             const [hi, lo] = SqlResultsProvider.encodeFloat64SortableWords(numericValue);
             words[i * 2] = hi;
             words[i * 2 + 1] = lo;
@@ -787,14 +762,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         return [hi, lo];
     }
 
-    // pakuje pierwsze STRING_RADIX_PREFIX_CHARS znaków (jednostek UTF-16) stringa w słowa 32-bitowe, po 2 znaki na słowo - gęsta tablica indeksowana wprost pozycją w 'rows'
-    private static buildStringPrefixWords(rows: RowEntry[], columnIndex: number): Uint32Array {
-        const length = rows.length;
+    // pakuje pierwsze STRING_RADIX_PREFIX_CHARS znaków (jednostek UTF-16) stringa w słowa 32-bitowe, po 2 znaki na słowo - gęsta tablica indeksowana wprost pozycją w 'indices'
+    private static buildStringPrefixWords(rows: any[][], indices: number[], columnIndex: number): Uint32Array {
+        const length = indices.length;
         const wordCount = SqlResultsProvider.STRING_RADIX_WORD_COUNT;
         const words = new Uint32Array(length * wordCount);
 
         for (let i = 0; i < length; i++) {
-            const raw = rows[i].data[columnIndex];
+            const raw = rows[indices[i]][columnIndex];
             const value = typeof raw === 'string' ? raw : String(raw);
             const offset = i * wordCount;
             for (let w = 0; w < wordCount; w++) {
@@ -940,9 +915,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private sendPage(pageNumber: number, clearSelection = false, isSameQuery = true) {
         if (!this._view) {return;}
 
-        // gdy wyszukiwanie jest aktywne, paginujemy po przefiltrowanym podzbiorze zamiast po całym _allRows
-        const source = this._filteredEntries ?? this._allRows;
-        const totalRows = source.length;
+        // gdy wyszukiwanie jest aktywne, paginujemy po przefiltrowanych indeksach zamiast po całym this._allRows/this._sortedOrder
+        const filtered = this._filteredIndices;
+        const order = this._sortedOrder;
+        const totalRows = filtered ? filtered.length : this._allRows.length;
         const totalPages = Math.max(1, Math.ceil(totalRows / this.ROWS_PER_PAGE));
 
         // pageNumber mogło zostać policzone dla innego (większego) zbioru wierszy niż aktualny - przycinamy, żeby nie wysłać pustej/nieistniejącej strony
@@ -950,11 +926,16 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._currentPage = clampedPage;
 
         const start = (clampedPage - 1) * this.ROWS_PER_PAGE;
-        const end = start + this.ROWS_PER_PAGE;
-        const pageEntries = source.slice(start, end);
-        const pageRows = pageEntries.map((entry) => entry.data);
-        // stabilne identyfikatory wierszy tej strony - webview odsyła je z powrotem przy edycji/usuwaniu zamiast liczyć page-relative -> global offset
-        const rowKeys = pageEntries.map((entry) => entry.key);
+        const end = Math.min(start + this.ROWS_PER_PAGE, totalRows);
+        const pageLength = Math.max(0, end - start);
+        const pageRows = new Array<any[]>(pageLength);
+        // rowKeys to indeksy do this._allRows dla wierszy tej strony - webview odsyła je z powrotem przy edycji/usuwaniu zamiast liczyć page-relative -> global offset
+        const rowKeys = new Array<number>(pageLength);
+        for (let i = 0; i < pageLength; i++) {
+            const globalIndex = filtered ? filtered[start + i] : (order ? order[start + i] : start + i);
+            rowKeys[i] = globalIndex;
+            pageRows[i] = this._allRows[globalIndex];
+        }
         
         // 1. Konwertujemy wiersze na string JSON
         const rowsJsonString = JSON.stringify(pageRows);
@@ -1109,9 +1090,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         try {
             const db = await this.getDbForCurrentFile();
 
-            // rowKey to stabilny identyfikator wiersza (patrz RowEntry) - żadnej arytmetyki z bieżącą stroną, działa niezależnie od tego, co jest aktualnie wyrenderowane
-            const entry = this._allRows.find((r) => r.key === rowKey);
-            const row = entry?.data;
+            // rowKey to indeks w this._allRows - żadnej arytmetyki z bieżącą stroną, działa niezależnie od tego, co jest aktualnie wyrenderowane
+            const row = this._allRows[rowKey];
 
             if (!row) {
                 vscode.window.showErrorMessage(`Row ${rowIndex} not found`);
@@ -1214,12 +1194,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
 
         try {
-            // rowKeys to stabilne identyfikatory (patrz RowEntry) - żadnej arytmetyki z bieżącą stroną
-            const entries = rowKeys
-                .map((key) => this._allRows.find((r) => r.key === key))
-                .filter((entry): entry is RowEntry => entry !== undefined);
-
-            const rows = entries.map((entry) => entry.data);
+            // rowKeys to indeksy w this._allRows - żadnej arytmetyki z bieżącą stroną
+            const rows = rowKeys
+                .map((key) => this._allRows[key])
+                .filter((row): row is any[] => row !== undefined);
 
             if (rows.length === 0) {
                 vscode.window.showErrorMessage('Selected rows not found');
@@ -1387,17 +1365,17 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
 
             // gdy aktywny jest filtr wyszukiwania, bulk-edit dotyczy tylko wierszy, które aktualnie przez niego przechodzą - nie całych wyników SQL
-            const scopedEntries = this._filteredEntries ?? this._allRows;
+            const scopedRows = this._filteredIndices ? this._filteredIndices.map((i) => this._allRows[i]) : this._allRows;
 
-            if (scopedEntries.length === 0) {
+            if (scopedRows.length === 0) {
                 vscode.window.showErrorMessage('No rows matching the current search to update');
                 this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
                 return;
             }
 
-            // ID (wartości PK) wszystkich wierszy objętych operacją (scopedEntries), nie tylko z wyrenderowanej strony – to one wyznaczają zakres UPDATE-u
-            const pkValueTuples = scopedEntries.map(
-                (entry) => primaryKeys.map((pk) => entry.data[pk.index])
+            // ID (wartości PK) wszystkich wierszy objętych operacją (scopedRows), nie tylko z wyrenderowanej strony – to one wyznaczają zakres UPDATE-u
+            const pkValueTuples = scopedRows.map(
+                (row) => primaryKeys.map((pk) => row[pk.index])
             );
 
             // sortujemy ID przed wstawieniem do UPDATE-u, żeby były czytelne w logach SQL
@@ -1435,7 +1413,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 })
                 .join(', ');
 
-            const recordCount = scopedEntries.length;
+            const recordCount = scopedRows.length;
 
             const db = await this.getDbForCurrentFile();
 
@@ -1466,10 +1444,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 throw err;
             }
 
-            // backend jest źródłem prawdy – odzwierciedlamy zmianę tylko w wierszach objętych operacją (scopedEntries), żeby webview pokazał aktualne wartości
+            // backend jest źródłem prawdy – odzwierciedlamy zmianę tylko w wierszach objętych operacją (scopedRows), żeby webview pokazał aktualne wartości
             for (const edit of normalizedEdits) {
-                for (const entry of scopedEntries) {
-                    entry.data[edit.columnIndex] = edit.value;
+                for (const row of scopedRows) {
+                    row[edit.columnIndex] = edit.value;
                 }
                 // wartości w tej kolumnie mogły się zmienić - jej cache grupowania jest nieaktualny (patrz this._sortColumnCache), reszta kolumn zostaje ważna
                 this._sortColumnCache.delete(edit.columnIndex);
@@ -1529,9 +1507,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            // rowKey to stabilny identyfikator wiersza (patrz RowEntry) - mapujemy na realny wiersz w this._allRows, żadnej arytmetyki page-relative -> global
-            const entryByRowKey = new Map(cells.map((cell) => [cell.rowKey, this._allRows.find((r) => r.key === cell.rowKey)]));
-            if ([...entryByRowKey.values()].some((entry) => !entry)) {
+            // rowKey to indeks w this._allRows - żadnej arytmetyki page-relative -> global
+            const rowByRowKey = new Map(cells.map((cell) => [cell.rowKey, this._allRows[cell.rowKey]]));
+            if ([...rowByRowKey.values()].some((row) => !row)) {
                 vscode.window.showErrorMessage('Row not found for one of the selected cells');
                 this._view?.webview.postMessage({ command: 'cellEditsCancelled' });
                 return;
@@ -1577,7 +1555,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 const columnNames = setKey.split('\u0000');
 
                 const pkValueTuples = rowKeys
-                    .map((rowKey) => entryByRowKey.get(rowKey)!.data)
+                    .map((rowKey) => rowByRowKey.get(rowKey)!)
                     .map((row) => primaryKeys.map((pk) => row[pk.index]));
 
                 // sortujemy ID przed wstawieniem do UPDATE-u, żeby były czytelne w logach SQL - tak samo jak w saveColumnEdits
@@ -1635,8 +1613,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             // backend jest źródłem prawdy - odzwierciedlamy zmianę w this._allRows dla wszystkich edytowanych komórek
             for (const cell of cells) {
-                const entry = entryByRowKey.get(cell.rowKey)!;
-                entry.data[cell.columnIndex] = normalizedValueByColumnName.get(cell.columnName);
+                const row = rowByRowKey.get(cell.rowKey)!;
+                row[cell.columnIndex] = normalizedValueByColumnName.get(cell.columnName);
             }
             // wartości w tych kolumnach mogły się zmienić - ich cache grupowania jest nieaktualny (patrz this._sortColumnCache), pozostałe kolumny zostają ważne
             for (const cell of cells) {this._sortColumnCache.delete(cell.columnIndex);}
@@ -1729,12 +1707,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             : `\`${schema}\`.\`${tableName}\``;
     }
 
-    /** Zwraca wiersze (z this._allRows) odpowiadające stabilnym rowKeys z webview - żadnej arytmetyki page-relative -> global (patrz RowEntry). */
+    /** Zwraca wiersze (z this._allRows) odpowiadające rowKeys (indeksom) z webview - żadnej arytmetyki page-relative -> global. */
     private resolveSelectedRows(rowKeys: number[]): any[][] {
         return rowKeys
-            .map((key) => this._allRows.find((r) => r.key === key))
-            .filter((entry): entry is RowEntry => entry !== undefined)
-            .map((entry) => entry.data);
+            .map((key) => this._allRows[key])
+            .filter((row): row is any[] => row !== undefined);
     }
 
     private async generateInsertSQL(rowKeys: number[]) {
@@ -1897,7 +1874,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
      * zapytaniu (patrz previousFileState/isSameQueryAsBefore), więc mutujemy go w miejscu, zwalniając tylko ciężkie pola.
      * CELOWO osobna metoda (nie inline w executeQuery) - poza czytelnością, odseparowanie od dalszej części executeQuery zapobiega dziwnej
      * usterce w analizie przepływu sterowania TypeScript, która przy tych samych przypisaniach zrobionych inline potrafiła błędnie zwęzić
-     * typ this._allRows do "never" kawałek dalej w tej samej funkcji (mimo jawnie zadeklarowanego typu pola RowEntry[]).
+     * typ this._allRows do "never" kawałek dalej w tej samej funkcji (mimo jawnie zadeklarowanego typu pola any[][]).
      */
     private resetStateBeforeQuery(sqlFile: string): void {
         this._sortCriteria = [];
@@ -1905,9 +1882,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._sortGeneration++;
 
         this._allRows = [];
-        this._naturalOrderRows = [];
-        this._naturalOrderRowsByKey = [];
-        this._filteredEntries = null;
+        this._sortedOrder = null;
+        this._filteredIndices = null;
         this._searchGeneration++; // unieważnia ewentualne wciąż trwające applySearchFilter liczone na starych danych
 
         const existingFileState = this._fileStates.get(sqlFile);
@@ -1983,11 +1959,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const previousFileState = this._fileStates.get(sqlFile);
         const isSameQueryAsBefore = previousFileState?.sql === sql;
         
-        // każdy wiersz dostaje stabilny, permanentny key (0, 1, 2...) niezależny od pozycji w tablicy - patrz RowEntry
-        let nextKey = 0;
-        this._naturalOrderRows = rows.map((data: any[]) => ({ key: nextKey++, data }));
-        this.rebuildNaturalOrderRowsByKey();
-        this._allRows = this._naturalOrderRows;
+        // dane dokładnie w kolejności z DB - indeks w tablicy pełni rolę stabilnego identyfikatora wiersza, this._allRows nigdy nie jest przestawiane
+        this._allRows = rows;
         this._headers = headers;
         this._lastSQL = sql;
         this._meta = meta;
@@ -2012,7 +1985,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._searchQuery = isSameQueryAsBefore ? (previousFileState?.searchQuery ?? '') : '';
         await this.applySearchFilter();
 
-        const totalRows = this._filteredEntries ? this._filteredEntries.length : this._allRows.length;
+        const totalRows = this._filteredIndices ? this._filteredIndices.length : this._allRows.length;
         const totalPages = Math.max(1, Math.ceil(totalRows / this.ROWS_PER_PAGE));
         if (isSameQueryAsBefore) {
             // ten sam SQL co poprzednio -> zostajemy na poprzedniej stronie (przycięte do zakresu, gdyby liczba wierszy się zmieniła)
@@ -2023,7 +1996,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
         
         this._fileStates.set(sqlFile, {
-            rows: this._naturalOrderRows,
+            rows: this._allRows,
             headers: this._headers,
             sql: this._lastSQL,
             meta: this._meta,
@@ -2058,13 +2031,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._searchGeneration++;
         this._currentSqlFile = '';
         this._allRows = [];
-        this._naturalOrderRows = [];
-        this._naturalOrderRowsByKey = [];
+        this._sortedOrder = null;
         this._headers = [];
         this._meta = [];
         this._columnTypes = [];
         this._searchQuery = '';
-        this._filteredEntries = null;
+        this._filteredIndices = null;
         this._sortCriteria = [];
         this._sortColumnCache = new Map();
 
@@ -2096,9 +2068,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
 
         this._currentSqlFile = sqlFile;
-        // state.rows to ZAWSZE naturalna kolejność (patrz FileResultState.rows) - this._allRows odtwarzamy niżej przez applySort(), korzystając z zapamiętanego cache'a kolumn (state.sortColumnCache), więc nawet aktywne sortowanie wraca bez ponownego liczenia
-        this._naturalOrderRows = state.rows;
-        this.rebuildNaturalOrderRowsByKey();
+        // state.rows to ZAWSZE niezmieniona kolejność z DB (patrz FileResultState.rows) - this._sortedOrder odtwarzamy niżej przez applySort(), korzystając z zapamiętanego cache'a kolumn (state.sortColumnCache), więc nawet aktywne sortowanie wraca bez ponownego liczenia
+        this._allRows = state.rows;
         this._headers = state.headers;
         this._lastSQL = state.sql;
         this._meta = state.meta;
@@ -2219,7 +2190,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     
     private async exportToCSV() {
         try {
-            const rows = this._allRows.map((entry) => entry.data); // eksport operuje na surowych danych, key jest szczegółem wewnętrznym backendu
+            const rows = this._allRows;
             const headers = this._headers;
 
             if (rows.length === 0) {
@@ -2268,7 +2239,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     
     private async exportToTXT() {
         try {
-            const rows = this._allRows.map((entry) => entry.data); // eksport operuje na surowych danych, key jest szczegółem wewnętrznym backendu
+            const rows = this._allRows;
             const headers = this._headers;
 
             if (rows.length === 0) {

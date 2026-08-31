@@ -113,14 +113,10 @@ suite('SqlResultsProvider - large result search cancellation', () => {
         const provider = getProvider() as any;
 
         // 20k rekordów gwarantuje oddanie sterowania event loop po pierwszych 10k rekordów
-        const rows = Array.from({ length: 20000 }, (_, i) => ({
-            key: i,
-            data: [i % 2 === 0 ? 'aaa' : 'ddd']
-        }));
+        const rows = Array.from({ length: 20000 }, (_, i) => [i % 2 === 0 ? 'aaa' : 'ddd']);
 
         provider._headers = ['value'];
         provider._allRows = rows;
-        provider._naturalOrderRows = rows;
 
         provider._searchQuery = 'a';
         const firstSearch = provider.applySearchFilter();
@@ -136,21 +132,17 @@ suite('SqlResultsProvider - large result search cancellation', () => {
 
         assert.strictEqual(firstCompleted, false, 'pierwsze wyszukiwanie powinno zostać anulowane');
         assert.strictEqual(secondCompleted, true, 'drugie wyszukiwanie powinno zostać ukończone');
-        assert.ok(provider._filteredEntries.length > 0);
-        assert.ok(provider._filteredEntries.every((entry: any) => entry.data[0].includes('d')));
-        assert.strictEqual(provider._filteredEntries.length, 10000);
+        assert.ok(provider._filteredIndices.length > 0);
+        assert.ok(provider._filteredIndices.every((idx: number) => provider._allRows[idx][0].includes('d')));
+        assert.strictEqual(provider._filteredIndices.length, 10000);
     });
 
     test('clearing the active file cancels the running search', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['value'];
-        const rows = Array.from({ length: 20000 }, (_, i) => ({
-            key: i,
-            data: ['aaaa']
-        }));
+        const rows = Array.from({ length: 20000 }, () => ['aaaa']);
         provider._allRows = rows;
-        provider._naturalOrderRows = rows;
         provider._searchQuery = 'a';
 
         const search = provider.applySearchFilter();
@@ -160,7 +152,7 @@ suite('SqlResultsProvider - large result search cancellation', () => {
 
         assert.strictEqual(completed, false);
         assert.strictEqual(provider._allRows.length, 0);
-        assert.strictEqual(provider._filteredEntries, null);
+        assert.strictEqual(provider._filteredIndices, null);
         assert.strictEqual(provider._searchQuery, '');
     });
 });
@@ -168,110 +160,92 @@ suite('SqlResultsProvider - large result search cancellation', () => {
 suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, patrz buildColumnSortCache/composeSortOrder)', () => {
 
     // provider to singleton dzielony między testami (patrz getProvider) - _sortColumnCache zbudowany przez jeden test PRZEŻYWA do
-    // następnego, więc każdy test musi zacząć od setNaturalOrder(), które go czyści; inaczej test mógłby po cichu użyć cache'a
+    // następnego, więc każdy test musi zacząć od setAllRows(), które go czyści; inaczej test mógłby po cichu użyć cache'a
     // zbudowanego na zupełnie innych danych przez poprzedni test w tym samym pliku.
-    // UWAGA: applySort czyta WEJŚCIE z _naturalOrderRows (nie z _allRows - to jest teraz tylko WYJŚCIE, patrz applySort), a końcowe
-    // odwzorowanie key -> RowEntry czyta z _naturalOrderRowsByKey, więc trzeba je przeliczyć (rebuildNaturalOrderRowsByKey) po każdej
-    // zmianie _naturalOrderRows - dokładnie tak, jak robi to executeQuery/showResultsForFile/deleteRowsInDB w prawdziwym kodzie.
-    function setNaturalOrder(provider: any, rows: any[]) {
-        provider._naturalOrderRows = rows;
-        provider.rebuildNaturalOrderRowsByKey();
+    // UWAGA: applySort czyta WEJŚCIE z _allRows (niezmienna, jedyna kolejność) i zapisuje WYJŚCIE do _sortedOrder - permutacji
+    // indeksów do _allRows, nigdy nie przestawiając samej _allRows - patrz applySort/sendPage w prawdziwym kodzie.
+    function setAllRows(provider: any, rows: any[][]) {
+        provider._allRows = rows;
         provider._sortColumnCache = new Map();
     }
 
-    test('pusta lista kryteriów -> naturalna kolejność z zapytania SQL (rosnąco po key), niezależnie od bieżącej kolejności _allRows', async () => {
+    // aktualna kolejność wyświetlania jako indeksy do provider._allRows - null (_sortedOrder) oznacza kolejność naturalną (samą _allRows)
+    function displayOrder(provider: any): number[] {
+        return provider._sortedOrder ? Array.from(provider._sortedOrder as Int32Array) : provider._allRows.map((_: any, i: number) => i);
+    }
+
+    function sortedRows(provider: any): any[][] {
+        return displayOrder(provider).map((i) => provider._allRows[i]);
+    }
+
+    function sortedValues(provider: any, columnIndex: number): any[] {
+        return sortedRows(provider).map((row) => row[columnIndex]);
+    }
+
+    test('pusta lista kryteriów -> _sortedOrder zostaje null (kolejność wyświetlania to bezpośrednio niezmienna _allRows)', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['value'];
-        // _allRows celowo w INNEJ kolejności niż _naturalOrderRows - applySort z pustymi kryteriami ma zignorować bieżące _allRows
-        // i wrócić do _naturalOrderRows (key-ascending), zgodnie z tym, co ustaliliśmy: _allRows to tylko WYJŚCIE, nigdy źródło prawdy
-        provider._allRows = [
-            { key: 2, data: ['c'] },
-            { key: 1, data: ['b'] },
-            { key: 0, data: ['a'] },
-        ];
-        setNaturalOrder(provider, [
-            { key: 0, data: ['a'] },
-            { key: 1, data: ['b'] },
-            { key: 2, data: ['c'] },
-        ]);
+        setAllRows(provider, [['a'], ['b'], ['c']]);
         provider._sortCriteria = [];
         provider._sortKinds = ['string'];
 
         await provider.applySort();
 
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [0, 1, 2]);
+        assert.strictEqual(provider._sortedOrder, null);
     });
 
     test('jedno kryterium NUMBER rosnąco (radix na Float64) - w tym liczby ujemne i ułamkowe, żeby sprawdzić sztuczkę bitową ze znakiem', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        setNaturalOrder(provider, [
-            { key: 0, data: [30] },
-            { key: 1, data: [-10.5] },
-            { key: 2, data: [20] },
-            { key: 3, data: [0] },
-            { key: 4, data: [-0.001] },
-        ]);
+        setAllRows(provider, [[30], [-10.5], [20], [0], [-0.001]]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider._sortKinds = ['number'];
 
         await provider.applySort();
 
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [-10.5, -0.001, 0, 20, 30]);
+        assert.deepStrictEqual(sortedValues(provider, 0), [-10.5, -0.001, 0, 20, 30]);
     });
 
     test('jedno kryterium NUMBER malejąco', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        setNaturalOrder(provider, [
-            { key: 0, data: [30] },
-            { key: 1, data: [10] },
-            { key: 2, data: [20] },
-        ]);
+        setAllRows(provider, [[30], [10], [20]]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         provider._sortKinds = ['number'];
 
         await provider.applySort();
 
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [30, 20, 10]);
+        assert.deepStrictEqual(sortedValues(provider, 0), [30, 20, 10]);
     });
 
     test('jedno kryterium STRING malejąco - CELOWO zwykły porządek leksykograficzny bez naturalnego sortowania cyfr, więc "item10" < "item2" < "item9"', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        setNaturalOrder(provider, [
-            { key: 0, data: ['item2'] },
-            { key: 1, data: ['item10'] },
-            { key: 2, data: ['item9'] },
-        ]);
+        setAllRows(provider, [['item2'], ['item10'], ['item9']]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         provider._sortKinds = ['string'];
 
         await provider.applySort();
 
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['item9', 'item2', 'item10']);
+        assert.deepStrictEqual(sortedValues(provider, 0), ['item9', 'item2', 'item10']);
     });
 
     test('jedno kryterium STRING - stringi identyczne na pierwszych 8 znakach (ta sama grupa remisowa po radixie, STRING_RADIX_PREFIX_CHARS=8), różniące się dopiero dalej -> pełne porównanie w fallbacku musi je poprawnie rozróżnić', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        setNaturalOrder(provider, [
-            { key: 0, data: ['12345678-zzz'] },
-            { key: 1, data: ['12345678-aaa'] },
-            { key: 2, data: ['12345678-mmm'] },
-        ]);
+        setAllRows(provider, [['12345678-zzz'], ['12345678-aaa'], ['12345678-mmm']]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider._sortKinds = ['string'];
 
         await provider.applySort();
 
         assert.deepStrictEqual(
-            provider._allRows.map((r: any) => r.data[0]),
+            sortedValues(provider, 0),
             ['12345678-aaa', '12345678-mmm', '12345678-zzz']
         );
     });
@@ -280,41 +254,36 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        setNaturalOrder(provider, [
-            { key: 0, data: [null] },
-            { key: 1, data: [5] },
-            { key: 2, data: [null] },
-            { key: 3, data: [1] },
-        ]);
+        setAllRows(provider, [[null], [5], [null], [1]]);
         provider._sortKinds = ['number'];
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         await provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [null, null, 1, 5]);
+        assert.deepStrictEqual(sortedValues(provider, 0), [null, null, 1, 5]);
 
-        // ten sam _naturalOrderRows, druga strona cache'a (patrz composeSortOrder) - nie trzeba nic resetować między wywołaniami
+        // ta sama _allRows, druga strona cache'a (patrz composeSortOrder) - nie trzeba nic resetować między wywołaniami
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         await provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [5, 1, null, null]);
+        assert.deepStrictEqual(sortedValues(provider, 0), [5, 1, null, null]);
     });
 
     test('jedno kryterium DATE kind=date rosnąco - DATETIME z ułamkiem sekundy, zwykły DATE i "zerowy" DATE MySQL (0000-00-00 -> traktowany jako najmniejsza wartość)', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['d'];
-        setNaturalOrder(provider, [
-            { key: 0, data: ['2024-06-15 10:23:45'] },
-            { key: 1, data: ['2024-06-15 10:23:45.500'] },
-            { key: 2, data: ['2023-01-01'] },
-            { key: 3, data: ['0000-00-00'] },
-            { key: 4, data: ['2024-06-15 10:23:44'] },
+        setAllRows(provider, [
+            ['2024-06-15 10:23:45'],
+            ['2024-06-15 10:23:45.500'],
+            ['2023-01-01'],
+            ['0000-00-00'],
+            ['2024-06-15 10:23:44'],
         ]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider._sortKinds = ['date'];
 
         await provider.applySort();
 
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [
+        assert.deepStrictEqual(sortedValues(provider, 0), [
             '0000-00-00',
             '2023-01-01',
             '2024-06-15 10:23:44',
@@ -327,35 +296,30 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         const provider = getProvider() as any;
 
         provider._headers = ['t'];
-        setNaturalOrder(provider, [
-            { key: 0, data: ['12:00:00'] },
-            { key: 1, data: ['-05:30:00'] },
-            { key: 2, data: ['100:00:00'] },
-            { key: 3, data: ['00:00:00'] },
-        ]);
+        setAllRows(provider, [['12:00:00'], ['-05:30:00'], ['100:00:00'], ['00:00:00']]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         provider._sortKinds = ['date'];
 
         await provider.applySort();
 
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['100:00:00', '12:00:00', '00:00:00', '-05:30:00']);
+        assert.deepStrictEqual(sortedValues(provider, 0), ['100:00:00', '12:00:00', '00:00:00', '-05:30:00']);
     });
 
     test('kind=date rozpoznaje "same rok" wiele wierszy z rzędu bez wpadania w wolną ścieżkę stringową - wystarczy że wynik jest poprawnie posortowany', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['d'];
-        setNaturalOrder(provider, [
-            { key: 0, data: ['2024-01-01 00:00:03'] },
-            { key: 1, data: ['2024-01-01 00:00:01'] },
-            { key: 2, data: ['2024-01-01 00:00:02'] },
+        setAllRows(provider, [
+            ['2024-01-01 00:00:03'],
+            ['2024-01-01 00:00:01'],
+            ['2024-01-01 00:00:02'],
         ]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider._sortKinds = ['date'];
 
         await provider.applySort();
 
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [
+        assert.deepStrictEqual(sortedValues(provider, 0), [
             '2024-01-01 00:00:01',
             '2024-01-01 00:00:02',
             '2024-01-01 00:00:03',
@@ -366,31 +330,26 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         const provider = getProvider() as any;
 
         provider._headers = ['d'];
-        setNaturalOrder(provider, [
-            { key: 0, data: [null] },
-            { key: 1, data: ['2024-06-01'] },
-            { key: 2, data: [null] },
-            { key: 3, data: ['2023-01-01'] },
-        ]);
+        setAllRows(provider, [[null], ['2024-06-01'], [null], ['2023-01-01']]);
         provider._sortKinds = ['date'];
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         await provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [null, null, '2023-01-01', '2024-06-01']);
+        assert.deepStrictEqual(sortedValues(provider, 0), [null, null, '2023-01-01', '2024-06-01']);
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         await provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['2024-06-01', '2023-01-01', null, null]);
+        assert.deepStrictEqual(sortedValues(provider, 0), ['2024-06-01', '2023-01-01', null, null]);
     });
 
     test('dwa kryteria z kind=date (Shift+klik, composeSortOrder łączy dwie kolumny) - drugie rozstrzyga remisy pierwszego', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['category', 'created_at'];
-        setNaturalOrder(provider, [
-            { key: 0, data: ['a', '2024-06-02'] },
-            { key: 1, data: ['a', '2024-06-01'] },
-            { key: 2, data: ['b', '2024-01-01'] },
+        setAllRows(provider, [
+            ['a', '2024-06-02'],
+            ['a', '2024-06-01'],
+            ['b', '2024-01-01'],
         ]);
         provider._sortCriteria = [
             { columnIndex: 0, direction: 'asc' },
@@ -400,7 +359,7 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
 
         await provider.applySort();
 
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data), [
+        assert.deepStrictEqual(sortedRows(provider), [
             ['a', '2024-06-01'],
             ['a', '2024-06-02'],
             ['b', '2024-01-01'],
@@ -411,32 +370,27 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        setNaturalOrder(provider, [
-            { key: 0, data: [null] },
-            { key: 1, data: ['b'] },
-            { key: 2, data: [null] },
-            { key: 3, data: ['a'] },
-        ]);
+        setAllRows(provider, [[null], ['b'], [null], ['a']]);
         provider._sortKinds = ['string'];
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         await provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), [null, null, 'a', 'b']);
+        assert.deepStrictEqual(sortedValues(provider, 0), [null, null, 'a', 'b']);
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         await provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), ['b', 'a', null, null]);
+        assert.deepStrictEqual(sortedValues(provider, 0), ['b', 'a', null, null]);
     });
 
     test('dwa kryteria (Shift+klik, composeSortOrder łączy dwie kolumny) - drugie rozstrzyga remisy pierwszego (ORDER BY col0, col1)', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['dept', 'name'];
-        setNaturalOrder(provider, [
-            { key: 0, data: ['sales', 'bob'] },
-            { key: 1, data: ['eng', 'zoe'] },
-            { key: 2, data: ['sales', 'alice'] },
-            { key: 3, data: ['eng', 'amy'] },
+        setAllRows(provider, [
+            ['sales', 'bob'],
+            ['eng', 'zoe'],
+            ['sales', 'alice'],
+            ['eng', 'amy'],
         ]);
         provider._sortCriteria = [
             { columnIndex: 0, direction: 'asc' },
@@ -447,69 +401,54 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         await provider.applySort();
 
         assert.deepStrictEqual(
-            provider._allRows.map((r: any) => r.data),
+            sortedRows(provider),
             [['eng', 'amy'], ['eng', 'zoe'], ['sales', 'alice'], ['sales', 'bob']]
         );
     });
 
-    test('remis na wszystkich kryteriach naraz -> deterministyczny tie-break po key rosnąco, bo _naturalOrderRows jest ZAWSZE key-ascending (gwarancja strukturalna, nie ponowne sortowanie w applySort)', async () => {
+    test('remis na wszystkich kryteriach naraz -> deterministyczny tie-break po indeksie rosnąco, bo _allRows jest ZAWSZE index-ascending (gwarancja strukturalna, nie ponowne sortowanie w applySort)', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['dept'];
-        // UWAGA: w przeciwieństwie do starej wersji tego testu, _naturalOrderRows MUSI tu być podane w kolejności key-ascending -
-        // to jest inwariant, na którym opiera się buildColumnSortCache (patrz komentarz przy tej metodzie) i który w prawdziwym
-        // kodzie jest gwarantowany przez konstrukcję (executeQuery nadaje klucze sekwencyjnie w kolejności wierszy z zapytania).
-        // Determinizm tie-breaku nie pochodzi już z jawnego sortowania po key WEWNĄTRZ applySort (jak w starym radixSortSingleColumn),
-        // tylko z tego, że _naturalOrderRows z definicji nigdy nie jest "poprzestawiane" - patrz cała nasza wcześniejsza dyskusja
-        setNaturalOrder(provider, [
-            { key: 0, data: ['sales'] },
-            { key: 1, data: ['sales'] },
-            { key: 2, data: ['sales'] },
-        ]);
+        setAllRows(provider, [['sales'], ['sales'], ['sales']]);
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         provider._sortKinds = ['string'];
 
         await provider.applySort();
 
-        // wszystkie trzy wiersze remisują na jedynym kryterium ('sales' === 'sales') -> wynik to naturalna (key-ascending) kolejność
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [0, 1, 2]);
+        // wszystkie trzy wiersze remisują na jedynym kryterium ('sales' === 'sales') -> wynik to naturalna (index-ascending) kolejność
+        assert.deepStrictEqual(displayOrder(provider), [0, 1, 2]);
     });
 
     test('DESC z duplikatami wartości NIE odwraca ich wzajemnej kolejności (standard SQL, zweryfikowany w phpMyAdmin) - regresja na wcześniejszą, świadomie inną konwencję', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['n'];
-        // wartości: 10 (key0,key2 - duplikat), 20 (key1,key4 - duplikat), 5 (key3, unikat)
-        setNaturalOrder(provider, [
-            { key: 0, data: [10] },
-            { key: 1, data: [20] },
-            { key: 2, data: [10] },
-            { key: 3, data: [5] },
-            { key: 4, data: [20] },
-        ]);
+        // wartości: 10 (idx0,idx2 - duplikat), 20 (idx1,idx4 - duplikat), 5 (idx3, unikat)
+        setAllRows(provider, [[10], [20], [10], [5], [20]]);
         provider._sortKinds = ['number'];
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
         await provider.applySort();
-        // ASC: 5(key3), 10(key0,key2 - rosnąco po key), 20(key1,key4 - rosnąco po key)
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [3, 0, 2, 1, 4]);
+        // ASC: 5(idx3), 10(idx0,idx2 - rosnąco po indeksie), 20(idx1,idx4 - rosnąco po indeksie)
+        assert.deepStrictEqual(displayOrder(provider), [3, 0, 2, 1, 4]);
 
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         await provider.applySort();
-        // DESC: odwraca się tylko kolejność GRUP wartości (20, potem 10, potem 5) - wewnątrz każdej grupy key0/key2 i key1/key4
-        // zostają w tej samej (rosnącej po key) kolejności co przy ASC, NIE zamieniają się miejscami
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [1, 4, 0, 2, 3]);
+        // DESC: odwraca się tylko kolejność GRUP wartości (20, potem 10, potem 5) - wewnątrz każdej grupy idx0/idx2 i idx1/idx4
+        // zostają w tej samej (rosnącej po indeksie) kolejności co przy ASC, NIE zamieniają się miejscami
+        assert.deepStrictEqual(displayOrder(provider), [1, 4, 0, 2, 3]);
     });
 
     test('sortowanie wielokolumnowe: colA DESC (zmieniane), colB ASC (NIE zmieniane) - colB nie może zostać przypadkiem odwrócone razem z colA', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['colA', 'colB'];
-        setNaturalOrder(provider, [
-            { key: 0, data: ['x', 2] },
-            { key: 1, data: ['y', 1] },
-            { key: 2, data: ['x', 1] },
-            { key: 3, data: ['y', 2] },
+        setAllRows(provider, [
+            ['x', 2],
+            ['y', 1],
+            ['x', 1],
+            ['y', 2],
         ]);
         provider._sortKinds = ['string', 'number'];
 
@@ -519,7 +458,7 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
             { columnIndex: 1, direction: 'asc' },
         ];
         await provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data), [['x', 1], ['x', 2], ['y', 1], ['y', 2]]);
+        assert.deepStrictEqual(sortedRows(provider), [['x', 1], ['x', 2], ['y', 1], ['y', 2]]);
 
         // ORDER BY colA DESC, colB ASC - użytkownik zmienił TYLKO kierunek colA (Shift+klik), colB zostaje ASC
         // naiwne "odwróć całą tablicę ASC" dałoby błędnie [['y',2],['y',1],['x',2],['x',1]] - colB wyszłoby DESC, mimo że nikt go nie ruszał
@@ -528,31 +467,12 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
             { columnIndex: 1, direction: 'asc' },
         ];
         await provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.data), [['y', 1], ['y', 2], ['x', 1], ['x', 2]]);
+        assert.deepStrictEqual(sortedRows(provider), [['y', 1], ['y', 2], ['x', 1], ['x', 2]]);
     });
 
-    test('klucze NIECIĄGŁE (symulacja stanu po usunięciu części wierszy - key nigdy nie jest przenumerowywany) - poprawne grupowanie i brak przekroczenia zakresu w keyToBucket', async () => {
-        const provider = getProvider() as any;
-
-        provider._headers = ['n'];
-        // klucze 2 i 4 "usunięte" - najwyższy obecny klucz (5) jest większy niż liczba wierszy (4), keyToBucket musi być zaalokowany wg klucza, nie wg długości tablicy
-        setNaturalOrder(provider, [
-            { key: 0, data: [30] },
-            { key: 1, data: [10] },
-            { key: 3, data: [20] },
-            { key: 5, data: [10] },
-        ]);
-        provider._sortKinds = ['number'];
-
-        provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
-        await provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [1, 5, 3, 0]);
-
-        provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
-        await provider.applySort();
-        assert.deepStrictEqual(provider._allRows.map((r: any) => r.key), [0, 3, 1, 5]);
-    });
-
+    // uwaga: dawny test "klucze NIECIĄGŁE (symulacja stanu po usunięciu części wierszy)" został usunięty - taki stan jest teraz
+    // strukturalnie niemożliwy: _allRows to zawsze świeża, gęsta tablica 0..n-1 (usunięcie wiersza zawsze wymusza pełny re-run
+    // zapytania, patrz deleteRowsInDB), więc keyToBucket w buildColumnSortCache jest zawsze alokowane wprost wg length
 
     test('stres-test radix vs Array.sort jako źródło prawdy: 5000 losowych liczb (w tym ujemne, ułamkowe) i 5000 losowych stringów o różnej długości', async () => {
         const N = 5000;
@@ -561,15 +481,15 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         {
             const provider = getProvider() as any;
             provider._headers = ['n'];
-            const rows = Array.from({ length: N }, (_, i) => ({ key: i, data: [(Math.random() - 0.5) * 1_000_000] }));
-            setNaturalOrder(provider, rows.slice());
+            const rows = Array.from({ length: N }, () => [(Math.random() - 0.5) * 1_000_000]);
+            setAllRows(provider, rows.slice());
             provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
             provider._sortKinds = ['number'];
 
             await provider.applySort();
 
-            const expected = rows.slice().sort((a, b) => a.data[0] - b.data[0]).map((r) => r.data[0]);
-            assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), expected);
+            const expected = rows.slice().sort((a, b) => a[0] - b[0]).map((r) => r[0]);
+            assert.deepStrictEqual(sortedValues(provider, 0), expected);
         }
 
         // --- STRING ---
@@ -577,15 +497,15 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
             const provider = getProvider() as any;
             provider._headers = ['s'];
             const randomString = () => Math.random().toString(36).slice(2, 2 + Math.ceil(Math.random() * 15));
-            const rows = Array.from({ length: N }, (_, i) => ({ key: i, data: [randomString()] }));
-            setNaturalOrder(provider, rows.slice());
+            const rows = Array.from({ length: N }, () => [randomString()]);
+            setAllRows(provider, rows.slice());
             provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
             provider._sortKinds = ['string'];
 
             await provider.applySort();
 
-            const expected = rows.slice().sort((a, b) => (a.data[0] < b.data[0] ? 1 : a.data[0] > b.data[0] ? -1 : 0)).map((r) => r.data[0]);
-            assert.deepStrictEqual(provider._allRows.map((r: any) => r.data[0]), expected);
+            const expected = rows.slice().sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0)).map((r) => r[0]);
+            assert.deepStrictEqual(sortedValues(provider, 0), expected);
         }
     });
 });

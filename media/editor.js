@@ -167,12 +167,12 @@ function startEditingCell(cell, vscode) {
         // tekst zmieniamy tymczasowo, pełne potwierdzenie (zielony błysk) przyjdzie z bazy danych
         cell.textContent = newValue;
 
-        // rowKey to stabilny identyfikator wiersza z backendu (patrz RowEntry.key) - nim adresujemy wiersz w bazie; rowIndex jedzie tylko po to, żeby backend odesłał go bez zmian w 'updateConfirmed' i dało się namierzyć komórkę do animacji
-        const rowKey = State.getInstance().currentRows?.[rowIndex]?.key;
+        // rowKey to indeks w backendowej this._allRows (patrz SqlResultsProvider.ts) - nim adresujemy wiersz w bazie; rowIndex jedzie tylko po to, żeby backend odesłał go bez zmian w 'updateConfirmed' i dało się namierzyć komórkę do animacji
+        const rowKey = State.getInstance().currentRowKeys?.[rowIndex];
 
         // ta edycja nie ma jawnego cancel/rollback (w odróżnieniu od edycji zbiorczych) - unieważniamy cache renderPage na undefined, żeby przy kolejnym renderPage rowsEqual zawsze wykryło "zmianę" i wymusiło realny re-render, zamiast zaufać staremu cache'owi, gdyby zapis się nie powiódł albo baza po cichu obcięła wartość (np. BIT(1) poza zakresem) - undefined nigdy nie występuje jako prawdziwa wartość z SQL-a (SQL NULL to zawsze null), więc nie koliduje z żadnymi realnymi danymi
         if (State.getInstance().currentRows?.[rowIndex]) {
-            State.getInstance().currentRows[rowIndex].data[colIndex] = undefined;
+            State.getInstance().currentRows[rowIndex][colIndex] = undefined;
         }
 
         vscode.postMessage({
@@ -262,7 +262,7 @@ function startCellGroupEdit(value) {
 
     state.selectedCellPositions.forEach((key) => {
         const [rowIndex, colIndex] = key.split('-').map(Number);
-        const rowKey = state.currentRows?.[rowIndex]?.key;
+        const rowKey = state.currentRowKeys?.[rowIndex];
         if (rowKey !== undefined) {
             positions.add(`${rowKey}-${colIndex}`);
         }
@@ -362,13 +362,13 @@ function initSaveCellEditsButton(vscode) {
         if (!pending) {return;}
 
         const headers = State.getInstance().headers;
-        const currentRows = State.getInstance().currentRows || [];
+        const keyToIndex = State.getInstance().currentRowKeyToIndex;
 
-        // rowKey to stabilny identyfikator wiersza z backendu - rowIndex jest wyliczany tylko dla bieżącej strony
+        // rowKey to indeks w backendowej this._allRows - rowIndex jest wyliczany tylko dla bieżącej strony
         const cells = [...pending.positions].map((key) => {
             const [rowKey, colIndex] = key.split('-').map(Number);
-            const rowIndex = currentRows.findIndex(entry => entry?.key === rowKey);
-            if (rowIndex === -1) {return null;}
+            const rowIndex = keyToIndex?.get(rowKey);
+            if (rowIndex === undefined) {return null;}
             return {
                 rowKey,
                 rowIndex,
@@ -561,14 +561,12 @@ export function hideToolsButtons() {
     });
 }
 
-/* zbiera stabilne identyfikatory (RowEntry.key z backendu) aktualnie zaznaczonych wierszy,
-   posortowane rosnąco wg ich page-relative pozycji (tak samo jak wcześniej zwracał je querySelectorAll) -
-   sortujemy PRZED mapowaniem na klucze, bo klucze same w sobie nie muszą być rosnące (np. po usunięciu wierszy) */
+// zbiera indeksy w backendowej this._allRows (currentRowKeys) aktualnie zaznaczonych wierszy, posortowane rosnąco wg page-relative pozycji, bo same indeksy nie muszą być rosnące po posortowaniu strony
 function collectSelectedRowKeys() {
-    const rows = State.getInstance().currentRows || [];
+    const rowKeys = State.getInstance().currentRowKeys || [];
     return [...State.getInstance().selectedRowIndexes]
         .sort((a, b) => a - b)
-        .map((rowIndex) => rows[rowIndex]?.key)
+        .map((rowIndex) => rowKeys[rowIndex])
         .filter((key) => key !== undefined);
 }
 

@@ -277,10 +277,8 @@ window.addEventListener('message', event => {
         }
         
         console.time("⏱️ renderPage time");
-        // sklejamy surowe dane (currentRows) ze stabilnymi identyfikatorami wierszy (msg.rowKeys) w jedną tablicę {key, data} - patrz RowEntry w SqlResultsProvider.ts i JSDoc State.currentRows
         const rowKeys = Array.isArray(msg.rowKeys) ? msg.rowKeys : [];
-        const rowEntries = currentRows.map((data, i) => ({ key: rowKeys[i], data }));
-        renderPage(rowEntries);
+        renderPage(currentRows, rowKeys);
         console.timeEnd("⏱️ renderPage time");
 
         // dociąga podświetlenie dopasowanego tekstu na właśnie wyrenderowaną stronę (i przywraca frazę/licznik, gdyby to był powrót do innego pliku)

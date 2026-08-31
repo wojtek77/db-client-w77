@@ -90,9 +90,8 @@ export function setupDom() {
  * @param {string} filename - unikalna nazwa "pliku" dla State (każdy test powinien użyć innej,
  *   bo State.#globalFiles trzyma dane per-plik przez cały czas trwania procesu testowego)
  * @param {{headers: string[], columnTypes?: string[], currentRows: Array<Array<any>>, rowKeys?: number[]}} data
- *   rowKeys - stabilne identyfikatory wierszy (RowEntry.key z backendu), równoległe do currentRows;
- *   domyślnie [0, 1, 2, ...] (page-relative index), ale testy weryfikujące tłumaczenie index->key
- *   powinny podać własne, nieciągłe wartości (np. po symulowanym usunięciu wierszy w backendzie)
+ *   rowKeys - indeksy do backendowej this._allRows, równoległe do currentRows; domyślnie [0, 1, 2, ...]
+ *   (page-relative index), ale testy weryfikujące tłumaczenie index->key powinny podać własne, np. z sortowania
  * @returns {State & object} instancja State dla tego pliku
  */
 export function buildGrid(filename, { headers, columnTypes = [], currentRows, rowKeys }) {
@@ -103,13 +102,11 @@ export function buildGrid(filename, { headers, columnTypes = [], currentRows, ro
     renderHeaders(currentRows);
     initializeGrid(currentRows);
 
-    // sklejamy surowe dane + klucze w {key, data}[] - dokładnie tak samo jak messageHandler.js robi to dla prawdziwych wiadomości appendData
     const keys = rowKeys ?? currentRows.map((_, i) => i);
-    const rowEntries = currentRows.map((data, i) => ({ key: keys[i], data }));
 
     // tak samo jak w messageHandler.js: currentRows musi być 'undefined' przed renderPage(), inaczej uzna wiersze za bez zmian i nie wypełni komórek
     state.currentRows = undefined;
-    renderPage(rowEntries);
+    renderPage(currentRows, keys);
 
     return state;
 }
