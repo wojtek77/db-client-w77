@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.2
+
+### Fixed
+- In the recent SQL files list, clicking a checkbox to select an item
+  no longer resets the highlighted position back to the top of the
+  list - the highlight now stays on the item you just checked, so
+  arrow-key navigation continues from there instead of jumping back
+  to the first entry.
+
 ## 1.2.1
 
 ### Changed
