@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0
+
+### Changed
+- Deleting rows now forces a full re-run of the last query instead of
+  patching the local row cache - the grid always reflects a fresh
+  `SELECT` from the database after a delete, staying on the same page,
+  search filter, and sort order.
+
 ## 1.1.29
 
 ### Changed
