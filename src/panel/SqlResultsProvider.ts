@@ -1311,25 +1311,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 throw err;
             }
 
-            // backend jest źródłem prawdy - usuwamy skasowane wiersze z lokalnego cache. Filtrujemy po .key (stabilny, nigdy nie przypisywany ponownie),
-            // nie po pozycji w tablicy - klucze pozostałych wierszy pozostają nietknięte niezależnie od tego, ile wierszy przed nimi zniknęło.
-            // Usuwanie elementów z tablicy zachowuje względną kolejność ocalałych, więc this._allRows zostaje poprawnie posortowane bez ponownego applySort()
-            const deletedKeys = new Set(rowKeys);
-            this._allRows = this._allRows.filter((entry) => !deletedKeys.has(entry.key));
-            this._naturalOrderRows = this._naturalOrderRows.filter((entry) => !deletedKeys.has(entry.key));
-            this.rebuildNaturalOrderRowsByKey();
-            // usunięte klucze wciąż siedziałyby we flatKeysAsc/keyToBucket zbudowanego wcześniej cache'a - najprościej i najbezpieczniej wyczyścić cały cache, odbuduje się leniwie przy następnym sortowaniu
-            this._sortColumnCache = new Map();
-
-            // wiersze zniknęły z this._allRows - przeliczamy filtr wyszukiwania na nowo (sendPage sam przytnie stronę, jeśli trzeba)
-            await this.applySearchFilter();
-
-            this.sendPage(this._currentPage, true);
-
             const displayValues = pkValueTuples.map((tuple) => tuple.join(', ')).join('; ');
             vscode.window.showInformationMessage(
                 `✅ Deleted from ${tableName}: ${displayValues}`
             );
+
+            // zamiast lokalnie filtrować cache, wymuszamy pełny re-run zapytania - re-run tym samym sql/sqlFile zostaje na tej samej stronie/filtrze/sortowaniu
+            await this.executeQuery(this._lastSQL, this._currentSqlFile);
         } catch (err: any) {
             console.error('Delete error:', err);
             vscode.window.showErrorMessage(`❌ Delete error: ${err.message}`);
