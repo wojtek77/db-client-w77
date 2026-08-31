@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.2.1
+
+### Changed
+- Removed the `RowEntry` (`{key, data}`) wrapper backing every SQL
+  result row, on both the backend and in the webview. Since deleting
+  rows now always forces a full re-run of the query (see 1.2.0), row
+  identity and array position could never drift apart in the first
+  place, so a separate `key` field was redundant - the row's index in
+  the (now immutable) results array serves as its identifier instead.
+  Sorting no longer copies the whole result set into a new order;
+  it stores the display order separately as a lightweight index
+  permutation. No behavior change - same sorting, search, editing,
+  and delete semantics as before, just less memory overhead and fewer
+  linear lookups by row key.
+
 ## 1.2.0
 
 ### Changed
