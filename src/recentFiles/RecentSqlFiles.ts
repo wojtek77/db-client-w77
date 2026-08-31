@@ -440,6 +440,13 @@ export class RecentSqlFiles {
             quickPick.activeItems = [quickPick.items[0]]; // domyślnie podświetlony pierwszy element, tak jak dawniej przy pojedynczym wyborze
         }
 
+        // po zaznaczeniu checkboxa (klikiem lub spacją) podświetlenie samo wracało na inną pozycję - tu przenosimy je z powrotem na właśnie zaznaczoną pozycję
+        quickPick.onDidChangeSelection((selectedItems) => {
+            if (selectedItems.length > 0) {
+                quickPick.activeItems = [selectedItems[selectedItems.length - 1]]; // ostatnio zaznaczona pozycja, gdy zaznaczono kilka naraz
+            }
+        });
+
         // obsługa kliknięcia przycisków (nowy plik / filtr połączeń / skrót do aktualnego połączenia / przycinanie listy) - rozpoznajemy przycisk po tooltipie, bo przyciski są tworzone od nowa przy każdym buildButtons()
         quickPick.onDidTriggerButton(async (button) => {
             if (button.tooltip === ADD_FILE_TOOLTIP) {
