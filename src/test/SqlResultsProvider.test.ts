@@ -157,21 +157,22 @@ suite('SqlResultsProvider - large result search cancellation', () => {
     });
 });
 
-suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, patrz buildColumnSortCache/composeSortOrder)', () => {
+suite('SqlResultsProvider - applySort (cache per kolumna + leniwe getSortedPageKeys, patrz buildColumnSortCache/sortPaging.ts/multiColumnSortPaging.ts)', () => {
 
     // provider to singleton dzielony między testami (patrz getProvider) - _sortColumnCache zbudowany przez jeden test PRZEŻYWA do
     // następnego, więc każdy test musi zacząć od setAllRows(), które go czyści; inaczej test mógłby po cichu użyć cache'a
     // zbudowanego na zupełnie innych danych przez poprzedni test w tym samym pliku.
-    // UWAGA: applySort czyta WEJŚCIE z _allRows (niezmienna, jedyna kolejność) i zapisuje WYJŚCIE do _sortedOrder - permutacji
-    // indeksów do _allRows, nigdy nie przestawiając samej _allRows - patrz applySort/sendPage w prawdziwym kodzie.
+    // UWAGA: applySort czyta WEJŚCIE z _allRows (niezmienna, jedyna kolejność) i tylko upewnia się, że cache kolumny najważniejszego
+    // kryterium jest zbudowany - patrz applySort/getSortedPageKeys w prawdziwym kodzie. Nie ma już pełnej, materializowanej permutacji -
+    // displayOrder() niżej woła DOKŁADNIE ten sam leniwy mechanizm, którego realnie używa sendPage per strona, tylko z pageSize = cała tablica.
     function setAllRows(provider: any, rows: any[][]) {
         provider._allRows = rows;
         provider._sortColumnCache = new Map();
     }
 
-    // aktualna kolejność wyświetlania jako indeksy do provider._allRows - null (_sortedOrder) oznacza kolejność naturalną (samą _allRows)
+    // aktualna kolejność wyświetlania jako indeksy do provider._allRows, policzona leniwo (patrz getSortedPageKeys) - brak kryteriów daje naturalną kolejność (samą _allRows), zero pracy
     function displayOrder(provider: any): number[] {
-        return provider._sortedOrder ? Array.from(provider._sortedOrder as Int32Array) : provider._allRows.map((_: any, i: number) => i);
+        return provider.getSortedPageKeys(0, provider._allRows.length);
     }
 
     function sortedRows(provider: any): any[][] {
@@ -182,7 +183,7 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         return sortedRows(provider).map((row) => row[columnIndex]);
     }
 
-    test('pusta lista kryteriów -> _sortedOrder zostaje null (kolejność wyświetlania to bezpośrednio niezmienna _allRows)', async () => {
+    test('pusta lista kryteriów -> kolejność wyświetlania to bezpośrednio niezmienna _allRows (naturalna, index-ascending)', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['value'];
@@ -192,7 +193,7 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
 
         await provider.applySort();
 
-        assert.strictEqual(provider._sortedOrder, null);
+        assert.deepStrictEqual(displayOrder(provider), [0, 1, 2]);
     });
 
     test('jedno kryterium NUMBER rosnąco (radix na Float64) - w tym liczby ujemne i ułamkowe, żeby sprawdzić sztuczkę bitową ze znakiem', async () => {
@@ -261,7 +262,7 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         await provider.applySort();
         assert.deepStrictEqual(sortedValues(provider, 0), [null, null, 1, 5]);
 
-        // ta sama _allRows, druga strona cache'a (patrz composeSortOrder) - nie trzeba nic resetować między wywołaniami
+        // ta sama _allRows, druga strona cache'a (patrz getSortedPageKeys) - nie trzeba nic resetować między wywołaniami
         provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }];
         await provider.applySort();
         assert.deepStrictEqual(sortedValues(provider, 0), [5, 1, null, null]);
@@ -342,7 +343,7 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         assert.deepStrictEqual(sortedValues(provider, 0), ['2024-06-01', '2023-01-01', null, null]);
     });
 
-    test('dwa kryteria z kind=date (Shift+klik, composeSortOrder łączy dwie kolumny) - drugie rozstrzyga remisy pierwszego', async () => {
+    test('dwa kryteria z kind=date (Shift+klik, getMultiColumnPageKeys łączy dwie kolumny) - drugie rozstrzyga remisy pierwszego', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['category', 'created_at'];
@@ -382,7 +383,7 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
         assert.deepStrictEqual(sortedValues(provider, 0), ['b', 'a', null, null]);
     });
 
-    test('dwa kryteria (Shift+klik, composeSortOrder łączy dwie kolumny) - drugie rozstrzyga remisy pierwszego (ORDER BY col0, col1)', async () => {
+    test('dwa kryteria (Shift+klik, getMultiColumnPageKeys łączy dwie kolumny) - drugie rozstrzyga remisy pierwszego (ORDER BY col0, col1)', async () => {
         const provider = getProvider() as any;
 
         provider._headers = ['dept', 'name'];
@@ -472,7 +473,7 @@ suite('SqlResultsProvider - applySort (cache per kolumna + composeSortOrder, pat
 
     // uwaga: dawny test "klucze NIECIĄGŁE (symulacja stanu po usunięciu części wierszy)" został usunięty - taki stan jest teraz
     // strukturalnie niemożliwy: _allRows to zawsze świeża, gęsta tablica 0..n-1 (usunięcie wiersza zawsze wymusza pełny re-run
-    // zapytania, patrz deleteRowsInDB), więc keyToBucket w buildColumnSortCache jest zawsze alokowane wprost wg length
+    // zapytania, patrz deleteRowsInDB), więc buildColumnSortCache zawsze widzi gęsty zakres indeksów 0..n-1
 
     test('stres-test radix vs Array.sort jako źródło prawdy: 5000 losowych liczb (w tym ujemne, ułamkowe) i 5000 losowych stringów o różnej długości', async () => {
         const N = 5000;
