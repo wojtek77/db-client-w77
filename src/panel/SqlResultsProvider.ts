@@ -852,6 +852,14 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 const kind: SortKind = this._sortKinds[columnIndex] ?? 'string';
                 return SqlResultsProvider.compareCellValues(this._allRows[rowA][columnIndex], this._allRows[rowB][columnIndex], kind);
             },
+            // patrz komentarz przy MultiColumnSortContext.getSortKey w multiColumnSortPaging.ts - odczyt RAZ na wiersz zamiast przy każdym porównaniu w Array.sort
+            getSortKey: (row: number, columnIndex: number): number | string | null => {
+                const value = this._allRows[row][columnIndex];
+                if (value === null || value === undefined) {return null;}
+                const kind: SortKind = this._sortKinds[columnIndex] ?? 'string';
+                if (kind === 'string') {return typeof value === 'string' ? value : String(value);}
+                return SqlResultsProvider.resolveNumericValue(value, kind);
+            },
         };
     }
 

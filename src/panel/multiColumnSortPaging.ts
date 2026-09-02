@@ -9,8 +9,16 @@ export interface SortCriterion {
 export interface MultiColumnSortContext {
     // globalny, trwały cache kolumny (poziom 0, sortCriteria[0]) - budowany raz na kolumnę i reużywany między stronami/kombinacjami kryteriów, dokładnie jak przy sortowaniu jednokolumnowym
     getColumnCache(columnIndex: number): ColumnSortCache;
-    // porównanie surowych wartości dwóch wierszy w danej kolumnie - używane TYLKO lokalnie, do doprecyzowania małej/średniej grupy remisowej kolejnym kryterium, nigdy do całego zbioru
+    // porównanie surowych wartości dwóch wierszy w danej kolumnie - jedyna metoda WYMAGANA; używana do wykrywania granic grup remisowych (zawsze) i jako fallback sortowania, gdy getSortKey nie jest dostarczone
     compareCellValues(rowA: number, rowB: number, columnIndex: number): number;
+    /**
+     * OPCJONALNE - surowy, już porównywalny operatorami < > klucz sortujący (liczba/string, null dla SQL NULL) dla jednej komórki.
+     * Gdy dostarczone, buildLocalCache robi "decorate-sort-undecorate": klucz jest odczytywany RAZ na wiersz (O(k)) zamiast przy
+     * KAŻDYM porównaniu wewnątrz Array.sort (czyli ~k*log(k) odczytów przez compareCellValues) - to samo O(k log k) sortowanie,
+     * ale dużo tańsza stała, bo comparator operuje już na gołych liczbach/stringach, nie woła z powrotem do _allRows/context.
+     * Brak tej metody (np. w testach) -> działa dokładnie jak wcześniej, przez compareCellValues, wolniej ale tak samo poprawnie.
+     */
+    getSortKey?(row: number, columnIndex: number): number | string | null;
 }
 
 // jeden odwiedzony blok w oknie strony - grupa remisowa (do ewentualnej rekurencji) albo "goły" fragment bez remisów (już w pełni ustalony, czytany bezpośrednio)
@@ -117,13 +125,28 @@ function walkPageWindowDesc(cache: ColumnSortCache, pageStart: number, pageEnd: 
  * buduje TYMCZASOWY, jednorazowy cache dla podzbioru wierszy (członków jednej grupy remisowej z poziomu wyżej) wg kolejnego kryterium.
  * W odróżnieniu od globalnego cache'a per kolumna (context.getColumnCache) NIE jest nigdzie zapamiętywany - zależy od konkretnej grupy
  * (czyli pośrednio od tego, którą stronę ktoś akurat ogląda), więc trwałe cache'owanie nie miałoby sensu.
- * celowo Array.sort (O(k log k)) niezależnie od rozmiaru grupy - przy wpinaniu do SqlResultsProvider.ts dla bardzo dużych grup (rzadki
- * przypadek: niska kardynalność wcześniejszej kolumny) opłaca się zamiast tego użyć już istniejącego w klasie radix sortu (scoped do
- * samych memberRowIds zamiast całego this._allRows) żeby zejść z O(k log k) do O(k) - tu zostawione jako TODO, nieblokujące poprawności
+ * Sortowanie to nadal O(k log k) (Array.sort), NIE O(k) (lokalny radix) - świadomy kompromis, patrz getSortKey w interfejsie wyżej:
+ * gdy kontekst je dostarcza (tak robi SqlResultsProvider.ts), koszt SAMEGO odczytu wartości spada z O(k log k) do O(k), co w praktyce
+ * jest głównym kosztem przy typowych rozmiarach grup; prawdziwy lokalny radix miałby sens tylko przy bardzo dużych, wielokrotnie
+ * odwiedzanych grupach - zostawione świadomie jako możliwy kolejny krok, nie teraz (patrz rozmowa o kolumnie niskiej kardynalności)
  */
 function buildLocalCache(memberRowIds: number[], columnIndex: number, context: MultiColumnSortContext): ColumnSortCache {
-    // Array.sort jest stabilny (gwarancja ECMAScript 2019+) - remis w compareCellValues zachowuje kolejność z memberRowIds, czyli naturalną kolejność wierszy odziedziczoną z poziomu wyżej
-    const sorted = Int32Array.from([...memberRowIds].sort((a, b) => context.compareCellValues(a, b, columnIndex)));
+    let sorted: Int32Array;
+
+    if (context.getSortKey) {
+        // decorate-sort-undecorate - klucz czytany RAZ na wiersz zamiast przy każdym porównaniu, patrz komentarz przy getSortKey w interfejsie
+        const decorated = memberRowIds.map((row) => ({ row, key: context.getSortKey!(row, columnIndex) }));
+        // Array.sort jest stabilny (gwarancja ECMAScript 2019+) - remis (w tym NULL==NULL) zachowuje kolejność z memberRowIds, czyli naturalną kolejność wierszy odziedziczoną z poziomu wyżej; NULL sortuje się jako najmniejszy, tak jak w SQL ORDER BY
+        decorated.sort((a, b) => {
+            if (a.key === null || b.key === null) {return a.key === b.key ? 0 : (a.key === null ? -1 : 1);}
+            return a.key < b.key ? -1 : (a.key > b.key ? 1 : 0);
+        });
+        sorted = Int32Array.from(decorated, (d) => d.row);
+    } else {
+        // fallback bez getSortKey (np. proste testy jednostkowe) - dokładnie tak jak wcześniej, poprawne, tylko wolniejsze
+        sorted = Int32Array.from([...memberRowIds].sort((a, b) => context.compareCellValues(a, b, columnIndex)));
+    }
+
     const equalRanges = buildEqualRanges(sorted, (posA, posB) => context.compareCellValues(sorted[posA], sorted[posB], columnIndex));
     return { flatKeysAsc: sorted, equalRanges };
 }
