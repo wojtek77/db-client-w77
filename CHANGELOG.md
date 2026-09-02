@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.3
+
+### Changed
+- Sorting large result sets no longer materializes a full permutation
+  of the dataset before slicing out a page. `ColumnSortCache` now
+  stores `equalRanges` (start/end pairs for tie groups only, O(number
+  of tie groups)) instead of `bucketStart` + `keyToBucket` (O(n) each),
+  cutting memory for high-cardinality columns - a 2M-row NULL/near-
+  unique column no longer needs two full-length auxiliary arrays.
+  `sendPage` now computes the exact ~200 row keys a page needs on
+  demand instead of building and caching a full sorted-order array for
+  the whole result set; toggling ASC/DESC on an already-sorted column
+  reuses the same per-column cache and no longer rebuilds a reversed
+  copy of it. Multi-column sorting (Shift+click to add a secondary/
+  tertiary criterion) only keeps a persistent cache for the primary
+  (most significant) column - secondary criteria are resolved lazily,
+  per page, only for the tie groups that page actually touches, rather
+  than sorting the whole dataset by every criterion up front. Tie-group
+  resolution for secondary/tertiary criteria reads each row's sort key
+  once instead of re-reading and re-converting the raw cell value on
+  every comparison inside the sort. No behavior change - same sort
+  order (including NULL and tie-break semantics), search, and paging
+  as before, just significantly less memory and less redundant work
+  on large (2M+ row) result sets, most noticeably on repeated ASC/DESC
+  toggling and multi-column sorting.
+
 ## 1.2.2
 
 ### Fixed
