@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { SqlResultsProvider } from '../panel/SqlResultsProvider.js';
+import { getMultiColumnPageKeys } from '../panel/multiColumnSortPaging.js';
 
 // minimalny fake WebviewView - wystarczający do przetestowania hasOpenPanel/isFocusSqlTab bez uruchamiania prawdziwego panelu
 function makeFakeWebviewView(initialVisible: boolean) {
@@ -645,3 +646,304 @@ suite('SqlResultsProvider - computeSortKinds (mapowanie field.type z meta na NUM
         assert.deepStrictEqual(provider.computeSortKinds([{}, { type: null }]), ['string', 'string']);
     });
 });
+
+suite('SqlResultsProvider - sortowanie wyniku wyszukiwania (applyFilteredPrimarySort + this._filteredPrimaryColumnCache, patrz radixEngine.ts/multiColumnSortPaging.ts)', () => {
+    // UWAGA KLUCZOWA DLA CAŁEJ TEJ SUITY: radixSortIndices yielduje (await setImmediate) PO KAŻDYM z 8 przebiegów bajtowych, NIEZALEŻNIE od
+    // rozmiaru danych - więc nawet garść wierszy wystarczy, żeby applyFilteredPrimarySort() zatrzymało się w połowie budowy cache'a i oddało
+    // sterowanie testowi. Sama applySearchFilter() już NIE sortuje (patrz niżej) - jej jedyne okno wyścigu to faza dopasowywania, przetestowana
+    // wcześniej w suicie "large result search cancellation".
+
+    function setRows(provider: any, values: string[]) {
+        provider._headers = ['value'];
+        provider._allRows = values.map((v) => [v]);
+        provider._sortKinds = ['string'];
+        provider._sortColumnCache = new Map();
+        // provider to singleton dzielony między WSZYSTKIMI testami w tym pliku (patrz komentarz przy getProvider() na górze) - bez tego resetu
+        // zaszłość z poprzedniego testu (np. this._filteredPrimaryColumnCache zbudowany na zupełnie innych danych) psułaby asercje tutaj
+        provider._filteredIndices = null;
+        provider._filteredPrimaryColumnCache = null;
+        provider._searchQuery = '';
+    }
+
+    // odpowiednik displayOrder() z suity applySort wyżej, tylko dla przefiltrowanego podzbioru - dokładnie ta sama leniwa ścieżka, której realnie używa sendPage (patrz buildFilteredSortContext)
+    function filteredDisplayOrder(provider: any): number[] {
+        return getMultiColumnPageKeys(provider._sortCriteria, provider.buildFilteredSortContext(), 0, provider._filteredIndices.length);
+    }
+
+    suite('applySearchFilter - już TYLKO dopasowania, żadnego sortowania (to jest właśnie ta zmiana architektury)', () => {
+        test('this._filteredIndices zostaje w naturalnej (index-ascending) kolejności dopasowań, mimo aktywnych kryteriów sortowania - sortowanie robi wyłącznie applyFilteredPrimarySort/sendPage', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'cherry', 'apple']); // 'a' pasuje do banana(0) i apple(2), NIE do cherry(1)
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'desc' }]; // aktywne, ale applySearchFilter nie powinno go w ogóle dotknąć
+            provider._searchQuery = 'a';
+
+            const completed = await provider.applySearchFilter();
+
+            assert.strictEqual(completed, true);
+            // gdyby applySearchFilter nadal sortowało (stare zachowanie) - przy DESC dostalibyśmy [2, 0] (apple, banana); tu ma zostać naturalny porządek dopasowań
+            assert.deepStrictEqual(provider._filteredIndices, [0, 2], 'naturalna kolejność dopasowań, NIE posortowana');
+            assert.strictEqual(provider._filteredPrimaryColumnCache, null, 'nowe wyniki wyszukiwania unieważniają stary cache kolumny #0 (przeliczy go dopiero applyFilteredPrimarySort)');
+        });
+
+        test('czyszczenie frazy (pusty _searchQuery) czyści this._filteredPrimaryColumnCache WPROST, w tym samym miejscu co this._filteredIndices - nie polegając na tym, że coś inne (np. applyFilteredPrimarySort w performSearch) zrobi to później', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'cherry', 'apple']);
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }]; // aktywne sortowanie - warunek konieczny, żeby cache w ogóle miał sens
+            // symulacja stanu PO poprzednim, zakończonym wyszukiwaniu z aktywnym sortowaniem - zawartość nieistotna, liczy się że NIE JEST null
+            provider._filteredPrimaryColumnCache = { columnIndex: 0, searchGeneration: provider._searchGeneration, cache: { flatKeysAsc: new Int32Array(0), equalRanges: new Int32Array(0) } };
+            provider._searchQuery = ''; // fraza już wyczyszczona (np. użytkownik skasował tekst w polu wyszukiwania)
+
+            // celowo WYŁĄCZNIE applySearchFilter(), bez żadnego kolejnego wywołania (np. applyFilteredPrimarySort) - ta metoda musi sama, od razu, posprzątać po sobie
+            const completed = await provider.applySearchFilter();
+
+            assert.strictEqual(completed, true);
+            assert.strictEqual(provider._filteredIndices, null);
+            assert.strictEqual(provider._filteredPrimaryColumnCache, null, 'nie może zostać stary, teraz już bezsensowny wpis (cache liczony dla NIEISTNIEJĄCEGO już przefiltrowanego podzbioru)');
+        });
+    });
+
+    suite('applyFilteredPrimarySort - reużycie cache między kolejnymi kliknięciami (NAPRAWIONA nieefektywność)', () => {
+        test('drugie kliknięcie (dołożenie kolejnego kryterium) z NIEZMIENIONĄ kolumną #0 i frazą REUŻYWA cache - agency_id nie jest liczony ponownie przy kliknięciu study_id', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'apple', 'grape']);
+            provider._filteredIndices = [0, 1, 2];
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }]; // "kliknięcie agency_id"
+
+            const searchGeneration = provider._searchGeneration;
+            const firstOk = await provider.applyFilteredPrimarySort(provider._sortGeneration, searchGeneration);
+            assert.strictEqual(firstOk, true);
+            const cacheAfterFirstClick = provider._filteredPrimaryColumnCache.cache;
+
+            // "kliknięcie study_id" (Shift+klik) - kolumna #0 (agency_id) i fraza się NIE zmieniają, tylko dochodzi kryterium #2
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }, { columnIndex: 1, direction: 'asc' }];
+            const secondOk = await provider.applyFilteredPrimarySort(provider._sortGeneration, searchGeneration);
+
+            // "kliknięcie study_group_id" - to samo jeszcze raz
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }, { columnIndex: 1, direction: 'asc' }, { columnIndex: 2, direction: 'asc' }];
+            const thirdOk = await provider.applyFilteredPrimarySort(provider._sortGeneration, searchGeneration);
+
+            assert.strictEqual(secondOk, true);
+            assert.strictEqual(thirdOk, true);
+            assert.strictEqual(provider._filteredPrimaryColumnCache.cache, cacheAfterFirstClick, 'ten sam obiekt cache po WSZYSTKICH trzech kliknięciach - radix dla kolumny #0 policzony raz, nie trzy razy');
+        });
+
+        test('zmiana KOLUMNY kryterium #0 (nowy, jedyny klik na inną kolumnę) przelicza cache od nowa', async () => {
+            const provider = getProvider() as any;
+            provider._headers = ['city', 'age'];
+            provider._allRows = [['warszawa', 30], ['krakow', 25], ['warszawa', 20]];
+            provider._sortKinds = ['string', 'number'];
+            provider._sortColumnCache = new Map();
+            provider._filteredIndices = [0, 1, 2];
+            provider._filteredPrimaryColumnCache = null;
+            provider._searchQuery = '';
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+            const searchGeneration = provider._searchGeneration;
+            await provider.applyFilteredPrimarySort(provider._sortGeneration, searchGeneration);
+            assert.strictEqual(provider._filteredPrimaryColumnCache.columnIndex, 0);
+
+            provider._sortGeneration++; // dokładnie to, co performSort robi na starcie każdego kliknięcia
+            provider._sortCriteria = [{ columnIndex: 1, direction: 'asc' }]; // zwykły (nieaddytywny) klik na INNĄ kolumnę
+            await provider.applyFilteredPrimarySort(provider._sortGeneration, searchGeneration);
+
+            assert.strictEqual(provider._filteredPrimaryColumnCache.columnIndex, 1, 'nowa kolumna kryterium #0 - cache musi zostać przeliczony DLA NIEJ');
+        });
+
+        test('nowa fraza wyszukiwania (inna searchGeneration) przelicza cache od nowa, mimo tej samej kolumny', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'apple', 'grape']);
+            provider._filteredIndices = [0, 1, 2];
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+            await provider.applyFilteredPrimarySort(provider._sortGeneration, provider._searchGeneration);
+            const cacheAfterFirstSearch = provider._filteredPrimaryColumnCache.cache;
+
+            provider._searchGeneration++; // nowa fraza
+            provider._filteredIndices = [1, 2]; // inne dopasowania nowej frazy
+            await provider.applyFilteredPrimarySort(provider._sortGeneration, provider._searchGeneration);
+
+            assert.notStrictEqual(provider._filteredPrimaryColumnCache.cache, cacheAfterFirstSearch, 'inna fraza - stary cache (zbudowany dla POPRZEDNIEJ frazy) nie może zostać reużyty');
+        });
+
+        test('brak kryteriów sortowania - this._filteredPrimaryColumnCache zostaje wyczyszczone, sendPage użyje zwykłego slice', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['ccc', 'aaa', 'bbb']);
+            provider._filteredIndices = [0, 1, 2];
+            provider._sortCriteria = [];
+
+            const ok = await provider.applyFilteredPrimarySort(provider._sortGeneration, provider._searchGeneration);
+
+            assert.strictEqual(ok, true);
+            assert.strictEqual(provider._filteredPrimaryColumnCache, null);
+        });
+    });
+
+    suite('applyFilteredPrimarySort - próg uruchomienia radixu (patrz buildColumnSortCache w radixEngine.ts: valueIndices.length === 1 vs > 1)', () => {
+        // liczymy realne wywołania setImmediate (dokładnie ten mechanizm, przez który radixSortIndices oddaje sterowanie event loopowi) zamiast
+        // opierać się na kolejności mikrotasków/makrotasków "na wyczucie" - to jedyny sposób, żeby TWIERDZENIE "radix się uruchomił" było czymś
+        // więcej niż domysłem. Poprzednia wersja tego testu (mutacja generation zaraz po starcie, przed await) była BŁĘDNA - await ZAWSZE odracza
+        // kontynuację o co najmniej jeden mikrotask, więc synchroniczna mutacja i tak zdążyłaby przed powrotem NIEZALEŻNIE od tego, czy w środku
+        // był realny setImmediate - taki test dawałby ok===false w OBU przypadkach (n=1 i n>1), więc w ogóle nic by nie odróżniał.
+        function countSetImmediateCalls(fn: () => Promise<unknown>): Promise<number> {
+            const original = global.setImmediate;
+            let calls = 0;
+            (global as any).setImmediate = (callback: (...cbArgs: any[]) => void, ...args: any[]) => {
+                calls++;
+                return original(callback, ...args);
+            };
+            return fn().then(
+                () => {global.setImmediate = original; return calls;},
+                (err) => {global.setImmediate = original; throw err;},
+            );
+        }
+
+        test('DWA dopasowania - radixSortIndices realnie yielduje: dokładnie 8 wywołań setImmediate (2 słowa x 4 bajty)', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'apple']); // dokładnie 2 dopasowania
+            provider._filteredIndices = [0, 1];
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+            const calls = await countSetImmediateCalls(() => provider.applyFilteredPrimarySort(provider._sortGeneration, provider._searchGeneration));
+
+            assert.strictEqual(calls, 8, 'radix dla kolumny string (2 słowa x 4 bajty) yielduje raz PO KAŻDYM przebiegu bajtowym - patrz radixSortIndices');
+        });
+
+        test('JEDNO dopasowanie - radixSortIndices NIE JEST W OGÓLE WOŁANE: zero wywołań setImmediate', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana']); // dokładnie 1 dopasowanie
+            provider._filteredIndices = [0];
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+            const calls = await countSetImmediateCalls(() => provider.applyFilteredPrimarySort(provider._sortGeneration, provider._searchGeneration));
+
+            assert.strictEqual(calls, 0, 'buildColumnSortCache dla valueIndices.length===1 wpisuje wynik wprost, bez wołania radixSortIndices w ogóle');
+        });
+
+        test('ZERO dopasowań - też zero wywołań setImmediate (flatKeysAsc zostaje pustą tablicą)', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'apple']);
+            provider._filteredIndices = []; // fraza nie dopasowała żadnego wiersza
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+            const calls = await countSetImmediateCalls(() => provider.applyFilteredPrimarySort(provider._sortGeneration, provider._searchGeneration));
+
+            assert.strictEqual(calls, 0);
+        });
+    });
+
+    suite('applyFilteredPrimarySort - wyścigi generation w trakcie budowy cache (radix yielduje - patrz radixEngine.ts)', () => {
+        test('nowa fraza wyszukiwania w trakcie budowy cache anuluje operację - cache nie zostaje zapisany dla już nieaktualnej frazy', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'apple', 'grape']);
+            provider._filteredIndices = [0, 1, 2];
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+            const searchGeneration = provider._searchGeneration;
+            const build = provider.applyFilteredPrimarySort(provider._sortGeneration, searchGeneration); // zawiesza się w środku radixu (8 yieldów)
+
+            // w trakcie budowy cache'a startuje nowe wyszukiwanie - symulacja tego, co (hipotetycznie, równolegle) robi performSearch
+            provider._searchGeneration++;
+            provider._filteredIndices = [0];
+
+            const ok = await build;
+
+            assert.strictEqual(ok, false);
+            assert.strictEqual(provider._filteredPrimaryColumnCache, null);
+        });
+
+        test('kolejne kliknięcie sortowania (nowe sortGeneration) w trakcie budowy cache anuluje operację', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'apple', 'grape']);
+            provider._filteredIndices = [0, 1, 2];
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+            const sortGeneration = provider._sortGeneration;
+            const searchGeneration = provider._searchGeneration;
+            const build = provider.applyFilteredPrimarySort(sortGeneration, searchGeneration); // zawiesza się w środku radixu
+
+            provider._sortGeneration++; // kolejne kliknięcie w trakcie trwania poprzedniego
+
+            const ok = await build;
+
+            assert.strictEqual(ok, false);
+            assert.strictEqual(provider._filteredPrimaryColumnCache, null);
+        });
+
+        test('bez konkurencji: kończy się sukcesem i faktycznie zapisuje cache dla właściwej kolumny', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['ccc', 'aaa', 'bbb']);
+            provider._filteredIndices = [0, 1, 2];
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+            const ok = await provider.applyFilteredPrimarySort(provider._sortGeneration, provider._searchGeneration);
+
+            assert.strictEqual(ok, true);
+            assert.strictEqual(provider._filteredPrimaryColumnCache.columnIndex, 0);
+            assert.strictEqual(provider._filteredPrimaryColumnCache.searchGeneration, provider._searchGeneration);
+        });
+    });
+
+    suite('poprawność wyniku przez pełny, produkcyjny pipeline (applyFilteredPrimarySort + buildFilteredSortContext + getMultiColumnPageKeys)', () => {
+        test('multi-column: radix dla kryterium #1, leniwe domykanie grupy remisowej kryterium #2 - dokładnie wariant C z dyskusji', async () => {
+            const provider = getProvider() as any;
+            provider._headers = ['city', 'age'];
+            provider._allRows = [
+                ['warszawa', 30],
+                ['krakow', 25],
+                ['warszawa', 20],
+                ['krakow', 40],
+            ];
+            provider._sortKinds = ['string', 'number'];
+            provider._sortColumnCache = new Map();
+            provider._filteredPrimaryColumnCache = null;
+            provider._filteredIndices = [0, 1, 2, 3];
+            provider._searchQuery = '';
+            provider._sortCriteria = [
+                { columnIndex: 0, direction: 'asc' },
+                { columnIndex: 1, direction: 'asc' },
+            ];
+
+            const ok = await provider.applyFilteredPrimarySort(provider._sortGeneration, provider._searchGeneration);
+            assert.strictEqual(ok, true);
+
+            assert.deepStrictEqual(
+                filteredDisplayOrder(provider).map((i: number) => provider._allRows[i]),
+                [
+                    ['krakow', 25],
+                    ['krakow', 40],
+                    ['warszawa', 20],
+                    ['warszawa', 30],
+                ]
+            );
+        });
+
+        test('pojedynczy dopasowany wiersz - nie wysypuje się', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['aaa', 'bbb', 'ccc']);
+            provider._filteredIndices = [1];
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+            const ok = await provider.applyFilteredPrimarySort(provider._sortGeneration, provider._searchGeneration);
+
+            assert.strictEqual(ok, true);
+            assert.deepStrictEqual(filteredDisplayOrder(provider), [1]);
+        });
+
+        test('kolumna z NULL-ami w podzbiorze - NULL najmniejszy przy ASC, tak jak w pełnym zbiorze (patrz applySort)', async () => {
+            const provider = getProvider() as any;
+            provider._headers = ['n'];
+            provider._allRows = [[5], [null], [1], [null], [3]];
+            provider._sortKinds = ['number'];
+            provider._sortColumnCache = new Map();
+            provider._filteredPrimaryColumnCache = null;
+            provider._filteredIndices = [0, 1, 2, 3, 4];
+            provider._searchQuery = '';
+            provider._sortCriteria = [{ columnIndex: 0, direction: 'asc' }];
+
+            await provider.applyFilteredPrimarySort(provider._sortGeneration, provider._searchGeneration);
+
+            assert.deepStrictEqual(filteredDisplayOrder(provider).map((i: number) => provider._allRows[i][0]), [null, null, 1, 3, 5]);
+        });
+    });
+});
+

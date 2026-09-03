@@ -12,22 +12,13 @@ import { formatSqlValue, normalizeValueForField } from '../sql/formatSqlValue.js
 import { resolvePrimaryKeyColumns, resolveTableColumns } from '../sql/resolvePrimaryKeyColumns.js';
 import { ColumnSortCache } from './sortPaging.js';
 import { getMultiColumnPageKeys, MultiColumnSortContext } from './multiColumnSortPaging.js';
+import { SortKind, buildColumnSortCache, resolveNumericValue, compareCellValues } from './radixEngine.js';
 
 /** Pojedyncze kryterium sortowania wielokolumnowego - kolejność w tablicy this._sortCriteria decyduje o priorytecie (pierwszy element = główne sortowanie, kolejne rozstrzygają remisy poprzedniego), dokładnie jak w SQL ORDER BY col1, col2, ... */
 interface SortCriterion {
     columnIndex: number;
     direction: 'asc' | 'desc';
 }
-
-/**
- * ColumnSortCache (flatKeysAsc + equalRanges) zaimportowane z sortPaging.ts - patrz komentarz przy interfejsie tam.
- * Budowany leniwie (buildColumnSortCache), ale TYLKO dla kolumny najważniejszego kryterium (this._sortCriteria[0]) - kolejne, mniej istotne
- * kryteria NIE mają globalnego cache'a wcale, bo getMultiColumnPageKeys (patrz multiColumnSortPaging.ts) dogrupowuje je leniwie, lokalnie,
- * tylko dla akurat trafionej strony grupy remisowej, więc trwały cache per kolumna dla nich nie miałby sensu (patrz getSortedPageKeys).
- */
-
-// typ danych kolumny na potrzeby wyboru komparatora sortowania - ustalany WYŁĄCZNIE z metadanych SQL (field.type), patrz computeSortKinds; 'date' to DATE/DATETIME/TIMESTAMP - mimo że wartość przychodzi jako string (dateStrings:true), na potrzeby sortowania jest parsowana na liczbę (patrz parseDateToSortableNumber) i idzie tą samą szybką ścieżką radix co 'number'
-type SortKind = 'number' | 'string' | 'date';
 
 interface FileResultState {
     // dane dokładnie w kolejności z zapytania SQL, nigdy nieprzestawiane - patrz this._allRows; strony po przywróceniu pliku liczone są leniwie z tego + sortCriteria + sortColumnCache (patrz getSortedPageKeys)
@@ -60,18 +51,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private static readonly NUMERIC_SORT_TYPE_NAMES = new Set(['TINY', 'SHORT', 'INT', 'INT24', 'BIGINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR', 'BIT']);
     // nazwy typów z field.type klasyfikowane jako DATE na potrzeby sortowania - wszystkie u nas zawsze stringi (dateStrings:true, patrz Connection.ts), więc idą przez parseDateOrTimeToSortableNumber zamiast wprost przez Number()
     private static readonly DATE_SORT_TYPE_NAMES = new Set(['DATE', 'DATETIME', 'TIMESTAMP', 'TIME']);
-    // dopasowuje 'YYYY-MM-DD' albo 'YYYY-MM-DD HH:MM:SS[.ułamek]' (DATE/DATETIME/TIMESTAMP z dateStrings:true) - patrz parseDateOrTimeToSortableNumber
-    private static readonly DATE_STRING_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?)?$/;
-    // dopasowuje TIME MariaDB/MySQL: opcjonalny minus, godziny 1-3 cyfry (zakres do 838), MM:SS, opcjonalny ułamek sekundy - patrz parseDateOrTimeToSortableNumber
-    private static readonly TIME_STRING_PATTERN = /^(-)?(\d{1,3}):(\d{2}):(\d{2})(?:\.(\d+))?$/;
-    // ile pierwszych znaków (jednostek UTF-16) stringa wchodzi do klucza radix sortu - patrz buildStringPrefixWords/STRING_RADIX_WORD_COUNT; reszta rozstrzygana pełnym porównaniem tylko w obrębie grup o identycznym prefiksie
-    private static readonly STRING_RADIX_PREFIX_CHARS = 4;
-    // 2 znaki UTF-16 (2x16 bit) na słowo 32-bitowe -> STRING_RADIX_PREFIX_CHARS/2 słów na string
-    private static readonly STRING_RADIX_WORD_COUNT = SqlResultsProvider.STRING_RADIX_PREFIX_CHARS / 2;
-    // liczba (JS number/Float64) zajmuje dokładnie 2 słowa 32-bitowe (64-bitowa reprezentacja IEEE-754) - patrz buildNumberWords
-    private static readonly NUMBER_RADIX_WORD_COUNT = 2;
-    // pojedynczy, reużywany bufor do konwersji Float64 -> bity IEEE-754 (uint32 x2) - unikamy alokacji nowego ArrayBuffer/DataView dla każdej porównywanej wartości
-    private static readonly float64Scratch = new DataView(new ArrayBuffer(8));
 
 
     static initialize(
@@ -126,8 +105,16 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _filteredIndices: number[] | null = null;
     // pusta tablica = brak aktywnego sortowania (this._allRows w naturalnej kolejności z zapytania SQL); patrz applySort/toggleSort/performSort
     private _sortCriteria: SortCriterion[] = [];
-    // cache TYLKO dla kolumny najważniejszego kryterium (this._sortCriteria[0]) - patrz komentarz przy ColumnSortCache/buildColumnSortCache. Czyszczony bezwarunkowo przy każdym Ctrl+Enter (executeQuery) i przy usuwaniu wierszy; pojedyncza kolumna jest czyszczona osobno przy edycji komórki w tej kolumnie
+    // cache TYLKO dla kolumny najważniejszego kryterium (this._sortCriteria[0]), TYLKO dla pełnego zbioru (this._allRows) - kolejne, mniej istotne kryteria NIE mają globalnego cache'a wcale, bo getMultiColumnPageKeys (patrz multiColumnSortPaging.ts) dogrupowuje je leniwie, lokalnie, tylko dla akurat trafionej strony grupy remisowej. Odpowiednik dla przefiltrowanego podzbioru przy aktywnym wyszukiwaniu - patrz this._filteredPrimaryColumnCache. Czyszczony bezwarunkowo przy każdym Ctrl+Enter (executeQuery) i przy usuwaniu wierszy; pojedyncza kolumna jest czyszczona osobno przy edycji komórki w tej kolumnie (patrz invalidateColumnSortCache)
     private _sortColumnCache = new Map<number, ColumnSortCache>();
+    /**
+     * Odpowiednik this._sortColumnCache, ale dla this._filteredIndices (aktywne wyszukiwanie) zamiast this._allRows - patrz applyFilteredPrimarySort.
+     * Kluczowany PARĄ (columnIndex, searchGeneration), nie samym columnIndex jak this._sortColumnCache - bo tu "ten sam zbiór danych" oznacza
+     * "tę samą frazę wyszukiwania", a nie po prostu "cały czas ten sam this._allRows". Dzięki temu Shift+klik na drugie/trzecie kryterium
+     * (np. study_id, study_group_id PO agency_id) podczas wyszukiwania NIE przelicza radixu dla agency_id od nowa - dokładnie tak samo jak
+     * przy pełnym zbiorze, gdzie applySort() też liczy kolumnę #0 tylko raz, niezależnie od tego, ile kolejnych kryteriów dojdzie później.
+     */
+    private _filteredPrimaryColumnCache: { columnIndex: number; searchGeneration: number; cache: ColumnSortCache } | null = null;
     private _context?: vscode.ExtensionContext;
     // _viewReady === true oznacza, że skrypt JS w webview się załadował i zarejestrował listener – samo `this._view` tego nie gwarantuje
     private _viewReady = false;
@@ -440,6 +427,9 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         if (!query) {
             this._filteredIndices = null;
+            // this._filteredPrimaryColumnCache POCHODZI z this._filteredIndices - jak znika jedno, musi zniknąć i drugie, tutaj, wprost,
+            // a nie jako efekt uboczny późniejszego applyFilteredPrimarySort() w performSearch (za bardzo niejawna zależność między metodami)
+            this._filteredPrimaryColumnCache = null;
             return true;
         }
 
@@ -481,12 +471,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             return false;
         }
 
-        // przefiltrowany zbiór jest zwykle mały - sortujemy go na żywo (bez cache'a per kolumna), patrz compareRowsBySortCriteria
-        if (this._sortCriteria.length > 0) {
-            filteredIndices.sort((a, b) => this.compareRowsBySortCriteria(a, b));
-        }
-
+        // TYLKO dopasowania - żadnego sortowania tutaj (to zmiana względem wcześniejszej wersji tej metody). Kolejność w ramach this._filteredIndices
+        // jest odtąd nieistotna (naturalna, index-ascending) - o właściwą kolejność stron dba leniwie sendPage/applyFilteredPrimarySort, dokładnie tak
+        // samo jak this._allRows nigdy nie jest fizycznie przestawiane dla pełnego zbioru (patrz applySort). Stary cache kolumny #0 (jeśli jakiś
+        // istniał) dotyczył INNEJ frazy - już nieaktualny, przeliczy go leniwie applyFilteredPrimarySort przy najbliższym sendPage
         this._filteredIndices = filteredIndices;
+        this._filteredPrimaryColumnCache = null;
         return true;
     }
 
@@ -516,6 +506,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             return;
         }
 
+        // przygotowuje (albo reużywa, jeśli akurat nic się nie zmieniło - patrz komentarz przy this._filteredPrimaryColumnCache) cache kolumny #0, zanim sendPage zażąda pierwszej strony
+        if (this._sortCriteria.length > 0) {
+            const searchGeneration = this._searchGeneration;
+            const sorted = await this.applyFilteredPrimarySort(this._sortGeneration, searchGeneration);
+            if (!sorted || searchGeneration !== this._searchGeneration) {return;}
+        }
+
         // nowe wyszukiwanie zawsze wraca na stronę 1 - poprzednia strona mogła nie istnieć w przefiltrowanym zbiorze
         this.sendPage(1, true, false);
     }
@@ -534,7 +531,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         const columnIndex = this._sortCriteria[0].columnIndex;
         if (!this._sortColumnCache.has(columnIndex)) {
-            const built = await this.buildColumnSortCache(columnIndex, generation);
+            const built = await this.buildColumnSortCache(columnIndex, () => generation === this._sortGeneration);
             if (built === null || generation !== this._sortGeneration) {return false;}
             this._sortColumnCache.set(columnIndex, built);
         }
@@ -548,214 +545,67 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
      * czyta z this._allRows (niezmienna, jedyna kolejność), dzięki czemu grupy remisowe (ta sama wartość) wychodzą stabilnie w kolejności
      * rosnącej po indeksie - bo this._allRows jest z definicji index-ascending, a radixSortIndices jest stabilny (counting sort per bajt).
      */
-    private async buildColumnSortCache(columnIndex: number, generation: number): Promise<ColumnSortCache | null> {
-        const rows = this._allRows;
-        const length = rows.length;
+    // cienki adapter do radixEngine.ts (patrz komentarz przy this._sortColumnCache) - jedyna rola tej metody to podstawienie this._allRows/this._sortKinds, cała właściwa logika jest w buildColumnSortCache z radixEngine.ts, żeby dało się ją testować w izolacji, bez SqlResultsProvider
+    private async buildColumnSortCache(columnIndex: number, isValid: () => boolean, sourceIndices?: number[]): Promise<ColumnSortCache | null> {
+        return buildColumnSortCache(this._allRows, this._sortKinds, columnIndex, isValid, sourceIndices);
+    }
+
+    // odczytuje wartość komórki jako klucz do PROSTEGO porównania (< > ===) - używane w decorate-sort-undecorate (patrz getSortKey w multiColumnSortPaging.ts), żeby przy sortowaniu k elementów czytać/konwertować wartość RAZ (O(k)) zamiast przy każdym porównaniu w Array.sort (O(k log k))
+    private getSortKey(row: number, columnIndex: number): number | string | null {
+        const value = this._allRows[row][columnIndex];
+        if (value === null || value === undefined) {return null;}
         const kind: SortKind = this._sortKinds[columnIndex] ?? 'string';
-
-        const nullKeys: number[] = [];
-        const valueIndices: number[] = [];
-        for (let i = 0; i < length; i++) {
-            const value = rows[i][columnIndex];
-            if (value === null || value === undefined) {nullKeys.push(i);} else {valueIndices.push(i);}
-        }
-
-        // flatKeysAsc: grupa NULL na początku (indeks 0 - najmniejsza wartość w SQL ORDER BY), potem realne wartości rosnąco - this._allRows jest już index-ascending, więc nullKeys też, bez dodatkowego sortowania
-        const flatKeysAsc = new Int32Array(length);
-        flatKeysAsc.set(nullKeys, 0);
-        // pary [start,end] (pozycje we flatKeysAsc, inclusive) TYLKO dla grup o co najmniej 2 elementach - patrz komentarz przy ColumnSortCache w sortPaging.ts; grupa NULL wchodzi tu na tych samych zasadach co każda inna wartość (nie jest specjalnym przypadkiem)
-        const equalRanges: number[] = [];
-        if (nullKeys.length > 1) {equalRanges.push(0, nullKeys.length - 1);}
-
-        if (valueIndices.length === 1) {
-            flatKeysAsc[nullKeys.length] = valueIndices[0];
-        } else if (valueIndices.length > 1) {
-            // 'date' idzie tą samą ścieżką co 'number' (buildNumberWords) - różni się tylko sposobem zamiany wartości komórki na liczbę, patrz resolveNumericValue
-            const wordCount = kind === 'string' ? SqlResultsProvider.STRING_RADIX_WORD_COUNT : SqlResultsProvider.NUMBER_RADIX_WORD_COUNT;
-            const words = kind === 'string'
-                ? SqlResultsProvider.buildStringPrefixWords(rows, valueIndices, columnIndex)
-                : SqlResultsProvider.buildNumberWords(rows, valueIndices, columnIndex, kind);
-
-            const sortedIndices = await this.radixSortIndices(words, valueIndices.length, wordCount, generation);
-            if (sortedIndices === null) {return null;}
-
-            let writePos = nullKeys.length;
-            // grupy o identycznych słowach radix -> doprecyzowanie: dla NUMBER/DATE słowo = pełna wartość (remis = naprawdę ta sama liczba, jedna grupa); dla STRING słowo = tylko prefiks (remis może kryć różne pełne wartości - dogrupowujemy po pełnej wartości)
-            let groupStart = 0;
-            for (let i = 1; i <= sortedIndices.length; i++) {
-                const sameWordGroup = i < sortedIndices.length && SqlResultsProvider.wordsEqual(words, sortedIndices[groupStart], sortedIndices[i], wordCount);
-                if (sameWordGroup) {continue;}
-
-                if (kind === 'string' && i - groupStart > 1) {
-                    // dogrupowanie po pełnej wartości w obrębie identycznego prefiksu - Map (lokalna, ograniczona do rozmiaru TEJ grupy, nie całego zbioru) zachowuje kolejność pierwszego wystąpienia, a ta jest już index-ascending (radix jest stabilny, valueIndices index-ascending u źródła)
-                    const queues = new Map<string, number[]>();
-                    for (let j = groupStart; j < i; j++) {
-                        const idx = sortedIndices[j];
-                        const value = rows[valueIndices[idx]][columnIndex] as string;
-                        let queue = queues.get(value);
-                        if (!queue) {queue = []; queues.set(value, queue);}
-                        queue.push(valueIndices[idx]);
-                    }
-                    for (const value of [...queues.keys()].sort()) {
-                        const queue = queues.get(value)!;
-                        const groupWriteStart = writePos;
-                        for (const key of queue) {flatKeysAsc[writePos++] = key;}
-                        if (queue.length > 1) {equalRanges.push(groupWriteStart, writePos - 1);}
-                    }
-                } else {
-                    const groupWriteStart = writePos;
-                    for (let j = groupStart; j < i; j++) {flatKeysAsc[writePos++] = valueIndices[sortedIndices[j]];}
-                    if (writePos - groupWriteStart > 1) {equalRanges.push(groupWriteStart, writePos - 1);}
-                }
-
-                groupStart = i;
-            }
-        }
-
-        return { flatKeysAsc, equalRanges: Int32Array.from(equalRanges) };
+        if (kind === 'string') {return typeof value === 'string' ? value : String(value);}
+        return resolveNumericValue(value, kind);
     }
 
-    // zamienia surową wartość komórki na liczbę do zapakowania w słowa radix - 'number' wprost przez Number(), 'date' przez parser DATE/DATETIME/TIMESTAMP/TIME (patrz parseDateOrTimeToSortableNumber)
-    private static resolveNumericValue(value: number | string, kind: SortKind): number {
-        if (kind === 'date') {return SqlResultsProvider.parseDateOrTimeToSortableNumber(typeof value === 'string' ? value : String(value));}
-        return typeof value === 'number' ? value : Number(value);
+    // wspólna część buildSortContext/buildFilteredSortContext (patrz obie niżej) - jedyna różnica między "sortuj pełny zbiór" a "sortuj wynik wyszukiwania" to SKĄD bierze się cache kolumny #0, więc tylko to jest parametrem
+    private makeSortContext(getColumnCache: (columnIndex: number) => ColumnSortCache): MultiColumnSortContext {
+        return {
+            getColumnCache,
+            compareCellValues: (rowA: number, rowB: number, columnIndex: number): number => {
+                const kind: SortKind = this._sortKinds[columnIndex] ?? 'string';
+                return compareCellValues(this._allRows[rowA][columnIndex], this._allRows[rowB][columnIndex], kind);
+            },
+            // patrz komentarz przy MultiColumnSortContext.getSortKey w multiColumnSortPaging.ts - odczyt RAZ na wiersz zamiast przy każdym porównaniu w Array.sort
+            getSortKey: (row: number, columnIndex: number): number | string | null => this.getSortKey(row, columnIndex),
+        };
     }
 
-    // null-aware porównanie dwóch surowych wartości komórki wg typu kolumny, do sortowania NA ŻYWO małych zbiorów (patrz compareRowsBySortCriteria) - NULL zawsze najmniejszy, tak jak bucket 0 w buildColumnSortCache; string porównywany operatorami < > (ten sam porządek UTF-16 co charCodeAt w buildStringPrefixWords), number/date przez resolveNumericValue
-    private static compareCellValues(a: any, b: any, kind: SortKind): number {
-        const aNull = a === null || a === undefined;
-        const bNull = b === null || b === undefined;
-        if (aNull || bNull) {return aNull === bNull ? 0 : (aNull ? -1 : 1);}
+    // odpowiednik buildSortContext (patrz niżej), ale dla this._filteredIndices - getColumnCache czyta z this._filteredPrimaryColumnCache zamiast z this._sortColumnCache; rzuca, jeśli cache nie istnieje dla ŻĄDANEJ kolumny, co oznacza błąd w kolejności wywołań (applyFilteredPrimarySort musi zakończyć się sukcesem przed jakimkolwiek sendPage przy aktywnym wyszukiwaniu)
+    private buildFilteredSortContext(): MultiColumnSortContext {
+        return this.makeSortContext((columnIndex: number): ColumnSortCache => {
+            const entry = this._filteredPrimaryColumnCache;
+            if (!entry || entry.columnIndex !== columnIndex) {throw new Error(`Brak zbudowanego cache'a sortowania (wyszukiwanie) dla kolumny ${columnIndex} - applyFilteredPrimarySort() musi zakończyć się sukcesem przed sendPage()`);}
+            return entry.cache;
+        });
+    }
 
-        if (kind === 'string') {
-            const av = typeof a === 'string' ? a : String(a);
-            const bv = typeof b === 'string' ? b : String(b);
-            return av < bv ? -1 : (av > bv ? 1 : 0);
+    /**
+     * Odpowiednik applySort() (patrz niżej), ale dla this._filteredIndices zamiast this._allRows - buduje/reużywa this._filteredPrimaryColumnCache
+     * dla kolumny NAJWAŻNIEJSZEGO kryterium. Kluczowe: jeśli kolejne wywołanie dotyczy TEJ SAMEJ kolumny #0 i TEJ SAMEJ frazy wyszukiwania
+     * (searchGeneration bez zmian) - a dokładnie to się dzieje przy Shift+klik na drugie/trzecie kryterium sortowania - radix NIE jest liczony
+     * ponownie, tylko reużywany. To jest właśnie ta symetria z applySort(), której brakowało we wcześniejszej wersji (poprzednie podejście
+     * liczyło WSZYSTKO od zera przy KAŻDYM kliknięciu, dla CAŁEGO przefiltrowanego zbioru).
+     */
+    private async applyFilteredPrimarySort(sortGeneration: number, searchGeneration: number): Promise<boolean> {
+        if (this._sortCriteria.length === 0 || !this._filteredIndices) {
+            this._filteredPrimaryColumnCache = null;
+            return true;
         }
 
-        const av = SqlResultsProvider.resolveNumericValue(a, kind);
-        const bv = SqlResultsProvider.resolveNumericValue(b, kind);
-        return av < bv ? -1 : (av > bv ? 1 : 0);
-    }
-
-    // komparator wielokolumnowy do sortowania NA ŻYWO this._filteredIndices (patrz resortFilteredEntries/applySearchFilter) - bez cache'a per kolumna, bo przefiltrowany zbiór jest zwykle mały; remis wszystkich kryteriów zwraca 0, a stabilność Array.prototype.sort zachowuje wtedy naturalną (index-ascending) kolejność, dokładnie jak bucketowa ścieżka dla pełnego zbioru
-    private compareRowsBySortCriteria(a: number, b: number): number {
-        const rowA = this._allRows[a];
-        const rowB = this._allRows[b];
-        for (const { columnIndex, direction } of this._sortCriteria) {
-            const cmp = SqlResultsProvider.compareCellValues(rowA[columnIndex], rowB[columnIndex], this._sortKinds[columnIndex] ?? 'string');
-            if (cmp !== 0) {return direction === 'asc' ? cmp : -cmp;}
-        }
-        return 0;
-    }
-
-    // sortuje this._filteredIndices w miejscu wg aktualnych this._sortCriteria, bez ponownego przeliczania samego wyszukiwania - dopasowania się nie zmieniają, zmienia się tylko ich kolejność, patrz performSort
-    private resortFilteredEntries(): void {
-        if (!this._filteredIndices || this._sortCriteria.length === 0) {return;}
-        this._filteredIndices.sort((a, b) => this.compareRowsBySortCriteria(a, b));
-    }
-
-    // pakuje wartości liczbowe/datowe kolumny w słowa 32-bitowe (2 słowa = 64-bitowa reprezentacja IEEE-754 double) - gęsta tablica indeksowana wprost pozycją w 'indices' (bez cache)
-    private static buildNumberWords(rows: any[][], indices: number[], columnIndex: number, kind: SortKind): Uint32Array {
-        const length = indices.length;
-        const words = new Uint32Array(length * SqlResultsProvider.NUMBER_RADIX_WORD_COUNT);
-        for (let i = 0; i < length; i++) {
-            const numericValue = SqlResultsProvider.resolveNumericValue(rows[indices[i]][columnIndex], kind);
-            const [hi, lo] = SqlResultsProvider.encodeFloat64SortableWords(numericValue);
-            words[i * 2] = hi;
-            words[i * 2 + 1] = lo;
-        }
-        return words;
-    }
-
-    // zamienia liczbę na dwa słowa 32-bitowe tak, żeby zwykłe porównanie bez znaku (jak w radix sorcie) odpowiadało prawdziwemu porządkowi liczbowemu IEEE-754
-    private static encodeFloat64SortableWords(numericValue: number): [number, number] {
-        SqlResultsProvider.float64Scratch.setFloat64(0, numericValue, false);
-        let hi = SqlResultsProvider.float64Scratch.getUint32(0, false);
-        let lo = SqlResultsProvider.float64Scratch.getUint32(4, false);
-
-        // standardowa sztuczka bitowa: liczby ujemne (bit znaku=1) odwracamy całe, nieujemne (bit znaku=0) odwracamy tylko bit znaku - bez tego -5 wypadłoby "większe" niż 5 przy prostym porównaniu bitowym
-        if ((hi & 0x80000000) !== 0) {
-            hi = (~hi) >>> 0;
-            lo = (~lo) >>> 0;
-        } else {
-            hi = (hi | 0x80000000) >>> 0;
+        const columnIndex = this._sortCriteria[0].columnIndex;
+        const existing = this._filteredPrimaryColumnCache;
+        if (existing && existing.columnIndex === columnIndex && existing.searchGeneration === searchGeneration) {
+            return true; // ta sama kolumna #0, ta sama fraza co przy poprzednim kliknięciu - nic do przeliczenia (patrz applySort)
         }
 
-        return [hi, lo];
-    }
+        const isValid = () => sortGeneration === this._sortGeneration && searchGeneration === this._searchGeneration;
+        const cache = await this.buildColumnSortCache(columnIndex, isValid, this._filteredIndices);
+        if (cache === null || !isValid()) {return false;}
 
-    // pakuje pierwsze STRING_RADIX_PREFIX_CHARS znaków (jednostek UTF-16) stringa w słowa 32-bitowe, po 2 znaki na słowo - gęsta tablica indeksowana wprost pozycją w 'indices'
-    private static buildStringPrefixWords(rows: any[][], indices: number[], columnIndex: number): Uint32Array {
-        const length = indices.length;
-        const wordCount = SqlResultsProvider.STRING_RADIX_WORD_COUNT;
-        const words = new Uint32Array(length * wordCount);
-
-        for (let i = 0; i < length; i++) {
-            const raw = rows[indices[i]][columnIndex];
-            const value = typeof raw === 'string' ? raw : String(raw);
-            const offset = i * wordCount;
-            for (let w = 0; w < wordCount; w++) {
-                const charIndex = w * 2;
-                // brakujące znaki (string krótszy niż prefiks) dopełniamy zerami - to sortuje się PRZED każdym prawdziwym znakiem, więc "ab" trafia przed "abc" tak jak w zwykłym porządku leksykograficznym; pełne rozstrzygnięcie w razie potrzeby i tak dostaje grupa remisowa (patrz buildColumnSortCache)
-                const c0 = charIndex < value.length ? value.charCodeAt(charIndex) : 0;
-                const c1 = charIndex + 1 < value.length ? value.charCodeAt(charIndex + 1) : 0;
-                words[offset + w] = ((c0 << 16) | c1) >>> 0;
-            }
-        }
-
-        return words;
-    }
-
-    // porównuje wordCount słów dwóch pozycji bez odczytywania oryginalnej wartości
-    private static wordsEqual(words: Uint32Array, a: number, b: number, wordCount: number): boolean {
-        const aOffset = a * wordCount, bOffset = b * wordCount;
-        for (let w = 0; w < wordCount; w++) {
-            if (words[aOffset + w] !== words[bOffset + w]) {return false;}
-        }
+        this._filteredPrimaryColumnCache = { columnIndex, searchGeneration, cache };
         return true;
-    }
-
-    // generyczny LSD radix sort (najmniej znaczący bajt najpierw) na dowolnej liczbie słów 32-bitowych - działa identycznie dla liczb (2 słowa) i prefiksów stringów (4 słowa); zwraca ROSNĄCO posortowaną permutację indeksów 0..length-1 (kierunek/desc obsługiwany przez wywołującego), albo null jeśli generation przestało być aktualne w trakcie oddawania event loop
-    private async radixSortIndices(words: Uint32Array, length: number, wordCount: number, generation: number): Promise<Uint32Array | null> {
-        let source = new Uint32Array(length);
-        for (let i = 0; i < length; i++) {source[i] = i;}
-        let target = new Uint32Array(length);
-        const counts = new Uint32Array(256);
-
-        for (let word = wordCount - 1; word >= 0; word--) {
-            for (let byte = 0; byte < 4; byte++) {
-                counts.fill(0);
-                const shift = byte * 8;
-
-                for (let i = 0; i < length; i++) {
-                    counts[(words[source[i] * wordCount + word] >>> shift) & 0xff]++;
-                }
-
-                let total = 0;
-                for (let i = 0; i < 256; i++) {
-                    const count = counts[i];
-                    counts[i] = total;
-                    total += count;
-                }
-
-                for (let i = 0; i < length; i++) {
-                    const idx = source[i];
-                    const bucket = (words[idx * wordCount + word] >>> shift) & 0xff;
-                    target[counts[bucket]++] = idx;
-                }
-
-                const swap = source;
-                source = target;
-                target = swap;
-
-                // yield PO KAŻDYM przebiegu bajtowym, nie dopiero po całym słowie (4 przebiegi) - inaczej pojedyncza blokada event loop rośnie 4x (zmierzone: po słowie ~108ms max_lag przy 200k, po bajcie ~25-30ms)
-                await new Promise<void>((resolve) => setImmediate(resolve));
-                if (generation !== this._sortGeneration) {return null;}
-            }
-        }
-
-        return source;
     }
 
 
@@ -806,8 +656,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
 
         if (this._searchQuery) {
-            // przy aktywnym wyszukiwaniu w ogóle nie dotykamy pełnego zbioru/cache'a kolumn - sortujemy tylko już przefiltrowany (zwykle mały) podzbiór, patrz resortFilteredEntries; this._allRows zostaje na razie nieaktualne, domykane dopiero przy skasowaniu wyszukiwania w performSearch
-            this.resortFilteredEntries();
+            // przy aktywnym wyszukiwaniu w ogóle nie dotykamy pełnego zbioru/cache'a kolumn - odpowiednik applySort, ale dla this._filteredIndices (patrz applyFilteredPrimarySort/this._filteredPrimaryColumnCache); this._allRows zostaje na razie nieaktualne, domykane dopiero przy skasowaniu wyszukiwania w performSearch
+            const searchGeneration = this._searchGeneration;
+            const sorted = await this.applyFilteredPrimarySort(generation, searchGeneration);
+            if (!sorted || generation !== this._sortGeneration || searchGeneration !== this._searchGeneration) {return;}
             this.sendPage(1, true, false);
             return;
         }
@@ -841,26 +693,18 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
      * (this._sortCriteria[0], patrz komentarz przy applySort) - rzuca, jeśli cache nie istnieje, co oznacza błąd w kolejności wywołań
      * (applySort musi zakończyć się sukcesem przed jakimkolwiek sendPage - patrz wszystkie miejsca wołające applySort).
      */
+    // wartość w danej kolumnie mogła się zmienić (edycja komórki) - jej cache grupowania jest nieaktualny, dotyczy to ZARÓWNO cache'a pełnego zbioru, jak i cache'a przefiltrowanego (jeśli akurat dotyczy tej samej kolumny), patrz this._sortColumnCache/this._filteredPrimaryColumnCache; pozostałe kolumny zostają ważne
+    private invalidateColumnSortCache(columnIndex: number): void {
+        this._sortColumnCache.delete(columnIndex);
+        if (this._filteredPrimaryColumnCache?.columnIndex === columnIndex) {this._filteredPrimaryColumnCache = null;}
+    }
+
     private buildSortContext(): MultiColumnSortContext {
-        return {
-            getColumnCache: (columnIndex: number): ColumnSortCache => {
-                const cache = this._sortColumnCache.get(columnIndex);
-                if (!cache) {throw new Error(`Brak zbudowanego cache'a sortowania dla kolumny ${columnIndex} - applySort() musi zakończyć się sukcesem przed sendPage()`);}
-                return cache;
-            },
-            compareCellValues: (rowA: number, rowB: number, columnIndex: number): number => {
-                const kind: SortKind = this._sortKinds[columnIndex] ?? 'string';
-                return SqlResultsProvider.compareCellValues(this._allRows[rowA][columnIndex], this._allRows[rowB][columnIndex], kind);
-            },
-            // patrz komentarz przy MultiColumnSortContext.getSortKey w multiColumnSortPaging.ts - odczyt RAZ na wiersz zamiast przy każdym porównaniu w Array.sort
-            getSortKey: (row: number, columnIndex: number): number | string | null => {
-                const value = this._allRows[row][columnIndex];
-                if (value === null || value === undefined) {return null;}
-                const kind: SortKind = this._sortKinds[columnIndex] ?? 'string';
-                if (kind === 'string') {return typeof value === 'string' ? value : String(value);}
-                return SqlResultsProvider.resolveNumericValue(value, kind);
-            },
-        };
+        return this.makeSortContext((columnIndex: number): ColumnSortCache => {
+            const cache = this._sortColumnCache.get(columnIndex);
+            if (!cache) {throw new Error(`Brak zbudowanego cache'a sortowania dla kolumny ${columnIndex} - applySort() musi zakończyć się sukcesem przed sendPage()`);}
+            return cache;
+        });
     }
 
     /**
@@ -895,7 +739,16 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         const end = Math.min(start + this.ROWS_PER_PAGE, totalRows);
         const pageLength = Math.max(0, end - start);
         // rowKeys to indeksy do this._allRows dla wierszy tej strony - webview odsyła je z powrotem przy edycji/usuwaniu zamiast liczyć page-relative -> global offset
-        const rowKeys = filtered ? filtered.slice(start, end) : this.getSortedPageKeys(start, pageLength);
+        // przy aktywnym wyszukiwaniu BEZ sortowania - zwykły slice (dopasowania w naturalnej kolejności, patrz applySearchFilter)
+        // przy aktywnym wyszukiwaniu Z sortowaniem - ta sama leniwa, per-stronowa ścieżka co dla pełnego zbioru (getMultiColumnPageKeys), tylko z cache'em z this._filteredPrimaryColumnCache zamiast this._sortColumnCache - patrz buildFilteredSortContext/applyFilteredPrimarySort
+        let rowKeys: number[];
+        if (filtered) {
+            rowKeys = this._sortCriteria.length > 0
+                ? getMultiColumnPageKeys(this._sortCriteria, this.buildFilteredSortContext(), start, pageLength)
+                : filtered.slice(start, end);
+        } else {
+            rowKeys = this.getSortedPageKeys(start, pageLength);
+        }
         const pageRows = new Array<any[]>(pageLength);
         for (let i = 0; i < pageLength; i++) {
             pageRows[i] = this._allRows[rowKeys[i]];
@@ -978,43 +831,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             if (SqlResultsProvider.DATE_SORT_TYPE_NAMES.has(type)) {return 'date';}
             return 'string';
         });
-    }
-
-    /**
-     * Zamienia string DATE/DATETIME/TIMESTAMP/TIME (dateStrings:true, patrz Connection.ts) na liczbę porządkującą wartości tak samo jak
-     * natywny SQL ORDER BY - dzięki temu kolumna typu 'date' idzie tą samą szybką ścieżką radix co 'number' (pełna wartość w kluczu,
-     * bez dużych grup remisowych jak przy sortowaniu prefiksu stringa - patrz buildStringPrefixWords). Nie jest to prawdziwy unix time
-     * (DATE/DATETIME są bez strefy czasowej), liczy się wyłącznie monotoniczność względem innych wartości tej samej kolumny.
-     * '0000-00-00'/'0000-00-00 00:00:00' (MySQL dopuszcza taki "zerowy" DATE/DATETIME) oraz wartości niepasujące do żadnego wzorca -> 0,
-     * czyli najmniejsza możliwa wartość, tak jak sugerował użytkownik.
-     */
-    private static parseDateOrTimeToSortableNumber(value: string): number {
-        const trimmed = value.trim();
-
-        const dateMatch = SqlResultsProvider.DATE_STRING_PATTERN.exec(trimmed);
-        if (dateMatch) {
-            const [, yearStr, monthStr, dayStr, hourStr, minuteStr, secondStr, fracStr] = dateMatch;
-            const year = Number(yearStr);
-            const month = Number(monthStr);
-            const day = Number(dayStr);
-            if (year === 0 || month === 0 || day === 0) {return 0;} // zerowy DATE/DATETIME MySQL
-            const hour = hourStr ? Number(hourStr) : 0;
-            const minute = minuteStr ? Number(minuteStr) : 0;
-            const second = secondStr ? Number(secondStr) : 0;
-            const fracMs = fracStr ? Number(fracStr.padEnd(3, '0').slice(0, 3)) : 0; // mikrosekundy (fsp do 6 cyfr) obcinamy do milisekund - wystarczająca precyzja do sortowania
-            return Date.UTC(year, month - 1, day, hour, minute, second, fracMs);
-        }
-
-        const timeMatch = SqlResultsProvider.TIME_STRING_PATTERN.exec(trimmed);
-        if (timeMatch) {
-            const [, signStr, hourStr, minuteStr, secondStr, fracStr] = timeMatch;
-            const sign = signStr === '-' ? -1 : 1;
-            const totalMs = ((Number(hourStr) * 3600 + Number(minuteStr) * 60 + Number(secondStr)) * 1000)
-                + (fracStr ? Number(fracStr.padEnd(3, '0').slice(0, 3)) : 0);
-            return sign * totalMs;
-        }
-
-        return 0; // wartość niepasująca do żadnego znanego formatu - traktujemy jak zerowy DATE/DATETIME
     }
 
 
@@ -1128,7 +944,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             row[columnIndex] = value;
             // wartość w tej kolumnie mogła się zmienić - cache jej grupowania (patrz this._sortColumnCache) jest nieaktualny, reszta kolumn zostaje ważna
-            this._sortColumnCache.delete(columnIndex);
+            this.invalidateColumnSortCache(columnIndex);
 
             if (this._view) {
                 this._view.webview.postMessage({
@@ -1414,7 +1230,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                     row[edit.columnIndex] = edit.value;
                 }
                 // wartości w tej kolumnie mogły się zmienić - jej cache grupowania jest nieaktualny (patrz this._sortColumnCache), reszta kolumn zostaje ważna
-                this._sortColumnCache.delete(edit.columnIndex);
+                this.invalidateColumnSortCache(edit.columnIndex);
             }
 
             // wartości mogły się zmienić w kolumnie, po której filtruje aktywne wyszukiwanie - przeliczamy, jakie wiersze nadal pasują
@@ -1581,7 +1397,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 row[cell.columnIndex] = normalizedValueByColumnName.get(cell.columnName);
             }
             // wartości w tych kolumnach mogły się zmienić - ich cache grupowania jest nieaktualny (patrz this._sortColumnCache), pozostałe kolumny zostają ważne
-            for (const cell of cells) {this._sortColumnCache.delete(cell.columnIndex);}
+            for (const cell of cells) {this.invalidateColumnSortCache(cell.columnIndex);}
 
             // wartości mogły się zmienić w kolumnie, po której filtruje aktywne wyszukiwanie - przeliczamy, jakie wiersze nadal pasują
             await this.applySearchFilter();
@@ -1847,6 +1663,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         this._allRows = [];
         this._filteredIndices = null;
+        this._filteredPrimaryColumnCache = null;
         this._searchGeneration++; // unieważnia ewentualne wciąż trwające applySearchFilter liczone na starych danych
 
         const existingFileState = this._fileStates.get(sqlFile);
@@ -1999,6 +1816,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._columnTypes = [];
         this._searchQuery = '';
         this._filteredIndices = null;
+        this._filteredPrimaryColumnCache = null;
         this._sortCriteria = [];
         this._sortColumnCache = new Map();
 
