@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.4
+
+### Changed
+- Sorting a search result by multiple columns (Shift+click to add a
+  second/third criterion) no longer rebuilds the primary column's sort
+  order from scratch on every additional click - it now reuses the same
+  per-column radix cache strategy as the full (unfiltered) dataset, keyed
+  by the current search query instead of being permanent. Previously the
+  filtered result was fully re-sorted, for the whole matched set, on every
+  click, which showed up as multi-second delays on 2M+ row search results
+  when adding a second or third sort criterion; each additional criterion
+  is now effectively free, matching the full-dataset behavior. `sendPage`
+  now resolves filtered, sorted pages lazily (only the ~200 rows a page
+  needs) via the same mechanism already used for the unfiltered dataset,
+  instead of materializing a full sorted permutation of the search result
+  up front. The underlying radix/cache-building code has also been
+  extracted out of `SqlResultsProvider.ts` into a new, standalone
+  `radixEngine.ts` module shared by both code paths. No behavior change -
+  same sort order, NULL handling, and search-matching semantics as before.
+
 ## 1.2.3
 
 ### Changed
