@@ -156,6 +156,42 @@ suite('SqlResultsProvider - large result search cancellation', () => {
         assert.strictEqual(provider._filteredIndices, null);
         assert.strictEqual(provider._searchQuery, '');
     });
+
+    test('anulowane, niedokończone wyszukiwanie nigdy nie zostawia po sobie częściowego stanu - zawężanie kolejnej frazy bazuje WYŁĄCZNIE na ostatnim ZAKOŃCZONYM wyszukiwaniu, nigdy na przerwanym', async () => {
+        const provider = getProvider() as any;
+
+        // 30k rekordów w trzech warstwach: 'aaa' pasuje tylko do "a", 'aba' pasuje do "a"/"ab", 'abc' pasuje do "a"/"ab"/"abc"
+        const rows = Array.from({ length: 30000 }, (_, i) => {
+            const tier = i % 3;
+            return [tier === 0 ? 'aaa' : tier === 1 ? 'aba' : 'abc'];
+        });
+        provider._headers = ['value'];
+        provider._allRows = rows;
+
+        // wyszukiwanie "a" MUSI w pełni się zakończyć - to jest jedyny punkt odniesienia, z którego wolno zawężać kolejne frazy
+        provider._searchQuery = 'a';
+        const firstCompleted = await provider.applySearchFilter();
+        assert.strictEqual(firstCompleted, true);
+        assert.strictEqual(provider._filteredIndices.length, 30000, 'wszystkie wiersze pasują do "a"');
+
+        // "ab" startuje i (dzięki 30k > progu oddania sterowania co 10k) NIE zdąży się dokończyć, zanim przerwie je "abc" -
+        // obie linijki poniżej wykonują się synchronicznie aż do pierwszego await w pętli, więc "abc" startuje zanim "ab" cokolwiek zapisze
+        provider._searchQuery = 'ab';
+        const abSearch = provider.applySearchFilter();
+
+        provider._searchQuery = 'abc';
+        const abcSearch = provider.applySearchFilter();
+
+        const [abCompleted, abcCompleted] = await Promise.all([abSearch, abcSearch]);
+
+        assert.strictEqual(abCompleted, false, 'wyszukiwanie "ab" zostało anulowane, zanim zdążyło zapisać jakikolwiek wynik');
+        assert.strictEqual(abcCompleted, true);
+        // gdyby applySearchFilter zapisywało _filteredIndicesQuery/_filteredIndices WCZEŚNIEJ niż na samym końcu (np. od razu przy starcie funkcji),
+        // "abc" mogłoby błędnie zawężać na bazie przerwanego, niekompletnego "ab" zamiast ostatniego zakończonego "a" - stąd te asercje na stanie końcowym
+        assert.strictEqual(provider._filteredIndicesQuery, 'abc');
+        assert.ok(provider._filteredIndices.every((idx: number) => provider._allRows[idx][0] === 'abc'));
+        assert.strictEqual(provider._filteredIndices.length, 10000, 'dokładnie warstwa "abc" (1/3 z 30000) - zawężone poprawnie z ostatniego ZAKOŃCZONEGO wyszukiwania "a", nie z przerwanego "ab"');
+    });
 });
 
 suite('SqlResultsProvider - applySort (cache per kolumna + leniwe getSortedPageKeys, patrz buildColumnSortCache/sortPaging.ts/multiColumnSortPaging.ts)', () => {
@@ -661,6 +697,8 @@ suite('SqlResultsProvider - sortowanie wyniku wyszukiwania (applyFilteredPrimary
         // provider to singleton dzielony między WSZYSTKIMI testami w tym pliku (patrz komentarz przy getProvider() na górze) - bez tego resetu
         // zaszłość z poprzedniego testu (np. this._filteredPrimaryColumnCache zbudowany na zupełnie innych danych) psułaby asercje tutaj
         provider._filteredIndices = null;
+        provider._filteredIndicesQuery = null;
+        provider._filteredIndicesDataset = null;
         provider._filteredPrimaryColumnCache = null;
         provider._searchQuery = '';
     }
@@ -699,6 +737,85 @@ suite('SqlResultsProvider - sortowanie wyniku wyszukiwania (applyFilteredPrimary
             assert.strictEqual(completed, true);
             assert.strictEqual(provider._filteredIndices, null);
             assert.strictEqual(provider._filteredPrimaryColumnCache, null, 'nie może zostać stary, teraz już bezsensowny wpis (cache liczony dla NIEISTNIEJĄCEGO już przefiltrowanego podzbioru)');
+        });
+    });
+
+    suite('applySearchFilter - zawężanie do poprzednich trafień przy rozszerzaniu frazy (_filteredIndicesQuery/_filteredIndicesDataset)', () => {
+        test('fraza rozszerzająca poprzednią ("a" -> "ab") zwraca poprawny podzbiór poprzednich trafień', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'cherry', 'cab']); // 'a' pasuje do banana(0) i cab(2); z tych dwóch tylko cab(2) pasuje też do 'ab'
+            provider._searchQuery = 'a';
+            await provider.applySearchFilter();
+            assert.deepStrictEqual(provider._filteredIndices, [0, 2]);
+
+            provider._searchQuery = 'ab';
+            const completed = await provider.applySearchFilter();
+
+            assert.strictEqual(completed, true);
+            assert.deepStrictEqual(provider._filteredIndices, [2]);
+        });
+
+        test('rozszerzenie frazy faktycznie przeszukuje TYLKO poprzednie trafienia, nie cały _allRows od nowa', async () => {
+            const provider = getProvider() as any;
+            // 'zzz'(0) nie pasuje do 'a', więc po pierwszym wyszukiwaniu nie trafia do _filteredIndices
+            setRows(provider, ['zzz', 'cab']);
+            provider._searchQuery = 'a';
+            await provider.applySearchFilter();
+            assert.deepStrictEqual(provider._filteredIndices, [1]);
+
+            // dopisujemy do wiersza 0 wartość pasującą do 'ab' - gdyby applySearchFilter skanowało cały _allRows od nowa, wiersz 0 też by się złapał
+            provider._allRows[0][0] = 'ab-added';
+            provider._searchQuery = 'ab';
+            await provider.applySearchFilter();
+
+            assert.deepStrictEqual(provider._filteredIndices, [1], 'wiersz 0 pominięty, bo nie należał do poprzednich trafień - zawężanie realnie skanowało tylko _filteredIndices z poprzedniego przebiegu');
+        });
+
+        test('fraza, która NIE rozszerza poprzedniej (np. skrócenie/inna treść), wymusza pełny skan _allRows', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'cherry', 'cab']);
+            provider._searchQuery = 'ab'; // pasuje tylko do cab(2)
+            await provider.applySearchFilter();
+            assert.deepStrictEqual(provider._filteredIndices, [2]);
+
+            // 'c' nie jest rozszerzeniem 'ab' (nie zaczyna się od 'ab') - musi wrócić do pełnego zbioru, w tym cherry(1), które nie było w poprzednich trafieniach
+            provider._searchQuery = 'c';
+            const completed = await provider.applySearchFilter();
+
+            assert.strictEqual(completed, true);
+            assert.deepStrictEqual(provider._filteredIndices, [1, 2]);
+        });
+
+        test('zmiana _allRows na inną tablicę (np. przełączenie pliku) unieważnia zawężanie, mimo tej samej/rozszerzonej frazy', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'cab']);
+            provider._searchQuery = 'a';
+            await provider.applySearchFilter();
+            assert.deepStrictEqual(provider._filteredIndices, [0, 1]);
+
+            // podmiana na CAŁKOWICIE nową tablicę (nowa referencja) - symuluje przełączenie zakładki/pliku, patrz showResultsForFile
+            provider._allRows = [['xyz'], ['xab']];
+            provider._searchQuery = 'ab';
+            const completed = await provider.applySearchFilter();
+
+            assert.strictEqual(completed, true);
+            assert.deepStrictEqual(provider._filteredIndices, [1], 'wynik policzony z pełnego skanu NOWEJ tablicy, nie ze starych indeksów wskazujących na poprzedni plik');
+        });
+
+        test('czyszczenie frazy (pusty _searchQuery) czyści też _filteredIndicesQuery i _filteredIndicesDataset, nie tylko _filteredIndices', async () => {
+            const provider = getProvider() as any;
+            setRows(provider, ['banana', 'cab']);
+            provider._searchQuery = 'a';
+            await provider.applySearchFilter();
+            assert.notStrictEqual(provider._filteredIndicesQuery, null);
+            assert.notStrictEqual(provider._filteredIndicesDataset, null);
+
+            provider._searchQuery = '';
+            await provider.applySearchFilter();
+
+            assert.strictEqual(provider._filteredIndices, null);
+            assert.strictEqual(provider._filteredIndicesQuery, null);
+            assert.strictEqual(provider._filteredIndicesDataset, null);
         });
     });
 

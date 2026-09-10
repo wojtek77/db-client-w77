@@ -103,6 +103,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private _searchQuery = '';
     // indeksy do this._allRows pasujące do _searchQuery, w kolejności wyświetlania; null = brak aktywnego filtra (wtedy sendPage liczy stronę leniwie z this._allRows/this._sortCriteria, patrz getSortedPageKeys)
     private _filteredIndices: number[] | null = null;
+    // fraza (lowercase), z której zbudowano aktualne this._filteredIndices - null gdy brak filtra; używane przez applySearchFilter do zawężania zamiast pełnego skanu
+    private _filteredIndicesQuery: string | null = null;
+    // referencja do this._allRows, z której zbudowano this._filteredIndices - dopasowania sprzed zmiany pliku/rerunu SQL są dla innej tablicy, więc nie wolno ich zawężać (patrz applySearchFilter)
+    private _filteredIndicesDataset: any[][] | null = null;
     // pusta tablica = brak aktywnego sortowania (this._allRows w naturalnej kolejności z zapytania SQL); patrz applySort/toggleSort/performSort
     private _sortCriteria: SortCriterion[] = [];
     // cache TYLKO dla kolumny najważniejszego kryterium (this._sortCriteria[0]), TYLKO dla pełnego zbioru (this._allRows) - kolejne, mniej istotne kryteria NIE mają globalnego cache'a wcale, bo getMultiColumnPageKeys (patrz multiColumnSortPaging.ts) dogrupowuje je leniwie, lokalnie, tylko dla akurat trafionej strony grupy remisowej. Odpowiednik dla przefiltrowanego podzbioru przy aktywnym wyszukiwaniu - patrz this._filteredPrimaryColumnCache. Czyszczony bezwarunkowo przy każdym Ctrl+Enter (executeQuery) i przy usuwaniu wierszy; pojedyncza kolumna jest czyszczona osobno przy edycji komórki w tej kolumnie (patrz invalidateColumnSortCache)
@@ -427,6 +431,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         if (!query) {
             this._filteredIndices = null;
+            this._filteredIndicesQuery = null;
+            this._filteredIndicesDataset = null;
             // this._filteredPrimaryColumnCache POCHODZI z this._filteredIndices - jak znika jedno, musi zniknąć i drugie, tutaj, wprost,
             // a nie jako efekt uboczny późniejszego applyFilteredPrimarySort() w performSearch (za bardzo niejawna zależność między metodami)
             this._filteredPrimaryColumnCache = null;
@@ -436,18 +442,31 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         // wyszukiwanie bez rozróżniania wielkości liter, tak jak filtr w większości narzędzi tabelarycznych
         const needle = query.toLowerCase();
         const columnCount = this._headers.length;
+
+        // dopisanie liter do wcześniej wyszukanej frazy (np. "a" -> "ab") może tylko zawęzić poprzedni zbiór trafień, nigdy go poszerzyć -
+        // wtedy przeszukujemy wyłącznie this._filteredIndices z poprzedniego przebiegu zamiast całego this._allRows od nowa. Warunek dataset
+        // === this._allRows (referencja, nie zawartość) chroni przed zawężeniem po zmianie pliku/rerunie SQL, gdzie stare indeksy wskazywałyby na zupełnie inną tablicę
+        const canNarrow = this._filteredIndices !== null
+            && this._filteredIndicesQuery !== null
+            && this._filteredIndicesDataset === this._allRows
+            && needle.startsWith(this._filteredIndicesQuery);
+        // przy zawężaniu skanujemy tylko poprzednie dopasowania (indeksy do this._allRows), w przeciwnym razie cały zbiór w naturalnej kolejności
+        const candidateIndices = canNarrow ? this._filteredIndices : null;
         // zawsze this._allRows (niezmienne), nigdy przez cache sortowania - dzięki temu wyszukiwanie nigdy nie zależy od tego, czy pełny (potencjalnie milionowy) zbiór jest już posortowany, patrz performSort
         const source = this._allRows;
+        const scanCount = candidateIndices ? candidateIndices.length : source.length;
         const filteredIndices: number[] = [];
 
         // przetwarzamy rekordy partiami, aby event loop mógł obsłużyć nowe wyszukiwanie
-        for (let i = 0; i < source.length; i++) {
+        for (let i = 0; i < scanCount; i++) {
             // nowe wyszukiwanie albo zmiana danych unieważniły tę operację
             if (generation !== this._searchGeneration) {
                 return false;
             }
 
-            const row = source[i];
+            // przy zawężaniu i-ty krok to poprzednie trafienie, w przeciwnym razie i-ty wiersz pełnego zbioru
+            const rowIndex = candidateIndices ? candidateIndices[i] : i;
+            const row = source[rowIndex];
 
             for (let j = 0; j < columnCount; j++) {
                 const value = row[j];
@@ -455,7 +474,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 const text = (value === null || value === undefined) ? 'NULL' : String(value);
 
                 if (text.toLowerCase().includes(needle)) {
-                    filteredIndices.push(i);
+                    filteredIndices.push(rowIndex);
                     break; // wystarczy jedno trafienie w wierszu
 
                 }
@@ -476,6 +495,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         // samo jak this._allRows nigdy nie jest fizycznie przestawiane dla pełnego zbioru (patrz applySort). Stary cache kolumny #0 (jeśli jakiś
         // istniał) dotyczył INNEJ frazy - już nieaktualny, przeliczy go leniwie applyFilteredPrimarySort przy najbliższym sendPage
         this._filteredIndices = filteredIndices;
+        this._filteredIndicesQuery = needle;
+        this._filteredIndicesDataset = this._allRows;
         this._filteredPrimaryColumnCache = null;
         return true;
     }
@@ -1663,6 +1684,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
         this._allRows = [];
         this._filteredIndices = null;
+        this._filteredIndicesQuery = null;
+        this._filteredIndicesDataset = null;
         this._filteredPrimaryColumnCache = null;
         this._searchGeneration++; // unieważnia ewentualne wciąż trwające applySearchFilter liczone na starych danych
 
@@ -1816,6 +1839,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._columnTypes = [];
         this._searchQuery = '';
         this._filteredIndices = null;
+        this._filteredIndicesQuery = null;
+        this._filteredIndicesDataset = null;
         this._filteredPrimaryColumnCache = null;
         this._sortCriteria = [];
         this._sortColumnCache = new Map();
