@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.2.5
+
+### Changed
+- Search now narrows results incrementally instead of rescanning the
+  full dataset on every keystroke. When the query is extended (e.g.
+  "a" → "ab"), only the previous match set is re-searched instead of
+  `_allRows`. Falls back to a full scan whenever the new query does
+  not extend the previous one (a shorter or otherwise different
+  string) or when the underlying result set has changed (switching
+  files, rerunning the query). Narrowing is only ever based on the
+  last fully *completed* search - a cancelled or still-in-progress
+  search never contributes to it. No behavior change - same match
+  semantics as before, just less redundant scanning on large result
+  sets while typing a search query.
+
 ## 1.2.4
 
 ### Changed
