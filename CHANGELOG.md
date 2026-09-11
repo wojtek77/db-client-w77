@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.8
+
+### Changed
+- SQL results: Generate INSERT now remembers the last-used modifiers
+  and batch size globally across all workspaces instead of per
+  workspace.
+
 ## 1.2.7
 
 ### Fixed
