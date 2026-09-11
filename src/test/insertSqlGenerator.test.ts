@@ -1,21 +1,20 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { SqlResultsProvider } from '../panel/SqlResultsProvider.js';
+import {
+    buildInsertSql,
+    buildInsertStatementPrefix,
+    pickInsertGenerationOptions,
+    resolveInsertOptionGroupSelection,
+} from '../sql/insertSqlGenerator.js';
 
-// singleton - reużywamy tego samego wzorca co w SqlResultsProvider.test.ts, ale nadpisujemy _context ręcznie w każdym teście, bo tutaj zależy nam na kontrolowanym workspaceState
-function getProvider(): SqlResultsProvider {
-    const fakeContext = { extensionUri: vscode.Uri.file('/fake/ext') } as unknown as vscode.ExtensionContext;
-    return SqlResultsProvider.initialize(fakeContext);
-}
-
-// prosty in-memory fake workspaceState, wystarczający do przetestowania zapamiętywania ostatniego wyboru opcji generowania INSERT
-function makeFakeWorkspaceState() {
+// prosty in-memory fake workspaceState (implementuje vscode.Memento), wystarczający do przetestowania zapamiętywania ostatniego wyboru opcji generowania INSERT
+function makeFakeWorkspaceState(): vscode.Memento {
     const store = new Map<string, unknown>();
     return {
         get: (key: string, defaultValue?: unknown) => (store.has(key) ? store.get(key) : defaultValue),
         update: async (key: string, value: unknown) => { store.set(key, value); },
         keys: () => [...store.keys()],
-    };
+    } as vscode.Memento;
 }
 
 type FakeItem = vscode.QuickPickItem & { optionId?: string };
@@ -87,51 +86,43 @@ const rows = [
     [3, "O'Brien"],
 ];
 
-suite('SqlResultsProvider - buildInsertStatementPrefix (składnia MariaDB/MySQL)', () => {
+suite('insertSqlGenerator - buildInsertStatementPrefix (składnia MariaDB/MySQL)', () => {
     test('bez żadnych opcji: "INSERT INTO"', () => {
-        const provider = getProvider() as any;
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set()), 'INSERT INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set()), 'INSERT INTO');
     });
 
     test('IGNORE musi być za INSERT, przed INTO', () => {
-        const provider = getProvider() as any;
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set(['ignore'])), 'INSERT IGNORE INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set(['ignore'])), 'INSERT IGNORE INTO');
     });
 
     test('LOW_PRIORITY/HIGH_PRIORITY/DELAYED też muszą być za INSERT, przed INTO (nie za INTO)', () => {
-        const provider = getProvider() as any;
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set(['lowPriority'])), 'INSERT LOW_PRIORITY INTO');
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set(['highPriority'])), 'INSERT HIGH_PRIORITY INTO');
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set(['delayed'])), 'INSERT DELAYED INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set(['lowPriority'])), 'INSERT LOW_PRIORITY INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set(['highPriority'])), 'INSERT HIGH_PRIORITY INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set(['delayed'])), 'INSERT DELAYED INTO');
     });
 
     test('priority modifier + IGNORE: priority idzie przed IGNORE', () => {
-        const provider = getProvider() as any;
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set(['lowPriority', 'ignore'])), 'INSERT LOW_PRIORITY IGNORE INTO');
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set(['highPriority', 'ignore'])), 'INSERT HIGH_PRIORITY IGNORE INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set(['lowPriority', 'ignore'])), 'INSERT LOW_PRIORITY IGNORE INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set(['highPriority', 'ignore'])), 'INSERT HIGH_PRIORITY IGNORE INTO');
     });
 
     test('replaceInto: "REPLACE INTO", bez modyfikatorów', () => {
-        const provider = getProvider() as any;
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set(['replaceInto'])), 'REPLACE INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set(['replaceInto'])), 'REPLACE INTO');
     });
 
     test('replaceInto + lowPriority: REPLACE obsługuje LOW_PRIORITY/DELAYED', () => {
-        const provider = getProvider() as any;
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set(['replaceInto', 'lowPriority'])), 'REPLACE LOW_PRIORITY INTO');
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set(['replaceInto', 'delayed'])), 'REPLACE DELAYED INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set(['replaceInto', 'lowPriority'])), 'REPLACE LOW_PRIORITY INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set(['replaceInto', 'delayed'])), 'REPLACE DELAYED INTO');
     });
 
     test('replaceInto + highPriority + ignore: oba są niedozwolone dla REPLACE, więc muszą zniknąć', () => {
-        const provider = getProvider() as any;
-        assert.strictEqual(provider.buildInsertStatementPrefix(new Set(['replaceInto', 'highPriority', 'ignore'])), 'REPLACE INTO');
+        assert.strictEqual(buildInsertStatementPrefix(new Set(['replaceInto', 'highPriority', 'ignore'])), 'REPLACE INTO');
     });
 });
 
-suite('SqlResultsProvider - buildInsertSql (pełny generowany SQL)', () => {
+suite('insertSqlGenerator - buildInsertSql (pełny generowany SQL)', () => {
     test('domyślnie (bez opcji): jeden statement, wszystkie wiersze w jednym VALUES', () => {
-        const provider = getProvider() as any;
-        const sql = provider.buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set());
+        const sql = buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set());
 
         assert.strictEqual(
             sql,
@@ -140,31 +131,26 @@ suite('SqlResultsProvider - buildInsertSql (pełny generowany SQL)', () => {
     });
 
     test('IGNORE trafia do wygenerowanego prefiksu', () => {
-        const provider = getProvider() as any;
-        const sql = provider.buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['ignore']));
-
+        const sql = buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['ignore']));
         assert.ok(sql.startsWith('INSERT IGNORE INTO `users`'));
     });
 
     test('ON DUPLICATE KEY UPDATE aktualizuje kolumny spoza klucza głównego, pomijając PK', () => {
-        const provider = getProvider() as any;
-        const sql = provider.buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['onDuplicateKeyUpdate']));
+        const sql = buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['onDuplicateKeyUpdate']));
 
         assert.ok(sql.includes('ON DUPLICATE KEY UPDATE `name` = VALUES(`name`)'));
         assert.ok(!sql.includes('`id` = VALUES(`id`)'));
     });
 
     test('REPLACE INTO ignoruje ON DUPLICATE KEY UPDATE (statement i tak nadpisuje cały wiersz)', () => {
-        const provider = getProvider() as any;
-        const sql = provider.buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['replaceInto', 'onDuplicateKeyUpdate']));
+        const sql = buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['replaceInto', 'onDuplicateKeyUpdate']));
 
         assert.ok(sql.startsWith('REPLACE INTO `users`'));
         assert.ok(!sql.includes('ON DUPLICATE KEY UPDATE'));
     });
 
     test('One INSERT per row: tyle statementów ile wierszy, każdy z jednym VALUES', () => {
-        const provider = getProvider() as any;
-        const sql = provider.buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['oneRowPerStatement']));
+        const sql = buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['oneRowPerStatement']));
 
         const statementCount = (sql.match(/INSERT INTO/g) ?? []).length;
         assert.strictEqual(statementCount, 3);
@@ -174,8 +160,7 @@ suite('SqlResultsProvider - buildInsertSql (pełny generowany SQL)', () => {
     });
 
     test('Split into batches of N rows: dzieli na paczki, ostatnia paczka może być mniejsza (reszta z dzielenia)', () => {
-        const provider = getProvider() as any;
-        const sql = provider.buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['batchSize']), 2);
+        const sql = buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['batchSize']), 2);
 
         const statementCount = (sql.match(/INSERT INTO/g) ?? []).length;
         assert.strictEqual(statementCount, 2);
@@ -184,16 +169,14 @@ suite('SqlResultsProvider - buildInsertSql (pełny generowany SQL)', () => {
     });
 
     test('batchSize bez podanej liczby (undefined) nie dzieli na paczki - fallback do jednego statementu', () => {
-        const provider = getProvider() as any;
-        const sql = provider.buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['batchSize']), undefined);
+        const sql = buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['batchSize']), undefined);
 
         const statementCount = (sql.match(/INSERT INTO/g) ?? []).length;
         assert.strictEqual(statementCount, 1);
     });
 
     test('Wrap in transaction: owija CAŁOŚĆ (nie każdy statement osobno) w START TRANSACTION / COMMIT', () => {
-        const provider = getProvider() as any;
-        const sql = provider.buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['transaction', 'batchSize']), 2);
+        const sql = buildInsertSql(rows, columns, primaryKeys, qualifiedTable, new Set(['transaction', 'batchSize']), 2);
 
         assert.ok(sql.startsWith('START TRANSACTION;\n'));
         assert.ok(sql.trimEnd().endsWith('COMMIT;'));
@@ -203,10 +186,9 @@ suite('SqlResultsProvider - buildInsertSql (pełny generowany SQL)', () => {
     });
 });
 
-suite('SqlResultsProvider - resolveInsertOptionGroupSelection (wzajemna wykluczalność grup)', () => {
+suite('insertSqlGenerator - resolveInsertOptionGroupSelection (wzajemna wykluczalność grup)', () => {
     test('zaznaczenie drugiej opcji z tej samej grupy odznacza poprzednią, zostaje nowo dodana', () => {
-        const provider = getProvider() as any;
-        const result = provider.resolveInsertOptionGroupSelection(
+        const result = resolveInsertOptionGroupSelection(
             new Set(['lowPriority', 'highPriority']),
             new Set(['lowPriority'])
         );
@@ -215,18 +197,12 @@ suite('SqlResultsProvider - resolveInsertOptionGroupSelection (wzajemna wyklucza
     });
 
     test('opcje z różnych grup nie wpływają na siebie nawzajem', () => {
-        const provider = getProvider() as any;
-        const result = provider.resolveInsertOptionGroupSelection(
-            new Set(['ignore', 'lowPriority']),
-            new Set()
-        );
-
+        const result = resolveInsertOptionGroupSelection(new Set(['ignore', 'lowPriority']), new Set());
         assert.deepStrictEqual([...result].sort(), ['ignore', 'lowPriority']);
     });
 
     test('opcja bez grupy (np. transaction) nigdy nie jest usuwana', () => {
-        const provider = getProvider() as any;
-        const result = provider.resolveInsertOptionGroupSelection(
+        const result = resolveInsertOptionGroupSelection(
             new Set(['lowPriority', 'transaction']),
             new Set(['lowPriority'])
         );
@@ -235,15 +211,12 @@ suite('SqlResultsProvider - resolveInsertOptionGroupSelection (wzajemna wyklucza
     });
 
     test('odznaczenie opcji (bez konfliktu w grupie) nie jest ruszane', () => {
-        const provider = getProvider() as any;
-        const result = provider.resolveInsertOptionGroupSelection(new Set(), new Set(['lowPriority']));
-
+        const result = resolveInsertOptionGroupSelection(new Set(), new Set(['lowPriority']));
         assert.deepStrictEqual([...result], []);
     });
 
     test('oneRowPerStatement i batchSize (grupa "batching") wykluczają się nawzajem', () => {
-        const provider = getProvider() as any;
-        const result = provider.resolveInsertOptionGroupSelection(
+        const result = resolveInsertOptionGroupSelection(
             new Set(['oneRowPerStatement', 'batchSize']),
             new Set(['oneRowPerStatement'])
         );
@@ -252,31 +225,26 @@ suite('SqlResultsProvider - resolveInsertOptionGroupSelection (wzajemna wyklucza
     });
 });
 
-suite('SqlResultsProvider - pickInsertGenerationOptions (QuickPick + input box)', () => {
+suite('insertSqlGenerator - pickInsertGenerationOptions (QuickPick + input box)', () => {
     test('domyślnie (brak zapamiętanego wyboru) QuickPick startuje z niczym zaznaczonym', async () => {
-        const provider = getProvider() as any;
-        provider._context = { workspaceState: makeFakeWorkspaceState() };
-
         const fake = makeFakeQuickPick();
         await withMockedWindow({ createQuickPick: () => fake.quickPick }, async () => {
-            const resultPromise = provider.pickInsertGenerationOptions();
+            const resultPromise = pickInsertGenerationOptions(makeFakeWorkspaceState());
             assert.strictEqual(fake.quickPick.selectedItems.length, 0);
 
             fake.fireAccept();
             const result = await resultPromise;
-            assert.deepStrictEqual([...result.ids], []);
+            assert.deepStrictEqual([...result!.ids], []);
         });
     });
 
     test('ostatnio zapamiętany wybór jest wstępnie zaznaczony przy kolejnym otwarciu', async () => {
-        const provider = getProvider() as any;
         const workspaceState = makeFakeWorkspaceState();
         await workspaceState.update('generateInsertSql.selectedOptions', ['ignore', 'transaction']);
-        provider._context = { workspaceState };
 
         const fake = makeFakeQuickPick();
         await withMockedWindow({ createQuickPick: () => fake.quickPick }, async () => {
-            const resultPromise = provider.pickInsertGenerationOptions();
+            const resultPromise = pickInsertGenerationOptions(workspaceState);
             const preSelectedIds = fake.quickPick.selectedItems.map((i: FakeItem) => i.optionId).sort();
             assert.deepStrictEqual(preSelectedIds, ['ignore', 'transaction']);
 
@@ -286,12 +254,9 @@ suite('SqlResultsProvider - pickInsertGenerationOptions (QuickPick + input box)'
     });
 
     test('anulowanie QuickPicka (Escape, bez accept) zwraca undefined', async () => {
-        const provider = getProvider() as any;
-        provider._context = { workspaceState: makeFakeWorkspaceState() };
-
         const fake = makeFakeQuickPick();
         await withMockedWindow({ createQuickPick: () => fake.quickPick }, async () => {
-            const resultPromise = provider.pickInsertGenerationOptions();
+            const resultPromise = pickInsertGenerationOptions(makeFakeWorkspaceState());
             fake.fireHide();
 
             const result = await resultPromise;
@@ -303,9 +268,6 @@ suite('SqlResultsProvider - pickInsertGenerationOptions (QuickPick + input box)'
     test('regresja: batchSize + input box działa poprawnie, nawet gdy otwarcie input boxa odpala onDidHide quickpicka', async () => {
         // to jest dokładnie bug, który wcześniej powodował, że "Split into batches" nic nie robiło - onDidHide (efekt uboczny
         // otwarcia inputboxa) wygrywał wyścig z resolve() z onDidAccept i cała operacja cicho kończyła się jako "anulowana"
-        const provider = getProvider() as any;
-        provider._context = { workspaceState: makeFakeWorkspaceState() };
-
         const fake = makeFakeQuickPick();
         await withMockedWindow(
             {
@@ -316,22 +278,19 @@ suite('SqlResultsProvider - pickInsertGenerationOptions (QuickPick + input box)'
                 },
             },
             async () => {
-                const resultPromise = provider.pickInsertGenerationOptions();
+                const resultPromise = pickInsertGenerationOptions(makeFakeWorkspaceState());
                 fake.quickPick.selectedItems = [{ label: 'Split into batches of N rows', optionId: 'batchSize' }];
                 fake.fireAccept();
 
                 const result = await resultPromise;
                 assert.notStrictEqual(result, undefined);
-                assert.deepStrictEqual([...result.ids], ['batchSize']);
-                assert.strictEqual(result.batchSize, 250);
+                assert.deepStrictEqual([...result!.ids], ['batchSize']);
+                assert.strictEqual(result!.batchSize, 250);
             }
         );
     });
 
     test('anulowanie input boxa dla batchSize (Escape) nie przerywa całej operacji - po prostu odpada opcja batchSize', async () => {
-        const provider = getProvider() as any;
-        provider._context = { workspaceState: makeFakeWorkspaceState() };
-
         const fake = makeFakeQuickPick();
         await withMockedWindow(
             {
@@ -339,7 +298,7 @@ suite('SqlResultsProvider - pickInsertGenerationOptions (QuickPick + input box)'
                 showInputBox: async () => undefined, // użytkownik nacisnął Escape w inputboxie
             },
             async () => {
-                const resultPromise = provider.pickInsertGenerationOptions();
+                const resultPromise = pickInsertGenerationOptions(makeFakeWorkspaceState());
                 fake.quickPick.selectedItems = [
                     { label: 'IGNORE', optionId: 'ignore' },
                     { label: 'Split into batches of N rows', optionId: 'batchSize' },
@@ -348,25 +307,37 @@ suite('SqlResultsProvider - pickInsertGenerationOptions (QuickPick + input box)'
 
                 const result = await resultPromise;
                 assert.notStrictEqual(result, undefined);
-                assert.deepStrictEqual([...result.ids], ['ignore']);
-                assert.strictEqual(result.batchSize, undefined);
+                assert.deepStrictEqual([...result!.ids], ['ignore']);
+                assert.strictEqual(result!.batchSize, undefined);
             }
         );
     });
 
     test('wybrany zestaw opcji (bez batchSize) jest zapamiętywany w workspaceState pod kolejne otwarcie', async () => {
-        const provider = getProvider() as any;
         const workspaceState = makeFakeWorkspaceState();
-        provider._context = { workspaceState };
 
         const fake = makeFakeQuickPick();
         await withMockedWindow({ createQuickPick: () => fake.quickPick }, async () => {
-            const resultPromise = provider.pickInsertGenerationOptions();
+            const resultPromise = pickInsertGenerationOptions(workspaceState);
             fake.quickPick.selectedItems = [{ label: 'REPLACE INTO', optionId: 'replaceInto' }];
             fake.fireAccept();
             await resultPromise;
         });
 
         assert.deepStrictEqual(workspaceState.get('generateInsertSql.selectedOptions'), ['replaceInto']);
+    });
+
+    test('undefined zamiast workspaceState (brak _context) nie wywala się - po prostu nic nie jest zapamiętywane', async () => {
+        const fake = makeFakeQuickPick();
+        await withMockedWindow({ createQuickPick: () => fake.quickPick }, async () => {
+            const resultPromise = pickInsertGenerationOptions(undefined);
+            assert.strictEqual(fake.quickPick.selectedItems.length, 0);
+
+            fake.quickPick.selectedItems = [{ label: 'IGNORE', optionId: 'ignore' }];
+            fake.fireAccept();
+
+            const result = await resultPromise;
+            assert.deepStrictEqual([...result!.ids], ['ignore']);
+        });
     });
 });
