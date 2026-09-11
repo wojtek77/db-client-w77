@@ -8,8 +8,8 @@ import {
     resolveInsertOptionGroupSelection,
 } from '../sql/insertSqlGenerator.js';
 
-// prosty in-memory fake workspaceState (implementuje vscode.Memento), wystarczający do przetestowania zapamiętywania ostatniego wyboru opcji generowania INSERT
-function makeFakeWorkspaceState(): vscode.Memento {
+// prosty in-memory fake globalState (implementuje vscode.Memento), wystarczający do przetestowania zapamiętywania ostatniego wyboru opcji generowania INSERT
+function makeFakeGlobalState(): vscode.Memento {
     const store = new Map<string, unknown>();
     return {
         get: (key: string, defaultValue?: unknown) => (store.has(key) ? store.get(key) : defaultValue),
@@ -256,7 +256,7 @@ suite('insertSqlGenerator - pickInsertGenerationOptions (QuickPick + input box)'
     test('domyślnie (brak zapamiętanego wyboru) QuickPick startuje z niczym zaznaczonym', async () => {
         const fake = makeFakeQuickPick();
         await withMockedWindow({ createQuickPick: () => fake.quickPick }, async () => {
-            const resultPromise = pickInsertGenerationOptions(makeFakeWorkspaceState());
+            const resultPromise = pickInsertGenerationOptions(makeFakeGlobalState());
             assert.strictEqual(fake.quickPick.selectedItems.length, 0);
 
             fake.fireAccept();
@@ -266,12 +266,12 @@ suite('insertSqlGenerator - pickInsertGenerationOptions (QuickPick + input box)'
     });
 
     test('ostatnio zapamiętany wybór jest wstępnie zaznaczony przy kolejnym otwarciu', async () => {
-        const workspaceState = makeFakeWorkspaceState();
-        await workspaceState.update('generateInsertSql.selectedOptions', ['ignore', 'transaction']);
+        const globalState = makeFakeGlobalState();
+        await globalState.update('generateInsertSql.selectedOptions', ['ignore', 'transaction']);
 
         const fake = makeFakeQuickPick();
         await withMockedWindow({ createQuickPick: () => fake.quickPick }, async () => {
-            const resultPromise = pickInsertGenerationOptions(workspaceState);
+            const resultPromise = pickInsertGenerationOptions(globalState);
             const preSelectedIds = fake.quickPick.selectedItems.map((i: FakeItem) => i.optionId).sort();
             assert.deepStrictEqual(preSelectedIds, ['ignore', 'transaction']);
 
@@ -283,7 +283,7 @@ suite('insertSqlGenerator - pickInsertGenerationOptions (QuickPick + input box)'
     test('anulowanie QuickPicka (Escape, bez accept) zwraca undefined', async () => {
         const fake = makeFakeQuickPick();
         await withMockedWindow({ createQuickPick: () => fake.quickPick }, async () => {
-            const resultPromise = pickInsertGenerationOptions(makeFakeWorkspaceState());
+            const resultPromise = pickInsertGenerationOptions(makeFakeGlobalState());
             fake.fireHide();
 
             const result = await resultPromise;
@@ -305,7 +305,7 @@ suite('insertSqlGenerator - pickInsertGenerationOptions (QuickPick + input box)'
                 },
             },
             async () => {
-                const resultPromise = pickInsertGenerationOptions(makeFakeWorkspaceState());
+                const resultPromise = pickInsertGenerationOptions(makeFakeGlobalState());
                 fake.quickPick.selectedItems = [{ label: 'Split into batches of N rows', optionId: 'batchSize' }];
                 fake.fireAccept();
 
@@ -325,7 +325,7 @@ suite('insertSqlGenerator - pickInsertGenerationOptions (QuickPick + input box)'
                 showInputBox: async () => undefined, // użytkownik nacisnął Escape w inputboxie
             },
             async () => {
-                const resultPromise = pickInsertGenerationOptions(makeFakeWorkspaceState());
+                const resultPromise = pickInsertGenerationOptions(makeFakeGlobalState());
                 fake.quickPick.selectedItems = [
                     { label: 'IGNORE', optionId: 'ignore' },
                     { label: 'Split into batches of N rows', optionId: 'batchSize' },
@@ -340,21 +340,21 @@ suite('insertSqlGenerator - pickInsertGenerationOptions (QuickPick + input box)'
         );
     });
 
-    test('wybrany zestaw opcji (bez batchSize) jest zapamiętywany w workspaceState pod kolejne otwarcie', async () => {
-        const workspaceState = makeFakeWorkspaceState();
+    test('wybrany zestaw opcji (bez batchSize) jest zapamiętywany w globalState pod kolejne otwarcie', async () => {
+        const globalState = makeFakeGlobalState();
 
         const fake = makeFakeQuickPick();
         await withMockedWindow({ createQuickPick: () => fake.quickPick }, async () => {
-            const resultPromise = pickInsertGenerationOptions(workspaceState);
+            const resultPromise = pickInsertGenerationOptions(globalState);
             fake.quickPick.selectedItems = [{ label: 'REPLACE INTO', optionId: 'replaceInto' }];
             fake.fireAccept();
             await resultPromise;
         });
 
-        assert.deepStrictEqual(workspaceState.get('generateInsertSql.selectedOptions'), ['replaceInto']);
+        assert.deepStrictEqual(globalState.get('generateInsertSql.selectedOptions'), ['replaceInto']);
     });
 
-    test('undefined zamiast workspaceState (brak _context) nie wywala się - po prostu nic nie jest zapamiętywane', async () => {
+    test('undefined zamiast globalState (brak _context) nie wywala się - po prostu nic nie jest zapamiętywane', async () => {
         const fake = makeFakeQuickPick();
         await withMockedWindow({ createQuickPick: () => fake.quickPick }, async () => {
             const resultPromise = pickInsertGenerationOptions(undefined);

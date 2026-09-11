@@ -9,9 +9,9 @@ export interface InsertGenerationOption {
     group?: 'priority' | 'conflict' | 'batching';
 }
 
-// klucz workspaceState, pod którym zapamiętywany jest ostatni wybór opcji generowania INSERT (per-workspace, przetrwa restart edytora)
+// klucz globalState, pod którym zapamiętywany jest ostatni wybór opcji generowania INSERT (globalnie w edytorze, przetrwa restart)
 const INSERT_GENERATION_OPTIONS_STATE_KEY = 'generateInsertSql.selectedOptions';
-// klucz workspaceState, pod którym zapamiętywana jest ostatnio wpisana wartość N dla opcji "Split into batches of N rows"
+// klucz globalState, pod którym zapamiętywana jest ostatnio wpisana wartość N dla opcji "Split into batches of N rows"
 const INSERT_GENERATION_BATCH_SIZE_STATE_KEY = 'generateInsertSql.batchSize';
 // wartość N proponowana przy pierwszym użyciu opcji podziału na paczki, zanim użytkownik wpisze i zapamięta własną
 const DEFAULT_INSERT_BATCH_SIZE = 500;
@@ -46,10 +46,10 @@ export function resolveInsertOptionGroupSelection(selectedIds: Set<string>, prev
     return finalIds;
 }
 
-// QuickPick z checkboxami dla opcji generowania INSERT, domyślne zaznaczenie to ostatni zapamiętany wybór z workspaceState, undefined gdy użytkownik anulował (Escape)
-export async function pickInsertGenerationOptions(workspaceState: vscode.Memento | undefined): Promise<{ ids: Set<string>; batchSize?: number } | undefined> {
+// QuickPick z checkboxami dla opcji generowania INSERT, domyślne zaznaczenie to ostatni zapamiętany wybór z globalState, undefined gdy użytkownik anulował (Escape)
+export async function pickInsertGenerationOptions(globalState: vscode.Memento | undefined): Promise<{ ids: Set<string>; batchSize?: number } | undefined> {
     const remembered = new Set(
-        workspaceState?.get<string[]>(INSERT_GENERATION_OPTIONS_STATE_KEY, []) ?? []
+        globalState?.get<string[]>(INSERT_GENERATION_OPTIONS_STATE_KEY, []) ?? []
     );
 
     return new Promise<{ ids: Set<string>; batchSize?: number } | undefined>((resolve) => {
@@ -98,7 +98,7 @@ export async function pickInsertGenerationOptions(workspaceState: vscode.Memento
             // opcja "batchSize" wymaga dodatkowo liczby N - dopytujemy osobnym input boxem, z podpowiedzią ostatnio użytej wartości
             let batchSize: number | undefined;
             if (chosenIds.has('batchSize')) {
-                const rememberedBatchSize = workspaceState?.get<number>(INSERT_GENERATION_BATCH_SIZE_STATE_KEY, DEFAULT_INSERT_BATCH_SIZE);
+                const rememberedBatchSize = globalState?.get<number>(INSERT_GENERATION_BATCH_SIZE_STATE_KEY, DEFAULT_INSERT_BATCH_SIZE);
                 const input = await vscode.window.showInputBox({
                     title: 'Generate INSERT - batch size',
                     prompt: 'Number of rows per INSERT statement',
@@ -111,11 +111,11 @@ export async function pickInsertGenerationOptions(workspaceState: vscode.Memento
                     chosenIds.delete('batchSize');
                 } else {
                     batchSize = Number(input);
-                    workspaceState?.update(INSERT_GENERATION_BATCH_SIZE_STATE_KEY, batchSize);
+                    globalState?.update(INSERT_GENERATION_BATCH_SIZE_STATE_KEY, batchSize);
                 }
             }
 
-            workspaceState?.update(INSERT_GENERATION_OPTIONS_STATE_KEY, [...chosenIds]);
+            globalState?.update(INSERT_GENERATION_OPTIONS_STATE_KEY, [...chosenIds]);
             quickPick.dispose();
             resolve({ ids: chosenIds, batchSize });
         });

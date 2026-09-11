@@ -1529,7 +1529,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
-            const selection = await pickInsertGenerationOptions(this._context?.workspaceState);
+            const selection = await pickInsertGenerationOptions(this._context?.globalState);
             if (!selection) {return;} // użytkownik anulował QuickPick (Escape) - nic nie generujemy
             const { ids: selectedOptions, batchSize } = selection;
 
