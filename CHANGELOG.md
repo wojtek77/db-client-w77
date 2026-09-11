@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.7
+
+### Fixed
+- SQL results: Generate INSERT no longer silently drops `HIGH_PRIORITY`,
+  `IGNORE`, or `ON DUPLICATE KEY UPDATE` when combined with `REPLACE INTO`
+  (these combinations aren't valid MariaDB/MySQL syntax and were already
+  being skipped in the generated SQL). A warning is now shown listing
+  which selected options were skipped and why.
+
 ## 1.2.6
 
 ### Added
