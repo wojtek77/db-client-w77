@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.9
+
+### Added
+- SQL results: Generate UPDATE now offers optional modifiers via a
+  QuickPick - `LOW_PRIORITY`, `IGNORE`, wrapping the generated
+  statement(s) in a transaction, and combining rows into a single
+  UPDATE using `CASE WHEN` (or splitting into batches of a chosen
+  size) instead of one UPDATE per row. CASE WHEN batching requires a
+  single-column primary key; on a composite key these options are
+  skipped and a warning lists what was dropped and why. Everything
+  defaults to unchecked (same output as before); the last choice,
+  including the batch size, is remembered globally, same as Generate
+  INSERT.
+
 ## 1.2.8
 
 ### Changed
