@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.6
+
+### Added
+- SQL results: Generate INSERT now offers optional modifiers via a
+  QuickPick - `IGNORE`, `LOW_PRIORITY`/`HIGH_PRIORITY`/`DELAYED`,
+  `ON DUPLICATE KEY UPDATE`, `REPLACE INTO`, wrapping the generated
+  statement(s) in a transaction, and splitting rows into one INSERT
+  per row or into batches of a chosen size. Everything defaults to
+  unchecked (same output as before); the last choice, including the
+  batch size, is remembered per workspace.
+
 ## 1.2.5
 
 ### Changed
