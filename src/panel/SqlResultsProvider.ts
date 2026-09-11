@@ -11,6 +11,7 @@ import { TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatSqlValue, normalizeValueForField } from '../sql/formatSqlValue.js';
 import { resolvePrimaryKeyColumns, resolveTableColumns } from '../sql/resolvePrimaryKeyColumns.js';
 import { pickInsertGenerationOptions, buildInsertSql, getDroppedInsertOptions } from '../sql/insertSqlGenerator.js';
+import { pickUpdateGenerationOptions, buildUpdateSql, getDroppedUpdateOptions } from '../sql/updateSqlGenerator.js';
 import { ColumnSortCache } from './sortPaging.js';
 import { getMultiColumnPageKeys, MultiColumnSortContext } from './multiColumnSortPaging.js';
 import { SortKind, buildColumnSortCache, resolveNumericValue, compareCellValues } from './radixEngine.js';
@@ -1563,26 +1564,20 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                 return;
             }
 
+            const selection = await pickUpdateGenerationOptions(this._context?.globalState);
+            if (!selection) {return;} // użytkownik anulował QuickPick (Escape) - nic nie generujemy
+            const { ids: selectedOptions, batchSize } = selection;
+
             const { columns, primaryKeys, qualifiedTable } = context;
-            const pkIndexSet = new Set(primaryKeys.map((pk) => pk.index));
-            const setColumns = columns.filter((c) => !pkIndexSet.has(c.index));
 
-            const statements = rows.map((row) => {
-                const setParts = setColumns.map(
-                    (c) => `\`${c.name}\` = ${formatSqlValue(row[c.index], c.field)}`
-                );
-                const whereParts = primaryKeys.map(
-                    (pk) => `\`${pk.name}\` = ${formatSqlValue(row[pk.index], pk.field)}`
-                );
+            // ostrzegamy o opcjach, które zostaną pominięte w wygenerowanym SQL z powodu złożonego klucza głównego, zamiast ciszej ich gubić
+            const dropped = getDroppedUpdateOptions(selectedOptions, primaryKeys);
+            if (dropped.length > 0) {
+                const labels = dropped.map((d) => d.label).join(', ');
+                vscode.window.showWarningMessage(`Generate UPDATE: ${labels} skipped - table has a composite primary key`);
+            }
 
-                return (
-                    `UPDATE ${qualifiedTable}\n` +
-                    `SET ${setParts.join(', ')}\n` +
-                    `WHERE ${whereParts.join(' AND ')};`
-                );
-            });
-
-            const sql = statements.join('\n\n') + '\n';
+            const sql = buildUpdateSql(rows, columns, primaryKeys, qualifiedTable, selectedOptions, batchSize);
 
             await this.saveAndCopySql(sql, 'update');
         } catch (err: any) {
