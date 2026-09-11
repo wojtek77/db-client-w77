@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import {
     buildInsertSql,
     buildInsertStatementPrefix,
+    getDroppedInsertOptions,
     pickInsertGenerationOptions,
     resolveInsertOptionGroupSelection,
 } from '../sql/insertSqlGenerator.js';
@@ -117,6 +118,32 @@ suite('insertSqlGenerator - buildInsertStatementPrefix (składnia MariaDB/MySQL)
 
     test('replaceInto + highPriority + ignore: oba są niedozwolone dla REPLACE, więc muszą zniknąć', () => {
         assert.strictEqual(buildInsertStatementPrefix(new Set(['replaceInto', 'highPriority', 'ignore'])), 'REPLACE INTO');
+    });
+});
+
+suite('insertSqlGenerator - getDroppedInsertOptions (ostrzeżenie o cicho gubionych opcjach)', () => {
+    test('bez replaceInto: nic nie jest gubione, niezależnie od innych opcji', () => {
+        assert.deepStrictEqual(getDroppedInsertOptions(new Set(['highPriority', 'ignore', 'onDuplicateKeyUpdate'])), []);
+    });
+
+    test('replaceInto samo w sobie: nic nie ma do zgubienia', () => {
+        assert.deepStrictEqual(getDroppedInsertOptions(new Set(['replaceInto'])), []);
+    });
+
+    test('replaceInto + highPriority: zgłasza highPriority jako pominięte', () => {
+        const dropped = getDroppedInsertOptions(new Set(['replaceInto', 'highPriority']));
+        assert.strictEqual(dropped.length, 1);
+        assert.strictEqual(dropped[0].id, 'highPriority');
+        assert.strictEqual(dropped[0].label, 'HIGH_PRIORITY');
+    });
+
+    test('replaceInto + ignore + onDuplicateKeyUpdate: zgłasza obie pominięte opcje', () => {
+        const dropped = getDroppedInsertOptions(new Set(['replaceInto', 'ignore', 'onDuplicateKeyUpdate']));
+        assert.deepStrictEqual(dropped.map((d) => d.id).sort(), ['ignore', 'onDuplicateKeyUpdate']);
+    });
+
+    test('replaceInto + lowPriority: lowPriority jest wspierane przez REPLACE, więc nie jest gubione', () => {
+        assert.deepStrictEqual(getDroppedInsertOptions(new Set(['replaceInto', 'lowPriority'])), []);
     });
 });
 

@@ -130,6 +130,29 @@ export async function pickInsertGenerationOptions(workspaceState: vscode.Memento
     });
 }
 
+// opcja, którą użytkownik zaznaczył, ale która zostanie pominięta w wygenerowanym SQL z powodu konfliktu z inną zaznaczoną opcją
+export interface DroppedInsertOption {
+    id: string;
+    label: string;
+    reason: string;
+}
+
+// zwraca zaznaczone opcje, które faktycznie zostaną pominięte przy budowaniu SQL - do pokazania ostrzeżenia użytkownikowi, nie używane przy samym budowaniu SQL
+export function getDroppedInsertOptions(selectedOptions: Set<string>): DroppedInsertOption[] {
+    if (!selectedOptions.has('replaceInto')) { return []; }
+
+    const labelOf = (id: string) => INSERT_GENERATION_OPTIONS.find((o) => o.id === id)?.label ?? id;
+    const conflicting: { id: string; reason: string }[] = [
+        { id: 'highPriority', reason: 'not supported by REPLACE INTO' },
+        { id: 'ignore', reason: 'has no effect with REPLACE INTO' },
+        { id: 'onDuplicateKeyUpdate', reason: 'has no effect with REPLACE INTO' },
+    ];
+
+    return conflicting
+        .filter((c) => selectedOptions.has(c.id))
+        .map((c) => ({ id: c.id, label: labelOf(c.id), reason: c.reason }));
+}
+
 // buduje przedrostek statementu wg składni MariaDB/MySQL: INSERT|REPLACE [LOW_PRIORITY|DELAYED|HIGH_PRIORITY] [IGNORE] INTO - modyfikatory MUSZĄ być między słowem kluczowym a INTO, nigdy po INTO
 export function buildInsertStatementPrefix(selectedOptions: Set<string>): string {
     const isReplace = selectedOptions.has('replaceInto');

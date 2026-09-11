@@ -10,7 +10,7 @@ import { ConnectionColors } from '../db/ConnectionColors.js';
 import { TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatSqlValue, normalizeValueForField } from '../sql/formatSqlValue.js';
 import { resolvePrimaryKeyColumns, resolveTableColumns } from '../sql/resolvePrimaryKeyColumns.js';
-import { pickInsertGenerationOptions, buildInsertSql } from '../sql/insertSqlGenerator.js';
+import { pickInsertGenerationOptions, buildInsertSql, getDroppedInsertOptions } from '../sql/insertSqlGenerator.js';
 import { ColumnSortCache } from './sortPaging.js';
 import { getMultiColumnPageKeys, MultiColumnSortContext } from './multiColumnSortPaging.js';
 import { SortKind, buildColumnSortCache, resolveNumericValue, compareCellValues } from './radixEngine.js';
@@ -1532,6 +1532,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const selection = await pickInsertGenerationOptions(this._context?.workspaceState);
             if (!selection) {return;} // użytkownik anulował QuickPick (Escape) - nic nie generujemy
             const { ids: selectedOptions, batchSize } = selection;
+
+            // ostrzegamy o opcjach, które zostaną pominięte w wygenerowanym SQL z powodu konfliktu z REPLACE INTO, zamiast ciszej ich gubić
+            const dropped = getDroppedInsertOptions(selectedOptions);
+            if (dropped.length > 0) {
+                const labels = dropped.map((d) => d.label).join(', ');
+                vscode.window.showWarningMessage(`Generate INSERT: ${labels} skipped - not compatible with REPLACE INTO`);
+            }
 
             const { columns, primaryKeys, qualifiedTable } = context;
             const sql = buildInsertSql(rows, columns, primaryKeys, qualifiedTable, selectedOptions, batchSize);
