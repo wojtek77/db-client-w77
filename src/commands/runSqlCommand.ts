@@ -21,6 +21,22 @@ export async function runSQLCommand() {
     //     return;
     // }
     
+    const sqlResultsProvider = SqlResultsProvider.getInstance();
+    if (!sqlResultsProvider) {
+        return;
+    }
+
+    // jest zaznaczenie - wykonaj dokładnie zaznaczony tekst tą samą ścieżką co run whole file (findAllQueries + transakcja w executeQueryWholeFile)
+    if (!editor.selection.isEmpty) {
+        const selectedText = editor.document.getText(editor.selection);
+        await sqlResultsProvider.executeQuery(
+            selectedText,
+            editor.document.fileName,
+            true
+        );
+        return;
+    }
+
     const fullText = editor.document.getText();
     const currentLine = editor.selection.active.line; // Bezpośredni numer linii z VS Code
 
@@ -33,12 +49,9 @@ export async function runSQLCommand() {
         vscode.window.showWarningMessage('No SQL query found at cursor');
         return;
     }
-    
-    const sqlResultsProvider = SqlResultsProvider.getInstance();
-    if (sqlResultsProvider) {
-        await sqlResultsProvider.executeQuery(
-            sql,
-            editor.document.fileName
-        );
-    }
+
+    await sqlResultsProvider.executeQuery(
+        sql,
+        editor.document.fileName
+    );
 }
