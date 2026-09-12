@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.11
+
+### Added
+- Run SQL: Ctrl+Enter now runs the selected text when there is a
+  selection, executing it through the same multi-statement path as
+  "Run SQL Whole File" (findAllQueries + transaction), so selecting
+  several statements in a file runs exactly those, not the whole
+  file. Without a selection, behavior is unchanged (single statement
+  at cursor).
+
 ## 1.2.10
 
 ### Added
