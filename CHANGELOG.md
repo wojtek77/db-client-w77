@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.10
+
+### Added
+- SQL results: Generate DELETE now offers optional modifiers via a
+  QuickPick - `LOW_PRIORITY`, `QUICK`, `IGNORE`, wrapping the generated
+  statement(s) in a transaction, and either one DELETE per row or
+  splitting rows into batches of a chosen size instead of one DELETE
+  with all rows in a `WHERE ... IN (...)` clause. Everything defaults
+  to unchecked (same output as before); the last choice, including the
+  batch size, is remembered globally, same as Generate INSERT and
+  Generate UPDATE.
+
 ## 1.2.9
 
 ### Added
