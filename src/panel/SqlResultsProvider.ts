@@ -12,6 +12,7 @@ import { formatSqlValue, normalizeValueForField } from '../sql/formatSqlValue.js
 import { resolvePrimaryKeyColumns, resolveTableColumns } from '../sql/resolvePrimaryKeyColumns.js';
 import { pickInsertGenerationOptions, buildInsertSql, getDroppedInsertOptions } from '../sql/insertSqlGenerator.js';
 import { pickUpdateGenerationOptions, buildUpdateSql, getDroppedUpdateOptions } from '../sql/updateSqlGenerator.js';
+import { pickDeleteGenerationOptions, buildDeleteSql } from '../sql/deleteSqlGenerator.js';
 import { ColumnSortCache } from './sortPaging.js';
 import { getMultiColumnPageKeys, MultiColumnSortContext } from './multiColumnSortPaging.js';
 import { SortKind, buildColumnSortCache, resolveNumericValue, compareCellValues } from './radixEngine.js';
@@ -1600,23 +1601,12 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
 
             const { primaryKeys, qualifiedTable } = context;
-            const pkColumnNames = primaryKeys.map((pk) => `\`${pk.name}\``);
 
-            let sql: string;
+            const selection = await pickDeleteGenerationOptions(this._context?.globalState);
+            if (!selection) {return;} // użytkownik anulował QuickPick (Escape) - nic nie generujemy
+            const { ids: selectedOptions, batchSize } = selection;
 
-            if (pkColumnNames.length === 1) {
-                const pk = primaryKeys[0];
-                const values = rows.map((row) => formatSqlValue(row[pk.index], pk.field));
-                sql = `DELETE FROM ${qualifiedTable}\nWHERE ${pkColumnNames[0]} IN (${values.join(', ')});\n`;
-            } else {
-                const tuples = rows.map((row) => {
-                    const values = primaryKeys.map((pk) => formatSqlValue(row[pk.index], pk.field));
-                    return `(${values.join(', ')})`;
-                });
-                sql =
-                    `DELETE FROM ${qualifiedTable}\n` +
-                    `WHERE (${pkColumnNames.join(', ')}) IN (${tuples.join(', ')});\n`;
-            }
+            const sql = buildDeleteSql(rows, primaryKeys, qualifiedTable, selectedOptions, batchSize);
 
             await this.saveAndCopySql(sql, 'delete');
         } catch (err: any) {
