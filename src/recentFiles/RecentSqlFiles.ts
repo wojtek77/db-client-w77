@@ -370,7 +370,7 @@ export class RecentSqlFiles {
             quickPick.show();
         };
 
-        // obsługa przycisku "+" - pyta o nazwę, tworzy pusty plik .sql i otwiera go w edytorze
+        // obsługa przycisku "+" - pyta o nazwę, tworzy pusty plik .sql, otwiera go w edytorze i pozwala od razu wybrać dla niego połączenie z DB
         const handleAddNewFile = async () => {
             const instance = RecentSqlFiles.getInstance();
             const lastEntry = Array.from(instance.getSqlFiles().entries()).pop(); // ostatni wpis w Map = ostatnio dodany/przesunięty plik
@@ -426,6 +426,17 @@ export class RecentSqlFiles {
                 preview: false,       // pełne otwarcie, nie preview
                 preserveFocus: false  // od razu aktywuje edytor
             });
+
+            isShowingSubPicker = true; // otwieramy nad listą kolejny picker (wybór połączenia), więc jego zamknięcie nie ma być traktowane jako anulowanie całej listy
+
+            try {
+                // od razu po utworzeniu pliku pozwalamy wybrać dla niego połączenie z DB, zamiast po cichu dziedziczyć aktualnie aktywne połączenie
+                await instance.changeConnectionName(finalPath);
+            } catch {
+                // użytkownik anulował wybór (Esc) - plik zostaje bez połączenia, zostanie o nie zapytany przy pierwszym uruchomieniu zapytania
+            }
+
+            isShowingSubPicker = false;
 
             quickPick.hide(); // to samo wywołanie co przy zwykłym anulowaniu - naturalnie domknie i zwolni cały QuickPick przez istniejący onDidHide
         };
