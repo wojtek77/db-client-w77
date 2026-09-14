@@ -125,6 +125,39 @@ suite('CnfLoader', () => {
         );
     });
 
+    test('reads database and reconnect from the [mysql] section too', async () => {
+        await withTempCnf(
+            '[client]\nhost = 127.0.0.1\n\n[mysql]\ndatabase = shop\nreconnect = true\n',
+            async (filePath) => {
+                const opts = await CnfLoader.getOptionsFromCnf(filePath);
+                assert.strictEqual(opts.database, 'shop');
+                assert.strictEqual(opts.reconnect, true);
+            }
+        );
+    });
+
+    test('[mysql] section overrides database/reconnect from [client] when it comes after', async () => {
+        await withTempCnf(
+            '[client]\ndatabase = clientdb\nreconnect = false\n\n[mysql]\ndatabase = mysqldb\nreconnect = true\n',
+            async (filePath) => {
+                const opts = await CnfLoader.getOptionsFromCnf(filePath);
+                assert.strictEqual(opts.database, 'mysqldb');
+                assert.strictEqual(opts.reconnect, true);
+            }
+        );
+    });
+
+    test('ignores options other than database/reconnect in the [mysql] section', async () => {
+        await withTempCnf(
+            '[client]\nhost = 127.0.0.1\n\n[mysql]\nuser = should-be-ignored\ndatabase = shop\n',
+            async (filePath) => {
+                const opts = await CnfLoader.getOptionsFromCnf(filePath);
+                assert.strictEqual(opts.database, 'shop');
+                assert.strictEqual(opts.user, undefined);
+            }
+        );
+    });
+
     test('does not choke if production/readonly are mistakenly left in [client] (they are just ignored there)', async () => {
         await withTempCnf(
             '[client]\nhost = 127.0.0.1\nproduction = true\n',

@@ -39,6 +39,12 @@ const DB_CLIENT_BOOLEAN_KEYS = new Set([
     'readonly',
 ]);
 
+// te opcje dodatkowo czytamy z sekcji [mysql] (nadpisują to, co ustawiono w [client], bo [mysql] jest bardziej specyficzna)
+const MYSQL_SECTION_ALLOWED_KEYS = new Set([
+    'database',
+    'reconnect',
+]);
+
 export class CnfLoader {
 
     /**
@@ -67,6 +73,61 @@ export class CnfLoader {
         return trimmed;
     }
 
+    // parsowanie pojedynczej linii "klucz=wartość" tak jak w sekcji [client], współdzielone też przez sekcję [mysql]
+    private static parseClientLikeLine(trimmed: string): [string, string | boolean | number] {
+        // podział na klucz i wartość przy pierwszym znaku "="
+        const eqIndex = trimmed.indexOf('=');
+        let key, value;
+        if (eqIndex !== -1) { // to co ma znak równości w linii
+            key = trimmed.substring(0, eqIndex).trim();
+            // '#' może zaczynać komentarz w środku linii (prawdziwa składnia MySQL), np. 'database=  # your database' -> pusta wartość
+            value = this.stripInlineComment(trimmed.substring(eqIndex + 1));
+            // usuwanie cudzysłowów otaczających wartość, jeśli istnieją
+            value = value.replace(REGEX_SURROUNDING_QUOTES, '');
+
+            // zmiana wartości tylko dla znanych opcji liczbowych/logicznych – hasła, nazwy użytkowników, baz i hosty zawsze zostają stringiem
+            const valueLower = value.toLowerCase();
+            if (NUMERIC_OPTION_KEYS.has(key) && value !== '' && !isNaN(Number(value))) {
+                value = Number(value);
+            } else if (BOOLEAN_OPTION_KEYS.has(key)) {
+                if (valueLower === 'true') {
+                    value = true;
+                } else if (valueLower === 'false') {
+                    value = false;
+                }
+            }
+        } else {
+            // obsługa jeśli nie ma znaku "="
+            key = trimmed;
+            value = '';
+        }
+
+        // zamiana kluczy
+        switch (key) {
+            case 'skip-ssl': {
+                // wartość jeszcze nie była konwertowana wyżej (skip-ssl nie jest na białej liście), więc porównujemy oryginalny string
+                const rawValue = String(value).toLowerCase();
+                const skipSsl = (rawValue === 'true' || rawValue === '');
+                key = 'ssl';
+                value = !skipSsl;
+                break;
+            }
+
+            case 'compress':
+            case 'reconnect':
+                if (value === '') {
+                    value = false;
+                }
+                break;
+
+            case 'socket':
+                key = 'socketPath';
+                break;
+        }
+
+        return [key, value];
+    }
+
     public static async getOptionsFromCnf(filePath: string): Promise<any> {
         const cnfArr = await this._optionsFromCnfRec(filePath);
         const cnf = Object.fromEntries(cnfArr);
@@ -86,6 +147,7 @@ export class CnfLoader {
         
         const options: [string, any][] = [];
         let inClientSection = false;
+        let inMysqlSection = false;
         let inMysqldSection = false;
         let inDbClientSection = false;
         let tcpKeepaliveTime: number | null = null;
@@ -117,8 +179,19 @@ export class CnfLoader {
             if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
                 const sectionName = trimmed.slice(1, -1).trim();
                 inClientSection = (sectionName === 'client');
+                inMysqlSection = (sectionName === 'mysql');
                 inMysqldSection = (sectionName === 'mysqld');
                 inDbClientSection = (sectionName === 'db-client');
+                continue;
+            }
+
+            // 3c. sekcja [mysql] – tylko database/reconnect, żeby nie wciągać opcji specyficznych dla CLI mysql, których nasz klient nie obsługuje
+            if (inMysqlSection) {
+                const eqIndex = trimmed.indexOf('=');
+                const key = (eqIndex !== -1 ? trimmed.substring(0, eqIndex) : trimmed).trim();
+                if (MYSQL_SECTION_ALLOWED_KEYS.has(key)) {
+                    options.push(this.parseClientLikeLine(trimmed));
+                }
                 continue;
             }
 
@@ -155,61 +228,13 @@ export class CnfLoader {
 
             // 4. Przetwarzanie parametrów wewnątrz sekcji [client]
             if (inClientSection) {
-                // podział na klucz i wartość przy pierwszym znaku "="
-                const eqIndex = trimmed.indexOf('=');
-                let key, value;
-                if (eqIndex !== -1) { // to co ma znak równości w linii
-                    key = trimmed.substring(0, eqIndex).trim();
-                    // '#' może zaczynać komentarz w środku linii (prawdziwa składnia MySQL), np. 'database=  # your database' -> pusta wartość
-                    value = this.stripInlineComment(trimmed.substring(eqIndex + 1));
-                    // usuwanie cudzysłowów otaczających wartość, jeśli istnieją
-                    value = value.replace(REGEX_SURROUNDING_QUOTES, '');
-                    
-                    // zmiana wartości tylko dla znanych opcji liczbowych/logicznych – hasła, nazwy użytkowników, baz i hosty zawsze zostają stringiem
-                    const valueLower = value.toLowerCase();
-                    if (NUMERIC_OPTION_KEYS.has(key) && value !== '' && !isNaN(Number(value))) {
-                        value = Number(value);
-                    } else if (BOOLEAN_OPTION_KEYS.has(key)) {
-                        if (valueLower === 'true') {
-                            value = true;
-                        } else if (valueLower === 'false') {
-                            value = false;
-                        }
-                    }
-                } else {
-                    // obsługa jeśli nie ma znaku "="
-                    key = trimmed;
-                    value = '';
-                }
-                
+                const [key, value] = this.parseClientLikeLine(trimmed);
+
                 // production/readonly nie należą do [client] – pomyłkowy wpis pomijamy, inaczej dałoby mylący wynik ('true' === true to false w JS)
                 if (DB_CLIENT_BOOLEAN_KEYS.has(key)) {
                     continue;
                 }
 
-                // zamiana kluczy
-                switch (key) {
-                    case 'skip-ssl': {
-                        // wartość jeszcze nie była konwertowana wyżej (skip-ssl nie jest na białej liście), więc porównujemy oryginalny string
-                        const rawValue = String(value).toLowerCase();
-                        const skipSsl = (rawValue === 'true' || rawValue === '');
-                        key = 'ssl';
-                        value = !skipSsl;
-                        break;
-                    }
-                    
-                    case 'compress':
-                    case 'reconnect':
-                        if (value === '') {
-                            value = false;
-                        }
-                        break;
-                    
-                    case 'socket':
-                        key = 'socketPath';
-                        break;
-                }
-                
                 options.push([key, value]);
             }
         }
