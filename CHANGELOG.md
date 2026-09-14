@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.13
+
+### Added
+- Connection config (`.cnf` files): `database` and `reconnect` are now
+  also read from the `[mysql]` section, not just `[client]`. Other
+  options in `[mysql]` are still ignored. If both sections set these,
+  `[mysql]` takes precedence when it comes after `[client]` in the file.
+
 ## 1.2.12
 
 ### Added
