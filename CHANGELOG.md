@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.12
+
+### Added
+- Recent SQL Files: creating a new SQL file (F3, then the "+" icon)
+  now immediately asks the user to pick a DB connection for it,
+  instead of silently inheriting the currently active connection.
+  Canceling the picker (Esc) leaves the file created and open with no
+  connection assigned; the user is asked again on the first query run,
+  same as before.
+
 ## 1.2.11
 
 ### Added
