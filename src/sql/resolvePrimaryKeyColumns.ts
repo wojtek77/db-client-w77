@@ -61,3 +61,22 @@ export function resolveTableColumns(meta: MetaFieldLike[], tableName: string): R
 
     return columns;
 }
+
+// porównuje dwie wartości PK (obsługuje liczby, stringi, null) - do sortowania krotek PK przed wstawieniem do WHERE IN (żeby były czytelne w logach SQL)
+export function comparePkValues(a: any, b: any): number {
+    if (a === b) {return 0;}
+    if (a === null || a === undefined) {return -1;}
+    if (b === null || b === undefined) {return 1;}
+    if (typeof a === 'number' && typeof b === 'number') {return a - b;}
+    if (typeof a === 'bigint' && typeof b === 'bigint') {return a < b ? -1 : (a > b ? 1 : 0);}
+    return String(a).localeCompare(String(b), undefined, { numeric: true });
+}
+
+// porównuje dwie krotki wartości PK kolumna po kolumnie (obsługuje też PK złożony)
+export function comparePkTuples(tupleA: any[], tupleB: any[]): number {
+    for (let i = 0; i < tupleA.length; i++) {
+        const cmp = comparePkValues(tupleA[i], tupleB[i]);
+        if (cmp !== 0) {return cmp;}
+    }
+    return 0;
+}

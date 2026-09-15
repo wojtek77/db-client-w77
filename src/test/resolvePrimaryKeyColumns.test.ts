@@ -3,6 +3,8 @@ import {
     findColumnIndex,
     resolvePrimaryKeyColumns,
     resolveTableColumns,
+    comparePkValues,
+    comparePkTuples,
     MetaFieldLike,
 } from '../sql/resolvePrimaryKeyColumns.js';
 
@@ -121,5 +123,54 @@ suite('resolveTableColumns', () => {
 
         assert.deepStrictEqual(columns.map((c) => c.name), ['id', 'sku', 'price']);
         assert.deepStrictEqual(columns.map((c) => c.index), [0, 1, 4]); // pierwsze wystąpienia + jedyne wystąpienie price
+    });
+});
+
+suite('comparePkValues', () => {
+    test('liczby - porównanie numeryczne, nie leksykograficzne', () => {
+        assert.strictEqual(comparePkValues(2, 10) < 0, true);
+        assert.strictEqual(comparePkValues(10, 2) > 0, true);
+        assert.strictEqual(comparePkValues(5, 5), 0);
+    });
+
+    test('stringi - porównanie z opcją numeric:true (np. "2" < "10")', () => {
+        assert.strictEqual(comparePkValues('2', '10') < 0, true);
+        assert.strictEqual(comparePkValues('b', 'a') > 0, true);
+        assert.strictEqual(comparePkValues('a', 'a'), 0);
+    });
+
+    test('bigint - porównanie przez operatory < >', () => {
+        assert.strictEqual(comparePkValues(2n, 10n) < 0, true);
+        assert.strictEqual(comparePkValues(10n, 2n) > 0, true);
+        assert.strictEqual(comparePkValues(5n, 5n), 0);
+    });
+
+    test('null/undefined zawsze sortują się przed wartością rzeczywistą', () => {
+        assert.strictEqual(comparePkValues(null, 1) < 0, true);
+        assert.strictEqual(comparePkValues(1, null) > 0, true);
+        assert.strictEqual(comparePkValues(undefined, 'a') < 0, true);
+    });
+
+    test('null i undefined są sobie równe tylko przez ścisłe ===; null vs undefined (różne wartości) traktowane jak "a brakujące" (-1), nie jak remis', () => {
+        assert.strictEqual(comparePkValues(null, null), 0);
+        assert.strictEqual(comparePkValues(undefined, undefined), 0);
+        assert.strictEqual(comparePkValues(null, undefined), -1);
+        assert.strictEqual(comparePkValues(undefined, null), -1);
+    });
+});
+
+suite('comparePkTuples', () => {
+    test('porównuje kolumna po kolumnie - pierwsza różnica rozstrzyga', () => {
+        assert.strictEqual(comparePkTuples([1, 'b'], [1, 'a']) > 0, true);
+        assert.strictEqual(comparePkTuples([1, 'a'], [2, 'a']) < 0, true);
+    });
+
+    test('krotki identyczne na wszystkich pozycjach -> 0', () => {
+        assert.strictEqual(comparePkTuples([1, 'a'], [1, 'a']), 0);
+    });
+
+    test('działa też dla PK jednokolumnowego (krotka o długości 1)', () => {
+        assert.strictEqual(comparePkTuples([5], [3]) > 0, true);
+        assert.strictEqual(comparePkTuples([5], [5]), 0);
     });
 });

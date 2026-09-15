@@ -3,19 +3,22 @@ import { getHtml } from './html.js';
 import { executeQuery, executeQueryWholeFile } from '../db/query.js';
 import { ConnectionManager } from '../db/ConnectionManager.js';
 import { Connection } from '../db/Connection.js';
-import * as path from 'path';
-import * as os from 'os';
 import { RecentSqlFiles } from '../recentFiles/RecentSqlFiles.js';
 import { ConnectionColors } from '../db/ConnectionColors.js';
 import { TableColumnsCache } from '../cache/TableColumnsCache.js';
 import { formatSqlValue, normalizeValueForField } from '../sql/formatSqlValue.js';
-import { resolvePrimaryKeyColumns, resolveTableColumns } from '../sql/resolvePrimaryKeyColumns.js';
+import { resolvePrimaryKeyColumns, comparePkTuples } from '../sql/resolvePrimaryKeyColumns.js';
 import { pickInsertGenerationOptions, buildInsertSql, getDroppedInsertOptions } from '../sql/insertSqlGenerator.js';
 import { pickUpdateGenerationOptions, buildUpdateSql, getDroppedUpdateOptions } from '../sql/updateSqlGenerator.js';
 import { pickDeleteGenerationOptions, buildDeleteSql } from '../sql/deleteSqlGenerator.js';
+import { resolveTableContext } from '../sql/resolveTableContext.js';
+import { computeSortKinds, computeColumnTypes } from '../sql/fieldMetadata.js';
 import { ColumnSortCache } from './sortPaging.js';
 import { getMultiColumnPageKeys, MultiColumnSortContext } from './multiColumnSortPaging.js';
 import { SortKind, buildColumnSortCache, resolveNumericValue, compareCellValues } from './radixEngine.js';
+import { isValidWebviewMessage } from './webviewMessages.js';
+import { confirmDestructiveOperation } from './confirmDestructiveOperation.js';
+import { exportRowsToCsv, exportRowsToTxt, saveAndCopyGeneratedSql } from './resultsExport.js';
 
 /** Pojedyncze kryterium sortowania wielokolumnowego - kolejność w tablicy this._sortCriteria decyduje o priorytecie (pierwszy element = główne sortowanie, kolejne rozstrzygają remisy poprzedniego), dokładnie jak w SQL ORDER BY col1, col2, ... */
 interface SortCriterion {
@@ -45,16 +48,6 @@ interface FileResultState {
 
 export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private static instance: SqlResultsProvider;
-    /**
-     * Nazwy typów z field.type (mariadb driver, enum Types) klasyfikowane jako NUMBER na potrzeby sortowania - reszta (w tym VARCHAR/VAR_STRING/STRING)
-     * to STRING, poza DATE_SORT_TYPE_NAMES niżej. Nazwy dokładnie wg node_modules/mariadb/lib/const/field-type.js (sterownik 'mariadb', nie 'mysql2' - stąd 'INT', nie 'LONG'). DECIMAL/NEWDECIMAL trafiają tu mimo że driver zwraca je jako JS string (decimalAsNumber nie jest
-     * ustawione w Connection.ts) - komparator numeryczny (odejmowanie) działa poprawnie niezależnie od tego, czy wartość jest JS number czy numerycznym
-     * stringiem, bo operator '-' zawsze wymusza konwersję obu argumentów na liczbę. YEAR jest już liczbą 4-cyfrową, więc nie potrzebuje osobnego parsera dat.
-     */
-    private static readonly NUMERIC_SORT_TYPE_NAMES = new Set(['TINY', 'SHORT', 'INT', 'INT24', 'BIGINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR', 'BIT']);
-    // nazwy typów z field.type klasyfikowane jako DATE na potrzeby sortowania - wszystkie u nas zawsze stringi (dateStrings:true, patrz Connection.ts), więc idą przez parseDateOrTimeToSortableNumber zamiast wprost przez Number()
-    private static readonly DATE_SORT_TYPE_NAMES = new Set(['DATE', 'DATETIME', 'TIMESTAMP', 'TIME']);
-
 
     static initialize(
         context: vscode.ExtensionContext
@@ -174,7 +167,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         });
 
         webviewView.webview.onDidReceiveMessage(async (msg) => {
-            if (!SqlResultsProvider.isValidWebviewMessage(msg)) {
+            if (!isValidWebviewMessage(msg)) {
                 console.error('Ignored malformed message from webview:', msg);
                 return;
             }
@@ -249,11 +242,11 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             }
             
             if (msg.command === 'exportCSV') {
-                await this.exportToCSV();
+                await exportRowsToCsv(this._context, this._headers, this._allRows);
             }
             
             if (msg.command === 'exportTXT') {
-                await this.exportToTXT();
+                await exportRowsToTxt(this._context, this._headers, this._allRows);
             }
             
             if (msg.command === 'cancelQuery') {
@@ -290,123 +283,10 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
     
-    /**
-     * Waliduje kształt komunikatów przychodzących z webview. Webview nie jest
-     * zaufanym źródłem (renderuje dane z bazy i mogłoby zostać skompromitowane
-     * przez np. XSS), więc każdy komunikat musi mieć oczekiwany "command" oraz
-     * pola o oczekiwanym typie, zanim zostanie użyty do czegokolwiek (a w
-     * szczególności zanim trafi do zapytania SQL).
-     */
-    private static isValidWebviewMessage(msg: any): boolean {
-        if (!msg || typeof msg !== 'object' || typeof msg.command !== 'string') {
-            return false;
-        }
-
-        const isNumberArray = (v: any) => Array.isArray(v) && v.every((n) => typeof n === 'number');
-
-        switch (msg.command) {
-            case 'loadPage':
-                return typeof msg.page === 'number' && msg.page > 0;
-
-            case 'search':
-                return typeof msg.query === 'string';
-
-            case 'sortColumn':
-                // additive=true -> Shift+klik (dokłada/aktualizuje/usuwa TĘ kolumnę jako kolejne kryterium, nie ruszając pozostałych); additive=false -> zwykły klik (patrz toggleSort)
-                return typeof msg.columnIndex === 'number' && typeof msg.additive === 'boolean';
-
-            case 'updateCell':
-                return typeof msg.rowKey === 'number' && typeof msg.rowIndex === 'number' && typeof msg.columnIndex === 'number';
-
-            case 'deleteRows':
-            case 'generateInsert':
-            case 'generateUpdate':
-            case 'generateDelete':
-                return isNumberArray(msg.rowKeys);
-
-            case 'saveColumnEdits':
-                return Array.isArray(msg.edits) && msg.edits.every((edit: any) =>
-                    edit && typeof edit === 'object' &&
-                    typeof edit.columnIndex === 'number' &&
-                    typeof edit.columnName === 'string'
-                );
-
-            case 'saveCellEdits':
-                return typeof msg.value !== 'undefined' &&
-                    Array.isArray(msg.cells) && msg.cells.length > 0 && msg.cells.every((cell: any) =>
-                        cell && typeof cell === 'object' &&
-                        typeof cell.rowKey === 'number' &&
-                        typeof cell.columnIndex === 'number' &&
-                        typeof cell.columnName === 'string'
-                    );
-
-            case 'webviewReady':
-            case 'changeConnection':
-            case 'openRecentFiles':
-            case 'exportCSV':
-            case 'exportTXT':
-            case 'cancelQuery':
-            case 'pickConnectionColor':
-                return true;
-
-            default:
-                // nieznana komenda - odrzucamy
-                return false;
-        }
-    }
-
     public isQueryRunning(): boolean {
         return this._queryRunning;
     }
 
-    /**
-     * Wspólne potwierdzenie destrukcyjnej, zbiorczej operacji (bulk UPDATE / DELETE
-     * z widoku wyników): pokazuje host i bazę danych, na które operacja faktycznie
-     * trafi, a opcjonalnie (ustawienie db-client.requireConnectionNameConfirmation)
-     * wymaga wpisania nazwy połączenia, zanim operacja zostanie wykonana.
-     */
-    private async confirmDestructiveOperation(
-        message: string,
-        confirmLabel: string,
-        db: Connection
-    ): Promise<boolean> {
-        const target = [db.getHost(), db.getDatabase()].filter(Boolean).join(' / ');
-        const productionWarning = db.isProductionConnection() ? '\n\n⚠ This is a PRODUCTION connection.' : '';
-        const fullMessage = target
-            ? `${message}\n\nConnection: "${db.getConnectionName()}" (${target})${productionWarning}`
-            : `${message}${productionWarning}`;
-
-        const answer = await vscode.window.showWarningMessage(
-            fullMessage,
-            { modal: true },
-            confirmLabel
-        );
-        if (answer !== confirmLabel) {
-            return false;
-        }
-
-        const requireTypedName = vscode.workspace
-            .getConfiguration('db-client')
-            .get<boolean>('requireConnectionNameConfirmation', false);
-
-        if (requireTypedName) {
-            const connectionName = db.getConnectionName();
-            // validateInput trzyma pole otwarte i pokazuje czerwony błąd dopóki nazwa się nie zgadza, zamiast od razu anulować całą operację
-            const typed = await vscode.window.showInputBox({
-                prompt: `Type the connection name "${connectionName}" to confirm`,
-                placeHolder: connectionName,
-                ignoreFocusOut: true,
-                validateInput: (value) =>
-                    value === connectionName ? null : `Connection name doesn't match "${connectionName}"`,
-            });
-            if (typed !== connectionName) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-    
     private async cancelCurrentQuery() {
         try {
             const db =
@@ -821,62 +701,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * MySQL/MariaDB flaga BINARY_COLLATION z FieldInfo.flags (bit 1<<7).
-     * Odróżnia prawdziwy BLOB (collation binarne) od TEXT (collation tekstowe) -
-     * na poziomie protokołu oba typy są raportowane tym samym field.type.
-     */
-    private static readonly BINARY_COLLATION_FLAG = 1 << 7;
-
-    /**
-     * field.type dla kolumn TEXT-owych - protokół MySQL/MariaDB raportuje je
-     * pod tymi samymi nazwami co odpowiadające im rozmiarowo typy BLOB.
-     */
-    private static readonly BLOB_TEXT_TYPE_NAMES: Record<string, string> = {
-        TINY_BLOB: 'tinytext',
-        BLOB: 'text',
-        MEDIUM_BLOB: 'mediumtext',
-        LONG_BLOB: 'longtext'
-    };
-
-    /**
-     * Na podstawie metadanych kolumn (meta z mariadb) ustala typ danych
-     * potrzebny wyłącznie do decyzji input/textarea przy edycji komórki
-     * (patrz media/editor.js: MULTILINE_COLUMN_TYPES). Typy TEXT/TINYTEXT/
-     * MEDIUMTEXT/LONGTEXT rozpoznajemy bez żadnego dodatkowego zapytania do
-     * bazy - metadane zwrócone razem z wynikiem (field.type + field.flags)
-     * już to zawierają. Dla pozostałych kolumn zwracamy '', bo nic więcej
-     * z tej wartości nie korzysta.
-     */
-    // określa strategię sortowania na podstawie metadanych wyniku SQL - WYŁĄCZNIE na podstawie field.type (bez próbkowania wartości, bez specjalnego traktowania UUID - patrz NUMERIC_SORT_TYPE_NAMES/DATE_SORT_TYPE_NAMES); wszystko poza tymi listami to 'string', w tym VARCHAR/CHAR (raportowane przez driver jako VAR_STRING/STRING)
-    private computeSortKinds(meta: any[]): SortKind[] {
-        return meta.map((field: any) => {
-            const type = String(field?.type ?? '').toUpperCase();
-            if (SqlResultsProvider.NUMERIC_SORT_TYPE_NAMES.has(type)) {return 'number';}
-            if (SqlResultsProvider.DATE_SORT_TYPE_NAMES.has(type)) {return 'date';}
-            return 'string';
-        });
-    }
-
-
-    private computeColumnTypes(meta: any[]): string[] {
-        if (!meta || meta.length === 0) {
-            return [];
-        }
-
-        return meta.map((field: any) => {
-            const textTypeName = SqlResultsProvider.BLOB_TEXT_TYPE_NAMES[field?.type];
-            if (!textTypeName) {
-                return '';
-            }
-
-            const isBinaryBlob =
-                ((field.flags ?? 0) & SqlResultsProvider.BINARY_COLLATION_FLAG) !== 0;
-
-            return isBinaryBlob ? '' : textTypeName;
-        });
-    }
-
-    /**
      * Zwraca połączenie do bazy powiązane z aktualnie wyświetlanym plikiem (this._currentSqlFile), a NIE z tym,
      * jaki edytor akurat ma fokus w VS Code w chwili wywołania. Dzięki temu operacje modyfikujące dane
      * (UPDATE/DELETE z widoku wyników) zawsze trafiają na bazę, która faktycznie wygenerowała widoczne w
@@ -1047,7 +871,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             const db = await this.getDbForCurrentFile();
 
-            const confirmed = await this.confirmDestructiveOperation(
+            const confirmed = await confirmDestructiveOperation(
                 `Delete ${rows.length} row(s) from "${tableName}"? This cannot be undone.`,
                 'Delete',
                 db
@@ -1106,25 +930,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    /** Porównuje dwie wartości PK (obsługuje liczby, stringi, null) - do sortowania. */
-    private comparePkValues(a: any, b: any): number {
-        if (a === b) {return 0;}
-        if (a === null || a === undefined) {return -1;}
-        if (b === null || b === undefined) {return 1;}
-        if (typeof a === 'number' && typeof b === 'number') {return a - b;}
-        if (typeof a === 'bigint' && typeof b === 'bigint') {return a < b ? -1 : (a > b ? 1 : 0);}
-        return String(a).localeCompare(String(b), undefined, { numeric: true });
-    }
-
-    /** Porównuje dwie krotki wartości PK kolumna po kolumnie (obsługuje też PK złożony). */
-    private comparePkTuples(tupleA: any[], tupleB: any[]): number {
-        for (let i = 0; i < tupleA.length; i++) {
-            const cmp = this.comparePkValues(tupleA[i], tupleB[i]);
-            if (cmp !== 0) {return cmp;}
-        }
-        return 0;
-    }
-
     /**
      * Zbiorcza edycja CAŁEJ kolumny (lub kilku kolumn na raz, każda z własną nową
      * wartością) - zmienia wartość dla WSZYSTKICH rekordów, których ID znajdują się
@@ -1143,7 +948,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
 
         try {
-            const context = await this.resolveTableContext();
+            const db = await this.getDbForCurrentFile();
+            const context = await resolveTableContext(this._meta, db);
             if (!context) {
                 this._view?.webview.postMessage({ command: 'columnEditsCancelled' });
                 return;
@@ -1183,7 +989,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             );
 
             // sortujemy ID przed wstawieniem do UPDATE-u, żeby były czytelne w logach SQL
-            pkValueTuples.sort((tupleA, tupleB) => this.comparePkTuples(tupleA, tupleB));
+            pkValueTuples.sort((tupleA, tupleB) => comparePkTuples(tupleA, tupleB));
 
             const pkColumnNames = primaryKeys.map((pk) => `\`${pk.name}\``);
 
@@ -1219,9 +1025,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             const recordCount = scopedRows.length;
 
-            const db = await this.getDbForCurrentFile();
-
-            const confirmed = await this.confirmDestructiveOperation(
+            const confirmed = await confirmDestructiveOperation(
                 `Change ${changesPreview} for ${recordCount} record(s) matching the current SQL results${this._searchQuery ? ' and search filter' : ''} in table "${tableName}"? ` +
                 `This cannot be undone.`,
                 'Update',
@@ -1294,7 +1098,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
 
         try {
-            const context = await this.resolveTableContext();
+            const db = await this.getDbForCurrentFile();
+            const context = await resolveTableContext(this._meta, db);
             if (!context) {
                 this._view?.webview.postMessage({ command: 'cellEditsCancelled' });
                 return;
@@ -1363,7 +1168,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
                     .map((row) => primaryKeys.map((pk) => row[pk.index]));
 
                 // sortujemy ID przed wstawieniem do UPDATE-u, żeby były czytelne w logach SQL - tak samo jak w saveColumnEdits
-                pkValueTuples.sort((tupleA, tupleB) => this.comparePkTuples(tupleA, tupleB));
+                pkValueTuples.sort((tupleA, tupleB) => comparePkTuples(tupleA, tupleB));
 
                 let whereClause: string;
                 let whereValues: any[];
@@ -1391,9 +1196,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const firstColumnName = cells[0].columnName;
             const valuePreview = formatSqlValue(normalizedValueByColumnName.get(firstColumnName), columnInfoByName.get(firstColumnName)?.field);
 
-            const db = await this.getDbForCurrentFile();
-
-            const confirmed = await this.confirmDestructiveOperation(
+            const confirmed = await confirmDestructiveOperation(
                 `Change ${cells.length} cell(s) across ${columnNamesByRowKey.size} record(s) in table "${tableName}" to ${valuePreview}? ` +
                 `This cannot be undone.`,
                 'Update',
@@ -1439,78 +1242,6 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    /**
-     * Wspólny kontekst potrzebny do generowania INSERT/UPDATE/DELETE:
-     * nazwa tabeli/schemy, kolumny faktycznie widoczne w wynikach SELECT
-     * (bez kolumn wyliczanych typu COUNT(*)), oraz które z nich są PRIMARY KEY.
-     * Nie wykonuje żadnego dodatkowego zapytania do bazy - tabela/PK są
-     * rozpoznawane z metadanych (this._meta) + cache kolumn tabeli.
-     */
-    private async resolveTableContext(): Promise<{
-        tableName: string;
-        schema: string;
-        qualifiedTable: string;
-        columns: { index: number; name: string; field: any }[];
-        primaryKeys: { index: number; name: string; field: any }[];
-    } | null> {
-        const firstField = this._meta[0];
-        if (!firstField) {
-            vscode.window.showErrorMessage('Unable to determine the source table');
-            return null;
-        }
-
-        const tableName = firstField.orgTable?.();
-        const schema = firstField.schema?.();
-
-        if (!tableName || !schema) {
-            vscode.window.showErrorMessage('Unable to determine the source table or schema');
-            return null;
-        }
-
-        const qualifiedTable = await this.qualifyTableName(schema, tableName);
-
-        // tylko kolumny faktycznie należące do tej tabeli (bez wyliczanych, np. COUNT(*)), każda nazwa raz - nawet jeśli SELECT ją duplikuje (np. f.id, f.*)
-        const columns = resolveTableColumns(this._meta, tableName);
-
-        const tableColumnsService = TableColumnsCache.getInstance();
-        const columnsMap = await tableColumnsService.getCachedColumnsBatch([{schema, table: tableName}]);
-        const tableColumns = columnsMap[tableColumnsService.getTableRefKey({schema, table: tableName})] ?? [];
-
-        const primaryKeyNames = tableColumns.filter((c: any) => c.columnKey === 'PRI').map((c: any) => c.name);
-
-        if (primaryKeyNames.length === 0) {
-            vscode.window.showErrorMessage(`Table ${tableName} does not have a PRIMARY KEY`);
-            return null;
-        }
-
-        // ta sama logika co przy edycji pojedynczej komórki i bezpośrednim kasowaniu wierszy - jedno (pierwsze) wystąpienie każdej kolumny PK w wynikach SELECT
-        const { found: primaryKeys, missingNames } = resolvePrimaryKeyColumns(this._meta, tableName, primaryKeyNames);
-
-        if (missingNames.length > 0) {
-            vscode.window.showErrorMessage(
-                `Missing PRIMARY KEY column(s) in the SELECT results: ${missingNames.join(', ')}`
-            );
-            return null;
-        }
-
-        return { tableName, schema, qualifiedTable, columns, primaryKeys };
-    }
-
-    /**
-     * Buduje nazwę tabeli do użycia w SQL: `schema`.`table`, jeśli połączenie
-     * nie ma ustawionej domyślnej bazy (database=''), albo samo `table`,
-     * jeśli połączenie już łączy się z konkretną bazą (wtedy prefiks schemy
-     * jest zbędny i tylko zaśmieca wygenerowany/wykonywany SQL).
-     */
-    private async qualifyTableName(schema: string, tableName: string): Promise<string> {
-        const db = await this.getDbForCurrentFile();
-        const connectionDatabase = db.getDatabase();
-
-        return connectionDatabase
-            ? `\`${tableName}\``
-            : `\`${schema}\`.\`${tableName}\``;
-    }
-
     /** Zwraca wiersze (z this._allRows) odpowiadające rowKeys (indeksom) z webview - żadnej arytmetyki page-relative -> global. */
     private resolveSelectedRows(rowKeys: number[]): any[][] {
         return rowKeys
@@ -1522,7 +1253,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         try {
             if (!rowKeys || rowKeys.length === 0) {return;}
 
-            const context = await this.resolveTableContext();
+            const db = await this.getDbForCurrentFile();
+            const context = await resolveTableContext(this._meta, db);
             if (!context) {return;}
 
             const rows = this.resolveSelectedRows(rowKeys);
@@ -1545,7 +1277,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
             const { columns, primaryKeys, qualifiedTable } = context;
             const sql = buildInsertSql(rows, columns, primaryKeys, qualifiedTable, selectedOptions, batchSize);
 
-            await this.saveAndCopySql(sql, 'insert');
+            await saveAndCopyGeneratedSql(this._context, sql, 'insert');
         } catch (err: any) {
             console.error('Generate INSERT error:', err);
             vscode.window.showErrorMessage(`❌ Generate INSERT error: ${err.message}`);
@@ -1556,7 +1288,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         try {
             if (!rowKeys || rowKeys.length === 0) {return;}
 
-            const context = await this.resolveTableContext();
+            const db = await this.getDbForCurrentFile();
+            const context = await resolveTableContext(this._meta, db);
             if (!context) {return;}
 
             const rows = this.resolveSelectedRows(rowKeys);
@@ -1580,7 +1313,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             const sql = buildUpdateSql(rows, columns, primaryKeys, qualifiedTable, selectedOptions, batchSize);
 
-            await this.saveAndCopySql(sql, 'update');
+            await saveAndCopyGeneratedSql(this._context, sql, 'update');
         } catch (err: any) {
             console.error('Generate UPDATE error:', err);
             vscode.window.showErrorMessage(`❌ Generate UPDATE error: ${err.message}`);
@@ -1591,7 +1324,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         try {
             if (!rowKeys || rowKeys.length === 0) {return;}
 
-            const context = await this.resolveTableContext();
+            const db = await this.getDbForCurrentFile();
+            const context = await resolveTableContext(this._meta, db);
             if (!context) {return;}
 
             const rows = this.resolveSelectedRows(rowKeys);
@@ -1608,38 +1342,13 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
 
             const sql = buildDeleteSql(rows, primaryKeys, qualifiedTable, selectedOptions, batchSize);
 
-            await this.saveAndCopySql(sql, 'delete');
+            await saveAndCopyGeneratedSql(this._context, sql, 'delete');
         } catch (err: any) {
             console.error('Generate DELETE error:', err);
             vscode.window.showErrorMessage(`❌ Generate DELETE error: ${err.message}`);
         }
     }
 
-    /** Kopiuje wygenerowany SQL do schowka i - opcjonalnie - zapisuje na dysk (ten sam mechanizm co exportToTXT/CSV). */
-    private async saveAndCopySql(sql: string, kind: 'insert' | 'update' | 'delete') {
-        await vscode.env.clipboard.writeText(sql);
-
-        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-        const fileName = `${kind}_${timestamp}.sql`;
-
-        const lastPath = this.getLastExportPath('sql');
-        const defaultDir = lastPath ? path.dirname(lastPath) : path.join(os.homedir(), 'Desktop');
-        const defaultUri = vscode.Uri.file(path.join(defaultDir, fileName));
-
-        const uri = await vscode.window.showSaveDialog({
-            defaultUri,
-            filters: { 'SQL files': ['sql'] }
-        });
-
-        if (uri) {
-            await vscode.workspace.fs.writeFile(uri, Buffer.from(sql, 'utf8'));
-            this.setLastExportPath(uri.fsPath, 'sql');
-            vscode.window.showInformationMessage(`✅ ${kind.toUpperCase()} SQL saved to ${uri.fsPath} (also copied to clipboard)`);
-        } else {
-            vscode.window.showInformationMessage(`✅ ${kind.toUpperCase()} SQL copied to clipboard`);
-        }
-    }
-    
     private async waitForViewReady(): Promise<boolean> {
         if (this._viewReady) {return true;}
         
@@ -1755,8 +1464,8 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._headers = headers;
         this._lastSQL = sql;
         this._meta = meta;
-        this._sortKinds = success && Array.isArray(meta) ? this.computeSortKinds(meta) : [];
-        this._columnTypes = success ? this.computeColumnTypes(meta) : [];
+        this._sortKinds = success && Array.isArray(meta) ? computeSortKinds(meta) : [];
+        this._columnTypes = success ? computeColumnTypes(meta) : [];
         this._connectionName = db.getConnectionName();
         this._connectionTime = db.getConnectionTime();
         this._lastQueryTime = queryTime;
@@ -1867,7 +1576,7 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
         this._lastSQL = state.sql;
         this._meta = state.meta;
         this._columnTypes = state.columnTypes ?? [];
-        this._sortKinds = Array.isArray(this._meta) ? this.computeSortKinds(this._meta) : [];
+        this._sortKinds = Array.isArray(this._meta) ? computeSortKinds(this._meta) : [];
         this._lastQueryTime = state.queryTime;
         this._connectionName = state.connectionName;
         this._connectionTime = state.connectionTime;
@@ -1979,130 +1688,5 @@ export class SqlResultsProvider implements vscode.WebviewViewProvider {
     private async openRecentFiles() {
 
         await RecentSqlFiles.getInstance().openRecentFiles();
-    }
-    
-    private async exportToCSV() {
-        try {
-            const rows = this._allRows;
-            const headers = this._headers;
-
-            if (rows.length === 0) {
-                vscode.window.showWarningMessage('No data to export.');
-                return;
-            }
-
-            const escapeCell = (value: unknown): string => {
-                const str = value === null || value === undefined ? '' : String(value);
-                return str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')
-                    ? `"${str.replace(/"/g, '""')}"`
-                    : str;
-            };
-
-            const parts: string[] = [];
-            parts.push(headers.map(escapeCell).join(','));
-
-            for (const row of rows) {
-                parts.push(row.map(escapeCell).join(','));
-            }
-
-            const csv = parts.join('\n') + '\n';
-
-            const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-            const fileName = `export_${timestamp}.csv`;
-
-            const lastPath = this.getLastExportPath('csv');
-            const defaultDir = lastPath ? path.dirname(lastPath) : path.join(os.homedir(), 'Desktop');
-            const defaultUri = vscode.Uri.file(path.join(defaultDir, fileName));
-
-            const uri = await vscode.window.showSaveDialog({
-                defaultUri,
-                filters: { 'CSV files': ['csv'] }
-            });
-
-            if (uri) {
-                await vscode.workspace.fs.writeFile(uri, Buffer.from(csv, 'utf8'));
-                this.setLastExportPath(uri.fsPath, 'csv');
-                vscode.window.showInformationMessage(`✅ Exported ${rows.length} rows to ${uri.fsPath}`);
-            }
-        } catch (err: any) {
-            console.error('Export error:', err);
-            vscode.window.showErrorMessage(`❌ Export error: ${err.message}`);
-        }
-    }
-    
-    private async exportToTXT() {
-        try {
-            const rows = this._allRows;
-            const headers = this._headers;
-
-            if (rows.length === 0) {
-                vscode.window.showWarningMessage('No data to export.');
-                return;
-            }
-
-            const escapeCell = (value: unknown): string =>
-                value === null || value === undefined ? '' : String(value);
-
-            // szerokości kolumn — max z nagłówka i danych, ograniczone do 50
-            const colWidths = headers.map((h, i) => {
-                let max = h.length;
-                for (const row of rows) {
-                    const len = escapeCell(row[i]).length;
-                    if (len > max) {max = len;}
-                }
-                return Math.min(max, 50);
-            });
-
-            const separator = '+-' + colWidths.map(w => '-'.repeat(w)).join('-+-') + '-+';
-            const headerRow = '| ' + headers.map((h, i) => h.padEnd(colWidths[i])).join(' | ') + ' |';
-
-            const parts: string[] = [separator, headerRow, separator];
-
-            for (const row of rows) {
-                let line = '| ';
-                for (let i = 0; i < headers.length; i++) {
-                    let cell = escapeCell(row[i]);
-                    if (cell.length > colWidths[i]) {
-                        cell = cell.substring(0, colWidths[i] - 3) + '...';
-                    }
-                    line += cell.padEnd(colWidths[i]) + ' | ';
-                }
-                parts.push(line);
-            }
-
-            parts.push(separator);
-            parts.push(`Row count: ${rows.length}`);
-
-            const txt = parts.join('\n') + '\n';
-
-            const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-            const fileName = `export_${timestamp}.txt`;
-
-            const lastPath = this.getLastExportPath('txt');
-            const defaultDir = lastPath ? path.dirname(lastPath) : path.join(os.homedir(), 'Desktop');
-            const defaultUri = vscode.Uri.file(path.join(defaultDir, fileName));
-
-            const uri = await vscode.window.showSaveDialog({
-                defaultUri,
-                filters: { 'Text files': ['txt'] }
-            });
-
-            if (uri) {
-                await vscode.workspace.fs.writeFile(uri, Buffer.from(txt, 'utf8'));
-                this.setLastExportPath(uri.fsPath, 'txt');
-                vscode.window.showInformationMessage(`✅ Exported ${rows.length} rows to ${uri.fsPath}`);
-            }
-        } catch (err: any) {
-            console.error('TXT export error:', err);
-            vscode.window.showErrorMessage(`❌ TXT export error: ${err.message}`);
-        }
-    }
-    
-    private getLastExportPath(extension: string): string | undefined {
-        return this._context?.globalState.get<string>(`lastExportPath_${extension}`);
-    }
-
-    private setLastExportPath(path: string, extension: string) {
-        this._context?.globalState.update(`lastExportPath_${extension}`, path);
     }
 }

@@ -641,47 +641,7 @@ suite('SqlResultsProvider - toggleSort (budowanie listy kryteriów z kliknięć)
     });
 });
 
-suite('SqlResultsProvider - computeSortKinds (mapowanie field.type z meta na NUMBER/STRING)', () => {
-
-    test('typy numeryczne z NUMERIC_SORT_TYPE_NAMES -> number', () => {
-        const provider = getProvider() as any;
-        const meta = ['TINY', 'SHORT', 'INT', 'INT24', 'BIGINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NEWDECIMAL', 'YEAR']
-            .map((type) => ({ type }));
-
-        assert.deepStrictEqual(provider.computeSortKinds(meta), meta.map(() => 'number'));
-    });
-
-    test('CHAR/VARCHAR (raportowane przez driver jako VAR_STRING/STRING) i pozostałe typy -> string', () => {
-        const provider = getProvider() as any;
-        const meta = ['VARCHAR', 'VAR_STRING', 'STRING', 'JSON', 'ENUM', 'SET', 'BLOB']
-            .map((type) => ({ type }));
-
-        assert.deepStrictEqual(provider.computeSortKinds(meta), meta.map(() => 'string'));
-    });
-
-    test('DATE/DATETIME/TIMESTAMP/TIME z DATE_SORT_TYPE_NAMES -> date', () => {
-        const provider = getProvider() as any;
-        const meta = ['DATE', 'DATETIME', 'TIMESTAMP', 'TIME'].map((type) => ({ type }));
-
-        assert.deepStrictEqual(provider.computeSortKinds(meta), meta.map(() => 'date'));
-    });
-
-    test('BIGINT konkretnie -> number (nie "LONGLONG" - to nieprawidłowa nazwa typu dla tego drivera, prawdziwa nazwa to BIGINT)', () => {
-        const provider = getProvider() as any;
-        assert.deepStrictEqual(provider.computeSortKinds([{ type: 'BIGINT' }]), ['number']);
-        assert.deepStrictEqual(provider.computeSortKinds([{ type: 'LONGLONG' }]), ['string']);
-    });
-
-    test('typ zapisany małymi literami też jest rozpoznawany (String().toUpperCase())', () => {
-        const provider = getProvider() as any;
-        assert.deepStrictEqual(provider.computeSortKinds([{ type: 'bigint' }]), ['number']);
-    });
-
-    test('brakujące/puste field.type nie wysypuje się, domyślnie string', () => {
-        const provider = getProvider() as any;
-        assert.deepStrictEqual(provider.computeSortKinds([{}, { type: null }]), ['string', 'string']);
-    });
-});
+// computeSortKinds ma teraz własny plik testowy - patrz src/test/fieldMetadata.test.ts (moduł src/sql/fieldMetadata.ts)
 
 suite('SqlResultsProvider - sortowanie wyniku wyszukiwania (applyFilteredPrimarySort + this._filteredPrimaryColumnCache, patrz radixEngine.ts/multiColumnSortPaging.ts)', () => {
     // UWAGA KLUCZOWA DLA CAŁEJ TEJ SUITY: radixSortIndices yielduje (await setImmediate) PO KAŻDYM z 8 przebiegów bajtowych, NIEZALEŻNIE od
