@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.14
+
+### Changed
+- Internal refactor: split non-core functionality out of
+  `SqlResultsProvider.ts` into dedicated modules (field metadata
+  classification, table-context resolution, primary-key comparison,
+  CSV/TXT/SQL export, webview message validation, destructive-operation
+  confirmation), and added unit tests for the previously untested pure
+  logic. No behavior change.
+
 ## 1.2.13
 
 ### Added
