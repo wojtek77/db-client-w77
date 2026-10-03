@@ -2,6 +2,12 @@ import * as vscode from 'vscode';
 import { Connection } from "../db/Connection.js";
 import { CompletionAbstract } from "./CompletionAbstract.js";
 import { SQL_FUNCTIONS } from './sqlFunctions.js';
+import { getKeywordsForContext } from './sqlKeywords.js';
+import { detectExpressionPosition } from '../sql/expressionPosition.js';
+import { detectTableRefPosition, TableRefPosition } from '../sql/tableRefPosition.js';
+import { detectUsingColumnList, UsingColumnContext } from '../sql/usingColumns.js';
+import { detectClauseEnd } from '../sql/clauseEnd.js';
+import { detectSubqueryStart } from '../sql/subqueryStart.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { findCteDefinitions } from '../sql/findCteDefinitions.js';
@@ -27,14 +33,10 @@ const REGEX_COMMA_OBJECT = /,\s*`?(\w*)$/;
 // 3 grupy: segment1[.segment2] to alias albo schema.table, ostatnia grupa to filtr kolumny (obsługuje częściowo wpisaną nazwę, np. `l.date_ent|`); `?` obsługuje backticki
 const REGEX_ALIAS_DOT = /`?([a-zA-Z0-9_]+)`?(?:\s*\.\s*`?([a-zA-Z0-9_]+)`?)?\s*\.\s*`?(\w*)$/;
 
-// modyfikatory MySQL/MariaDB dopuszczalne bezpośrednio po słowie SELECT, przed listą wybieranych wyrażeń
-// (SELECT [ALL | DISTINCT | DISTINCTROW] [HIGH_PRIORITY] [STRAIGHT_JOIN] [SQL_SMALL_RESULT] [SQL_BIG_RESULT] [SQL_BUFFER_RESULT] [SQL_NO_CACHE] [SQL_CALC_FOUND_ROWS] ...)
-const SELECT_MODIFIERS = [
-    'ALL', 'DISTINCT', 'DISTINCTROW', 'HIGH_PRIORITY', 'STRAIGHT_JOIN',
-    'SQL_SMALL_RESULT', 'SQL_BIG_RESULT', 'SQL_BUFFER_RESULT', 'SQL_NO_CACHE', 'SQL_CALC_FOUND_ROWS'
-];
+// modyfikatory dopuszczalne bezpośrednio po słowie SELECT, przed listą wybieranych wyrażeń - jedno źródło prawdy to SQL_KEYWORDS (kontekst 'select-modifier')
+const SELECT_MODIFIERS = getKeywordsForContext('select-modifier').map(keyword => keyword.name);
 
-export type SelectClauseName = 'select' | 'from' | 'where' | 'group' | 'having' | 'order' | 'limit' | 'partition';
+export type SelectClauseName = 'select' | 'from' | 'where' | 'group' | 'having' | 'order' | 'limit' | 'partition' | 'on';
 
 export interface DetectedClause {
     name: SelectClauseName;
@@ -50,6 +52,14 @@ const CLAUSE_WORD: Partial<Record<string, SelectClauseName>> = {
     HAVING: 'having',
     LIMIT: 'limit',
 };
+
+// słowa zastrzeżone, które regex index hintów bierze za alias tabeli (FROM t UNION |), a nimi nie są
+const RESERVED_AFTER_TABLE = new Set(['ON', 'USING', 'JOIN', 'STRAIGHT_JOIN', 'INNER', 'CROSS', 'NATURAL', 'LEFT', 'RIGHT', 'OUTER', 'UNION', 'INTERSECT', 'EXCEPT', 'FOR', 'LOCK', 'WHERE']);
+
+// słowa rozpoczynające kolejne złączenie, które kończą warunek ON
+const JOIN_WORDS = new Set(['JOIN', 'STRAIGHT_JOIN']);
+// prefiksy rodzaju złączenia (LEFT JOIN, NATURAL JOIN...), LEFT i RIGHT są też funkcjami, więc liczą się tylko bez nawiasu po sobie
+const JOIN_PREFIX_WORDS = new Set(['INNER', 'CROSS', 'NATURAL', 'LEFT', 'RIGHT']);
 
 // zwraca kolejny token pomijając komentarze (np. GROUP /* uwaga */ BY nie powinno gubić słowa BY)
 function nextSignificantToken(tokens: Token[], fromIndex: number): Token | undefined {
@@ -104,22 +114,67 @@ export function detectCurrentClause(sqlBeforeCursor: string): DetectedClause | u
     const targetDepth = currentDepth(tokens);
 
     let found: DetectedClause | undefined;
+    // offset ostatniego FROM - po warunku ON wracamy do klauzuli FROM, której regexy tabel liczą od początku FROM
+    let fromStart = -1;
     for (let i = 0; i < tokens.length; i++) {
         if (depths[i] !== targetDepth) { continue; }
         const t = tokens[i];
+        // przecinek kończy warunek ON i zaczyna kolejną tabelę w liście FROM
+        if (t.type === 'comma') {
+            if (found?.name === 'on') { found = { name: 'from', start: fromStart }; }
+            continue;
+        }
         if (t.type !== 'word') { continue; }
         const upper = t.value.toUpperCase();
         const next = nextSignificantToken(tokens, i + 1);
         const nextUpper = next?.type === 'word' ? next.value.toUpperCase() : undefined;
+
+        // ON liczy się jako klauzula tylko po tabeli dołączonej w FROM (nie np. w ON DUPLICATE KEY)
+        if (upper === 'ON' && found?.name === 'from') { found = { name: 'on', start: t.start }; continue; }
+        // kolejne złączenie kończy warunek ON, a LEFT i RIGHT z nawiasem to funkcje, nie rodzaj złączenia
+        if (found?.name === 'on' && (JOIN_WORDS.has(upper) || (JOIN_PREFIX_WORDS.has(upper) && next?.type !== 'lparen'))) {
+            found = { name: 'from', start: fromStart };
+            continue;
+        }
 
         if (upper === 'GROUP' && nextUpper === 'BY') { found = { name: 'group', start: t.start }; continue; }
         if (upper === 'ORDER' && nextUpper === 'BY') { found = { name: 'order', start: t.start }; continue; }
         if (upper === 'PARTITION' && nextUpper === 'BY') { found = { name: 'partition', start: t.start }; continue; }
 
         const simple = CLAUSE_WORD[upper];
-        if (simple) { found = { name: simple, start: t.start }; }
+        if (simple) {
+            if (simple === 'from') { fromStart = t.start; }
+            found = { name: simple, start: t.start };
+        }
     }
+
+    // w nawiasie bez własnej klauzuli (grupowanie warunków, lista IN, argumenty funkcji) obowiązuje klauzula z poziomu nadrzędnego
+    if (!found && targetDepth > 0) { return inheritClauseFromParent(sqlBeforeCursor, tokens); }
     return found;
+}
+
+// klauzule, które nie przechodzą do nawiasu: w FROM nawiasy to np. PARTITION (p0, p1) albo zagnieżdżone złączenia, a w LIMIT nie ma wyrażeń z kolumnami
+const NOT_INHERITED_CLAUSES = new Set<SelectClauseName>(['from', 'limit']);
+
+// zwraca klauzulę obowiązującą w otwartym nawiasie, w którym stoi kursor, albo undefined, gdy nawias jej nie dziedziczy
+// podzapytanie ("(SELECT ..." albo "(WITH ...") ma własne klauzule, więc nic nie dziedziczy, a puste nawiasy i nawiasy zaczynające się od czegokolwiek innego biorą klauzulę z tekstu przed nawiasem
+function inheritClauseFromParent(sqlBeforeCursor: string, tokens: Token[]): DetectedClause | undefined {
+    const stack: number[] = [];
+    for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i].type === 'lparen') { stack.push(i); }
+        else if (tokens[i].type === 'rparen') { stack.pop(); }
+    }
+    if (stack.length === 0) { return undefined; }
+    const openIndex = stack[stack.length - 1];
+
+    const first = nextSignificantToken(tokens, openIndex + 1);
+    const firstUpper = first?.type === 'word' ? first.value.toUpperCase() : undefined;
+    if (firstUpper === 'SELECT' || firstUpper === 'WITH') { return undefined; }
+
+    // rekurencja obsługuje zagnieżdżone nawiasy, a offsety klauzuli pozostają poprawne, bo tekst przed nawiasem zaczyna się od początku zapytania
+    const parent = detectCurrentClause(sqlBeforeCursor.slice(0, tokens[openIndex].start));
+    if (!parent || NOT_INHERITED_CLAUSES.has(parent.name)) { return undefined; }
+    return parent;
 }
 
 export class CompletionSelect extends CompletionAbstract implements CompletionInterface {
@@ -144,8 +199,15 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         const isInOrderClause     = currentClause === 'order';
         const isInLimitClause     = currentClause === 'limit';
         const isInPartitionClause = currentClause === 'partition';
+        const isInOnClause        = currentClause === 'on';
 
         const defaultSchema = db.getDatabase();
+
+        // USING (xxx) - kursor wewnątrz nawiasu listy kolumn złączenia, sprawdzane przed detekcją klauzuli z tego samego powodu co index hinty (otwarty nawias podnosi głębokość zagnieżdżenia)
+        const usingContext = detectUsingColumnList(sqlBeforeCursor);
+        if (usingContext) {
+            return this.getUsingColumnItems(usingContext, fullText, defaultSchema, db, sqlBeforeCursor);
+        }
 
         // USE/FORCE/IGNORE INDEX (xxx) - kursor wewnątrz nawiasu index hintu, sprawdzane niezależnie od detectCurrentClause/isInFromClause, bo otwarty nawias podnosi głębokość zagnieżdżenia i FROM (na głębokości 0) przestałby być widoczny dla standardowej detekcji klauzuli - ten sam problem, który dla HAVING rozwiązuje isCursorInsideFunctionCall
         if (this.tableIndexesService) {
@@ -172,6 +234,9 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         
         /* LIMIT */
         if (isInLimitClause) {
+            // po wpisanej liczbie podpowiadamy OFFSET, ROWS EXAMINED i słowa kończące zapytanie, a w miejscu liczby tylko przykładowe wartości
+            const limitEndItems = this.getClauseEndKeywordItems(sqlBeforeCursor, currentClause);
+            if (limitEndItems.length > 0) { return limitEndItems; }
             return [
                 new vscode.CompletionItem('1', vscode.CompletionItemKind.Value),
                 new vscode.CompletionItem('10', vscode.CompletionItemKind.Value),
@@ -185,6 +250,7 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
 
             // sprawdzamy czy kursor jest wewnątrz nawiasów funkcji (np. GROUP_CONCAT(|)) – jeśli tak, pomijamy SELECT i serwujemy kolumny z tabel zapytania
             if (this.isCursorInsideFunctionCall(sqlBeforeCursor, havingIndex)) {
+                result.push(...this.getSubqueryStartItems(sqlBeforeCursor));
                 await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);
                 return result;
             }
@@ -217,6 +283,10 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             } else if (specificAliasesToLoad.size > 0) {
                 await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor, specificAliasesToLoad);
             }
+
+            // słowa kluczowe warunków - tak samo jak w WHERE
+            result.push(...this.getConditionKeywordItems(sqlBeforeCursor));
+            result.push(...this.getClauseEndKeywordItems(sqlBeforeCursor, currentClause));
 
             for (const fn of SQL_FUNCTIONS) {
                 result.push(this.createFunctionItem(fn));
@@ -352,21 +422,34 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 .map((column: TableColumn) => this.createColumnItem(tableRef!.table, column));
         }
 
-        /* USE INDEX / FORCE INDEX / IGNORE INDEX - tuż po nazwie tabeli (i opcjonalnym aliasie) w FROM/JOIN/przecinku */
+        /* po odwołaniu do tabeli w FROM/JOIN/przecinku: ON, USING, AS, rodzaje złączeń i USE/FORCE/IGNORE INDEX */
         if (isInFromClause) {
+            // FROM t FOR UPDATE | - opcje blokady stoją bezpośrednio po tabeli
+            const lockItems = this.getClauseEndKeywordItems(sqlBeforeCursor, currentClause);
+            if (lockItems.length > 0) { return lockItems; }
+
+            const tablePosition = detectTableRefPosition(sqlBeforeCursor);
+            const tableKeywordItems = tablePosition ? this.getTableRefKeywordItems(tablePosition) : [];
+
             const indexHintMatch = linePrefix.match(REGEX_FROM_JOIN_INDEX_HINT_KEYWORD)
                 ?? fromClauseTail.match(REGEX_FROM_JOIN_INDEX_HINT_KEYWORD)
                 ?? fromClauseTail.match(REGEX_COMMA_INDEX_HINT_KEYWORD);
-            if (indexHintMatch) {
+            // słowo zastrzeżone w miejscu aliasu (FROM t UNION |, FROM t LEFT |) nie jest aliasem, więc index hinty tam nie pasują
+            const aliasIsReserved = indexHintMatch?.[2] !== undefined && RESERVED_AFTER_TABLE.has(indexHintMatch[2].toUpperCase());
+            if (indexHintMatch && !aliasIsReserved) {
                 const filter = indexHintMatch[3].toLowerCase();
-                return INDEX_HINT_KEYWORDS
+                const indexHintItems = INDEX_HINT_KEYWORDS
                     .filter(keyword => !filter || keyword.toLowerCase().startsWith(filter))
-                    .map((keyword, order) => this.createIndexHintKeywordItem(keyword, order));
+                    .map((keyword, order) => this.createIndexHintKeywordItem(keyword, tableKeywordItems.length + order));
+                return [...tableKeywordItems, ...indexHintItems];
             }
+
+            // regexy index hintów nie znają np. tabeli pochodnej "(SELECT ...) x |", a słowa po tabeli pasują także tam
+            if (tableKeywordItems.length > 0) { return tableKeywordItems; }
         }
 
-        /* SELECT, WHERE, GROUP BY, ORDER BY, PARTITION BY <Ctrl+Space> */
-        if (isInSelectClause || isInWhereClause || isInGroupClause || isInOrderClause || isInPartitionClause) {
+        /* SELECT, WHERE, ON, GROUP BY, ORDER BY, PARTITION BY <Ctrl+Space> */
+        if (isInSelectClause || isInWhereClause || isInOnClause || isInGroupClause || isInOrderClause || isInPartitionClause) {
             const result: vscode.CompletionItem[] = [];
 
             // modyfikatory SELECT (DISTINCT, ALL itd.) - tylko dopóki w klauzuli nie pojawiło się jeszcze żadne realne wyrażenie kolumnowe
@@ -381,6 +464,16 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                     }
                 }
             }
+
+            result.push(...this.getSubqueryStartItems(sqlBeforeCursor));
+
+            // słowa kluczowe warunków (EXISTS, IN, BETWEEN, AND...) - zależnie od tego, czy kursor stoi na początku warunku, czy po operandzie
+            // po gotowym warunku ON może jeszcze zacząć się kolejne złączenie, więc dokładamy też rodzaje złączeń
+            if (isInWhereClause || isInOnClause) {
+                result.push(...this.getConditionKeywordItems(sqlBeforeCursor, isInOnClause));
+            }
+            // słowa kończące bieżącą klauzulę (FROM po liście SELECT, GROUP BY po WHERE, ASC/DESC w ORDER BY...)
+            result.push(...this.getClauseEndKeywordItems(sqlBeforeCursor, currentClause));
 
             // wspólna metoda: Ładujemy wszystkie kolumny dla klauzul strukturalnych
             await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);
@@ -405,5 +498,92 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         }
         
         return [];
+    }
+
+    // SELECT tuż po nawiasie otwierającym podzapytanie (EXISTS (, IN (, ANY (...), przed kolumnami
+    private getSubqueryStartItems(sqlBeforeCursor: string): vscode.CompletionItem[] {
+        if (!detectSubqueryStart(sqlBeforeCursor)) { return []; }
+        return getKeywordsForContext('subquery-start').map((keyword, order) => this.createKeywordItem(keyword.name, order, true));
+    }
+
+    // słowa kluczowe warunków WHERE/HAVING/ON dopasowane do miejsca kursora - po operandzie (kolumna, literał, nawias) są ważniejsze niż kolumny, na początku warunku zostają za nimi
+    private getConditionKeywordItems(sqlBeforeCursor: string, includeJoinKinds = false): vscode.CompletionItem[] {
+        const position = detectExpressionPosition(sqlBeforeCursor);
+        if (!position) { return []; }
+
+        const highPriority = position !== 'expression-start';
+        const items = getKeywordsForContext(position).map((keyword, order) => this.createKeywordItem(keyword.name, order, highPriority));
+
+        // gotowy warunek ON może zakończyć się kolejnym złączeniem (JOIN, LEFT JOIN...), te słowa lądują za operatorami (order od 50), a przed słowami kończącymi klauzulę (od 100)
+        if (includeJoinKinds && position === 'after-operand') {
+            items.push(...getKeywordsForContext('join-kind').map((keyword, order) => this.createKeywordItem(keyword.name, 50 + order, true)));
+        }
+        return items;
+    }
+
+    // słowa kończące bieżącą klauzulę dopasowane do miejsca kursora, po gotowym wyrażeniu są ważniejsze niż kolumny (order od 100, za operatorami)
+    private getClauseEndKeywordItems(sqlBeforeCursor: string, clause: string | undefined): vscode.CompletionItem[] {
+        const contexts = detectClauseEnd(sqlBeforeCursor, clause);
+        if (!contexts) { return []; }
+
+        const items: vscode.CompletionItem[] = [];
+        let order = 100;
+        for (const context of contexts) {
+            for (const keyword of getKeywordsForContext(context)) {
+                items.push(this.createKeywordItem(keyword.name, order++, true));
+            }
+        }
+        return items;
+    }
+
+    // kolumny do USING (...): kolumna musi istnieć po obu stronach złączenia, więc proponujemy nazwy występujące w więcej niż jednej tabeli zapytania
+    private async getUsingColumnItems(
+        context: UsingColumnContext,
+        fullText: string,
+        defaultSchema: string | undefined,
+        db: Connection,
+        sqlBeforeCursor: string
+    ): Promise<vscode.CompletionItem[]> {
+        const columns: vscode.CompletionItem[] = [];
+        await this.addColumnsFromQueryTables(columns, fullText, defaultSchema, db, sqlBeforeCursor);
+
+        // w USING liczy się sama nazwa kolumny, więc grupujemy po nazwie
+        const byName = new Map<string, vscode.CompletionItem[]>();
+        for (const item of columns) {
+            const name = (typeof item.label === 'string' ? item.label : item.label.label).toLowerCase();
+            const group = byName.get(name);
+            if (group) { group.push(item); } else { byName.set(name, [item]); }
+        }
+
+        const groups = [...byName.entries()];
+        const common = groups.filter(([, items]) => items.length > 1);
+        // gdy żadna nazwa się nie powtarza (np. self-join tej samej tabeli albo niezaładowane kolumny), pokazujemy wszystkie
+        const chosen = common.length > 0 ? common : groups;
+
+        return chosen
+            .filter(([name]) => !context.used.has(name) && (!context.filter || name.includes(context.filter)))
+            .map(([name, items]) => {
+                const item = items[0];
+                item.sortText = `0_${name}`;
+                return item;
+            });
+    }
+
+    // słowa po odwołaniu do tabeli w FROM/JOIN: ON i USING (tylko po JOIN), AS (tylko bez aliasu), rodzaje złączeń i kolejne klauzule, przefiltrowane do pisanego słowa
+    private getTableRefKeywordItems(position: TableRefPosition): vscode.CompletionItem[] {
+        // po LEFT/RIGHT [OUTER] pasuje tylko dokończenie złączenia
+        if (position.joinSide) {
+            return getKeywordsForContext(position.joinSide === 'side' ? 'join-side' : 'join-outer')
+                .filter(keyword => !position.filter || keyword.name.toLowerCase().startsWith(position.filter))
+                .map((keyword, order) => this.createKeywordItem(keyword.name, order, true));
+        }
+        const keywords = [
+            ...(position.canJoinCondition ? getKeywordsForContext('join-condition') : []),
+            ...(position.canAlias ? getKeywordsForContext('table-alias') : []),
+            ...getKeywordsForContext('join-kind'),
+            ...getKeywordsForContext('end-from'),
+        ].filter(keyword => !position.filter || keyword.name.toLowerCase().startsWith(position.filter));
+
+        return keywords.map((keyword, order) => this.createKeywordItem(keyword.name, order));
     }
 }

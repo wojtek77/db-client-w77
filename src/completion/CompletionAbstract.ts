@@ -150,13 +150,17 @@ export abstract class CompletionAbstract {
         return item;
     }
 
-    // element podpowiedzi dla słowa kluczowego SQL (np. modyfikatory SELECT: DISTINCT, ALL...) - sortText '2_' ląduje po kolumnach ('0_'), przed funkcjami ('9_')
-    protected createKeywordItem(keyword: string, order: number): vscode.CompletionItem {
+    // element podpowiedzi dla słowa kluczowego SQL (np. DISTINCT, EXISTS, IN) - domyślny sortText '2_' ląduje po kolumnach ('0_'), przed funkcjami ('9_'), a highPriority ('00_') przed kolumnami
+    protected createKeywordItem(keyword: string, order: number, highPriority = false): vscode.CompletionItem {
         const item = new vscode.CompletionItem(keyword, vscode.CompletionItemKind.Keyword);
         item.insertText = keyword;
-        item.sortText   = `2_${order.toString().padStart(5, '0')}`;
+        item.sortText   = `${highPriority ? '00' : '2'}_${order.toString().padStart(5, '0')}`;
         // dołączamy pełny opis (składnia, wyjaśnienie, przykłady) jeśli mamy go zdefiniowanego w sqlKeywords.ts
         const kw = SQL_KEYWORDS.find(k => k.name === keyword);
+        // słowa ze snippetem (np. EXISTS (SELECT 1 FROM ...)) wstawiamy z placeholderami zamiast samej nazwy
+        if (kw?.snippet) {
+            item.insertText = new vscode.SnippetString(kw.snippet);
+        }
         if (kw) {
             // brak item.detail celowo - z pełnym opisem markdown "SQL Keyword" tylko zbędnie odpychał nagłówek w dół
             item.documentation = new vscode.MarkdownString(kw.documentation);
