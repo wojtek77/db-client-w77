@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.2.15
+
+### Added
+- SQL completion in SELECT: many more keywords, each with documentation
+  and examples (MariaDB only).
+  - Conditions (`WHERE`, `HAVING`, `ON`): `EXISTS`, `NOT EXISTS`, `IN`,
+    `BETWEEN`, `LIKE` (inserts `LIKE '%|'`), `REGEXP`, `RLIKE`,
+    `IS [NOT] NULL`, `IS TRUE`, `IS FALSE`, `AND`, `OR`, `XOR`, `NOT`.
+    After a finished operand the operators are listed before the
+    columns, at the start of a condition after them.
+  - Joins: `JOIN`, `INNER`/`LEFT`/`RIGHT`/`CROSS`/`NATURAL JOIN`,
+    `LEFT`/`RIGHT OUTER JOIN`, `STRAIGHT_JOIN`, `ON`, `USING (...)`, `AS`
+    (table and column aliases). After `LEFT`/`RIGHT` the completion
+    offers `JOIN` and `OUTER JOIN`.
+  - Next clauses: `FROM`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`,
+    `LIMIT`, `UNION [ALL | DISTINCT]`, `INTERSECT`, `EXCEPT`,
+    `FETCH FIRST`, `FOR UPDATE`, `LOCK IN SHARE MODE`, plus `ASC`/`DESC`,
+    `WITH ROLLUP`, `OFFSET`, `ROWS EXAMINED` and the lock options
+    `WAIT`, `NOWAIT`, `SKIP LOCKED` where they fit.
+  - `SELECT` right after `EXISTS (`, `IN (`, `ANY (`, `SOME (` and
+    `ALL (`.
+  - `USING (|)` suggests the columns that exist in more than one table
+    of the query.
+- `ON` is now recognized as a clause of its own, so columns and
+  keywords are suggested in a join condition.
+
+### Changed
+- A parenthesis inside `WHERE`, `ON`, `HAVING` etc. now keeps the
+  clause it is in, so conditions grouped with parentheses get the same
+  suggestions as the rest of the clause. Subqueries still start fresh.
+- Keywords that exist only in MySQL are not suggested.
+
 ## 1.2.14
 
 ### Changed
