@@ -1,29 +1,13 @@
-import type { ExpressionPosition } from '../sql/expressionPosition.js';
-import type { ClauseEndContext } from '../sql/clauseEnd.js';
-import { CONDITION_KEYWORDS } from './sqlConditionKeywords.js';
-import { JOIN_KEYWORDS } from './sqlJoinKeywords.js';
-import { CLAUSE_KEYWORDS } from './sqlClauseKeywords.js';
-
-// miejsce, w którym słowo jest podpowiadane: tuż po SELECT, w danej pozycji wyrażenia warunkowego (WHERE/HAVING/ON), po odwołaniu do tabeli w FROM/JOIN albo na końcu klauzuli
-export type KeywordContext = 'select-modifier' | 'join-kind' | 'join-condition' | 'table-alias' | 'join-side' | 'join-outer' | 'subquery-start' | ExpressionPosition | ClauseEndContext;
-
 export interface SqlKeyword {
     name: string;
     signature: string;
     documentation: string;
-    // konteksty, w których słowo jest podpowiadane przez CompletionSelect - brak oznacza, że służy tylko do dokumentacji (np. modyfikatory INSERT/DELETE)
-    contexts?: KeywordContext[];
-    // snippet wstawiany zamiast samej nazwy słowa
-    snippet?: string;
-    // kolejność na liście podpowiedzi w danym kontekście, rosnąco, domyślnie 0 (przy równej wartości decyduje kolejność w SQL_KEYWORDS)
-    rank?: number;
 }
 
 export const SQL_KEYWORDS: SqlKeyword[] = [
 
 {
     name: 'ALL',
-    contexts: ['select-modifier'],
 
     signature:
         'SELECT ALL select_expr [, select_expr ...]',
@@ -61,7 +45,6 @@ SELECT city FROM customers
 
 {
     name: 'DISTINCT',
-    contexts: ['select-modifier'],
 
     signature:
         'SELECT DISTINCT select_expr [, select_expr ...]',
@@ -99,7 +82,6 @@ SELECT DISTINCT city, country FROM customers
 
 {
     name: 'DISTINCTROW',
-    contexts: ['select-modifier'],
 
     signature:
         'SELECT DISTINCTROW select_expr [, select_expr ...]',
@@ -137,7 +119,6 @@ SELECT DISTINCTROW city, country FROM customers
 
 {
     name: 'HIGH_PRIORITY',
-    contexts: ['select-modifier'],
 
     signature:
         'SELECT HIGH_PRIORITY select_expr [, select_expr ...]',
@@ -222,7 +203,7 @@ INSERT LOW_PRIORITY INTO logs (message) VALUES ('done')
 INSERT DELAYED INTO tbl_name [(col1, ...)] VALUES (...)
 \`\`\`
 
-Queues the row(s) and returns to the client immediately, letting the server insert them when the table is next free. Also valid on REPLACE.
+Queues the row(s) and returns to the client immediately, letting the server insert them when the table is next free. Also valid on REPLACE. Removed in MySQL 8.0 (silently treated as a no-op there), but still supported by MariaDB.
 
 ## Full Syntax
 
@@ -305,8 +286,6 @@ DELETE QUICK FROM logs WHERE created_at < '2020-01-01'
 
 {
     name: 'STRAIGHT_JOIN',
-    contexts: ['select-modifier', 'join-kind'],
-    rank: 100,
 
     signature:
         'SELECT STRAIGHT_JOIN select_expr [, select_expr ...]',
@@ -331,29 +310,16 @@ FROM table_a
 JOIN table_b ON table_a.id = table_b.a_id;
 \`\`\`
 
-## As a join operator
-
-\`\`\`sql
-table_a STRAIGHT_JOIN table_b [ON search_condition]
-\`\`\`
-
-Same as \`JOIN\`, but the left table is always read before the right one. Unlike the modifier after SELECT, it applies to a single join.
-
 ## Examples
 
 \`\`\`sql
 SELECT STRAIGHT_JOIN * FROM small_table, big_table WHERE small_table.id = big_table.small_id
-\`\`\`
-
-\`\`\`sql
-SELECT * FROM small_table s STRAIGHT_JOIN big_table b ON b.small_id = s.id
 \`\`\`
 `
 },
 
 {
     name: 'SQL_SMALL_RESULT',
-    contexts: ['select-modifier'],
 
     signature:
         'SELECT SQL_SMALL_RESULT select_expr [, select_expr ...]',
@@ -388,7 +354,6 @@ SELECT SQL_SMALL_RESULT DISTINCT status FROM orders
 
 {
     name: 'SQL_BIG_RESULT',
-    contexts: ['select-modifier'],
 
     signature:
         'SELECT SQL_BIG_RESULT select_expr [, select_expr ...]',
@@ -423,7 +388,6 @@ SELECT SQL_BIG_RESULT DISTINCT customer_id FROM orders
 
 {
     name: 'SQL_BUFFER_RESULT',
-    contexts: ['select-modifier'],
 
     signature:
         'SELECT SQL_BUFFER_RESULT select_expr [, select_expr ...]',
@@ -457,7 +421,6 @@ SELECT SQL_BUFFER_RESULT * FROM large_table
 
 {
     name: 'SQL_NO_CACHE',
-    contexts: ['select-modifier'],
 
     signature:
         'SELECT SQL_NO_CACHE select_expr [, select_expr ...]',
@@ -491,7 +454,6 @@ SELECT SQL_NO_CACHE NOW(), status FROM system_state
 
 {
     name: 'SQL_CALC_FOUND_ROWS',
-    contexts: ['select-modifier'],
 
     signature:
         'SELECT SQL_CALC_FOUND_ROWS select_expr [, select_expr ...]',
@@ -530,14 +492,4 @@ SELECT FOUND_ROWS()
 `
 },
 
-...CONDITION_KEYWORDS,
-...JOIN_KEYWORDS,
-...CLAUSE_KEYWORDS,
 ];
-
-// słowa kluczowe podpowiadane w danym kontekście, w kolejności rank, a przy równym rank w kolejności zdefiniowanej w SQL_KEYWORDS
-export function getKeywordsForContext(context: KeywordContext): SqlKeyword[] {
-    return SQL_KEYWORDS
-        .filter(keyword => keyword.contexts?.includes(context))
-        .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
-}
