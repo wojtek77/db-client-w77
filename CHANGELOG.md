@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.2.16
+
+### Added
+- SQL completion in SELECT: `EXISTS`, `NOT EXISTS` and `NOT` are now
+  suggested in the SELECT list as well, right after `SELECT`, after
+  `SELECT DISTINCT` (and the other modifiers) and after a comma.
+
+### Changed
+- Condition keywords (`EXISTS`, `NOT EXISTS`, `NOT`, `AND`, `OR`, `XOR`,
+  `IN`, `BETWEEN`, `LIKE`, `REGEXP`, `RLIKE`, `IS [NOT] NULL`,
+  `IS TRUE`, `IS FALSE`) are suggested only in the SELECT list, `WHERE`
+  and `HAVING`. After a finished operand they are listed before the
+  columns, and in the SELECT list only the keywords that start an
+  expression are offered.
+
+### Removed
+- Rolled back the keyword completion added in 1.2.15 for joins
+  (`JOIN`, `LEFT`/`RIGHT`/`CROSS`/`NATURAL JOIN`, `OUTER`,
+  `STRAIGHT_JOIN`, `ON`, `USING (...)`, `AS`) and for the end of a
+  clause (`FROM`, `GROUP BY`, `ORDER BY`, `LIMIT`, `UNION`,
+  `INTERSECT`, `EXCEPT`, `FETCH FIRST`, `FOR UPDATE`, `LOCK IN SHARE MODE`,
+  `ASC`/`DESC`, `WITH ROLLUP`, `OFFSET`, `ROWS EXAMINED`).
+- Removed the suggestion of columns common to the joined tables in
+  `USING (|)`, the separate `ON` clause detection and the inheritance
+  of the clause by parentheses in `WHERE`, `ON` and `HAVING`.
+- Restored the description of `INSERT DELAYED` and the suggestion of
+  keywords that exist only in MySQL.
+
 ## 1.2.15
 
 ### Added
