@@ -1,7 +1,17 @@
+import type { ExpressionPosition } from '../sql/expressionPosition.js';
+import { CONDITION_KEYWORDS } from './sqlConditionKeywords.js';
+
+// miejsce, w którym słowo warunkowe jest podpowiadane: początek wyrażenia, tuż po operandzie albo po NOT stojącym po operandzie
+export type KeywordContext = ExpressionPosition;
+
 export interface SqlKeyword {
     name: string;
     signature: string;
     documentation: string;
+    // konteksty, w których słowo jest podpowiadane przez CompletionSelect - brak oznacza, że służy tylko do dokumentacji (np. modyfikatory SELECT/INSERT/DELETE)
+    contexts?: KeywordContext[];
+    // snippet wstawiany zamiast samej nazwy słowa
+    snippet?: string;
 }
 
 export const SQL_KEYWORDS: SqlKeyword[] = [
@@ -492,4 +502,10 @@ SELECT FOUND_ROWS()
 `
 },
 
+...CONDITION_KEYWORDS,
 ];
+
+// słowa kluczowe podpowiadane w danym kontekście, w kolejności zdefiniowanej w SQL_KEYWORDS
+export function getKeywordsForContext(context: KeywordContext): SqlKeyword[] {
+    return SQL_KEYWORDS.filter(keyword => keyword.contexts?.includes(context));
+}

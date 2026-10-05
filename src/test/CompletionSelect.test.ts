@@ -4,7 +4,7 @@ import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { findCteDefinitions, findMainStatementFirstWord } from '../sql/findCteDefinitions.js';
 import { findDerivedTables } from '../sql/findDerivedTables.js';
-import { getCompletions, labelOf, makeColumn, makeIndex } from './testHelpers.js';
+import { getCompletions, insertTextOf, labelOf, makeColumn, makeIndex } from './testHelpers.js';
 
 // funkcje pomocnicze (makeColumn, makeFakeDb, getCompletions, labelOf) są w testHelpers.ts i współdzielone przez wszystkie pliki testowe completion
 
@@ -937,7 +937,9 @@ suite('TableCompletionProvider — suggestions in SQL', () => {
             ],
         });
         const keywordLabels = items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
-        assert.strictEqual(keywordLabels.length, 0, 'no SELECT modifiers should be suggested after a real column');
+        // po przecinku podpowiadamy już tylko słowa zaczynające wyrażenie (EXISTS, NOT), bez modyfikatorów
+        const modifiers = ['ALL', 'DISTINCT', 'DISTINCTROW', 'HIGH_PRIORITY', 'STRAIGHT_JOIN', 'SQL_SMALL_RESULT', 'SQL_BIG_RESULT', 'SQL_BUFFER_RESULT', 'SQL_NO_CACHE', 'SQL_CALC_FOUND_ROWS'];
+        assert.deepStrictEqual(keywordLabels.filter(label => modifiers.includes(label)), [], 'no SELECT modifiers should be suggested after a real column');
         assert.ok(items.map(labelOf).includes('email'), 'columns should still be suggested normally');
     });
 
@@ -2076,5 +2078,191 @@ suite('TableCompletionProvider — HAVING', () => {
         assert.ok(labels.includes('10'),  'missing value 10 in LIMIT');
         assert.ok(labels.includes('100'), 'missing value 100 in LIMIT');
         assert.ok(!labels.includes('aaa'), '"aaa" should not appear in LIMIT');
+    });
+});
+
+suite('TableCompletionProvider — condition keywords (SELECT list / WHERE / HAVING)', () => {
+
+    const dbOverrides = {
+        getDatabase:              () => 'public',
+        findSchemaByTable:        () => 'public',
+        getDefaultDatabaseTables: () => [],
+        getSchemas:               () => [],
+    };
+    const columnsStub = {
+        'public.users': [makeColumn('id', 'int', 'PRI'), makeColumn('name', 'varchar')],
+    };
+
+    // kursor zawsze na końcu zapytania, żeby testy były czytelne
+    async function complete(sql: string): Promise<vscode.CompletionItem[]> {
+        return getCompletions(sql, sql.length, dbOverrides, columnsStub);
+    }
+
+    function keywordLabels(items: vscode.CompletionItem[]): string[] {
+        return items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+    }
+
+    // ── początek warunku ──────────────────────────────────────────────────────
+
+    test('WHERE: suggests EXISTS, NOT EXISTS and NOT at the start of a condition', async () => {
+        const labels = keywordLabels(await complete('SELECT * FROM users WHERE '));
+        assert.ok(labels.includes('EXISTS'),     'missing EXISTS');
+        assert.ok(labels.includes('NOT EXISTS'), 'missing NOT EXISTS');
+        assert.ok(labels.includes('NOT'),        'missing NOT');
+    });
+
+    test('WHERE: does not suggest operators (AND, IN, LIKE...) at the start of a condition', async () => {
+        const labels = keywordLabels(await complete('SELECT * FROM users WHERE '));
+        for (const operator of ['AND', 'OR', 'IN', 'BETWEEN', 'LIKE', 'IS NULL']) {
+            assert.ok(!labels.includes(operator), `${operator} should not be suggested at the start of a condition`);
+        }
+    });
+
+    test('WHERE: suggests EXISTS after AND', async () => {
+        const labels = keywordLabels(await complete('SELECT * FROM users WHERE id = 1 AND '));
+        assert.ok(labels.includes('EXISTS'), 'missing EXISTS after AND');
+    });
+
+    test('WHERE: suggests EXISTS inside a correlated subquery', async () => {
+        const sql = 'SELECT * FROM users u WHERE EXISTS (SELECT 1 FROM users x WHERE x.id = u.id AND ';
+        const labels = keywordLabels(await complete(sql));
+        assert.ok(labels.includes('EXISTS'), 'missing EXISTS inside the subquery');
+    });
+
+    test('WHERE: inserts EXISTS as a snippet with a subquery template', async () => {
+        const items = await complete('SELECT * FROM users WHERE ');
+        const exists = items.find(i => labelOf(i) === 'EXISTS');
+        assert.ok(exists, 'missing EXISTS');
+        assert.ok(exists.insertText instanceof vscode.SnippetString, 'EXISTS should be a snippet');
+        assert.ok(insertTextOf(exists).startsWith('EXISTS (SELECT 1 FROM'), `unexpected snippet: ${insertTextOf(exists)}`);
+    });
+
+    // ── po operandzie ─────────────────────────────────────────────────────────
+
+    test('WHERE: suggests operators after a column', async () => {
+        const labels = keywordLabels(await complete('SELECT * FROM users WHERE id '));
+        for (const operator of ['AND', 'OR', 'IN', 'NOT IN', 'BETWEEN', 'LIKE', 'REGEXP', 'IS NULL', 'IS NOT NULL']) {
+            assert.ok(labels.includes(operator), `missing ${operator} after a column`);
+        }
+    });
+
+    test('WHERE: does not suggest EXISTS after a column', async () => {
+        const labels = keywordLabels(await complete('SELECT * FROM users WHERE id '));
+        assert.ok(!labels.includes('EXISTS'),     'EXISTS should not be suggested after an operand');
+        assert.ok(!labels.includes('NOT EXISTS'), 'NOT EXISTS should not be suggested after an operand');
+    });
+
+    test('WHERE: suggests operators after a literal', async () => {
+        const labels = keywordLabels(await complete("SELECT * FROM users WHERE name = 'x' "));
+        assert.ok(labels.includes('AND'), 'missing AND after a literal');
+        assert.ok(labels.includes('OR'),  'missing OR after a literal');
+    });
+
+    test('WHERE: inserts IN, BETWEEN and LIKE as snippets with placeholders', async () => {
+        const items = await complete('SELECT * FROM users WHERE id ');
+        assert.strictEqual(insertTextOf(items.find(i => labelOf(i) === 'IN')!),      'IN ($1)$0');
+        assert.strictEqual(insertTextOf(items.find(i => labelOf(i) === 'BETWEEN')!), 'BETWEEN ${1:min} AND ${2:max}');
+        assert.strictEqual(insertTextOf(items.find(i => labelOf(i) === 'LIKE')!),    "LIKE '%$1'$0");
+        assert.strictEqual(insertTextOf(items.find(i => labelOf(i) === 'NOT LIKE')!), "NOT LIKE '%$1'$0");
+    });
+
+    test('WHERE: keywords after an operand sort before columns, columns are still suggested', async () => {
+        const items = await complete('SELECT * FROM users WHERE id ');
+        const and = items.find(i => labelOf(i) === 'AND');
+        const column = items.find(i => labelOf(i) === 'name');
+        assert.ok(and, 'missing AND');
+        assert.ok(column, 'columns should still be suggested after an operand');
+        assert.ok(and.sortText! < column.sortText!, `AND (${and.sortText}) should sort before the column (${column.sortText})`);
+    });
+
+    test('WHERE: keywords at the start of a condition sort after columns', async () => {
+        const items = await complete('SELECT * FROM users WHERE ');
+        const exists = items.find(i => labelOf(i) === 'EXISTS');
+        const column = items.find(i => labelOf(i) === 'name');
+        assert.ok(exists && column, 'missing EXISTS or column');
+        assert.ok(exists.sortText! > column.sortText!, `EXISTS (${exists.sortText}) should sort after the column (${column.sortText})`);
+    });
+
+    // ── po postfiksowym NOT ───────────────────────────────────────────────────
+
+    test('WHERE: after "column NOT" suggests only IN, BETWEEN, LIKE, REGEXP and RLIKE', async () => {
+        const labels = keywordLabels(await complete('SELECT * FROM users WHERE id NOT '));
+        for (const operator of ['IN', 'BETWEEN', 'LIKE', 'REGEXP', 'RLIKE']) {
+            assert.ok(labels.includes(operator), `missing ${operator} after NOT`);
+        }
+        for (const other of ['AND', 'OR', 'NOT IN', 'EXISTS', 'IS NULL']) {
+            assert.ok(!labels.includes(other), `${other} should not be suggested after NOT`);
+        }
+    });
+
+    // ── miejsca bez słów warunkowych ──────────────────────────────────────────
+
+    test('WHERE: no condition keywords after a comparison operator', async () => {
+        assert.deepStrictEqual(keywordLabels(await complete('SELECT * FROM users WHERE id = ')), []);
+    });
+
+    test('WHERE: no condition keywords after the AND of a BETWEEN', async () => {
+        assert.deepStrictEqual(keywordLabels(await complete('SELECT * FROM users WHERE id BETWEEN 1 AND ')), []);
+    });
+
+    test('WHERE: no condition keywords inside a string literal', async () => {
+        assert.deepStrictEqual(keywordLabels(await complete("SELECT * FROM users WHERE name = 'abc ")), []);
+    });
+
+    test('SELECT list: suggests EXISTS, NOT EXISTS and NOT right after SELECT', async () => {
+        const labels = keywordLabels(await complete('SELECT '));
+        assert.ok(labels.includes('EXISTS'),     'missing EXISTS right after SELECT');
+        assert.ok(labels.includes('NOT EXISTS'), 'missing NOT EXISTS right after SELECT');
+        assert.ok(labels.includes('NOT'),        'missing NOT right after SELECT');
+    });
+
+    test('SELECT list: suggests EXISTS together with the modifiers and columns', async () => {
+        const items = await getCompletions('SELECT  FROM users', 'SELECT '.length, dbOverrides, columnsStub);
+        const labels = keywordLabels(items);
+        assert.ok(labels.includes('EXISTS'),   'missing EXISTS');
+        assert.ok(labels.includes('DISTINCT'), 'missing DISTINCT');
+        assert.ok(items.some(i => labelOf(i) === 'id'), 'missing column id');
+    });
+
+    test('SELECT list: suggests EXISTS after DISTINCT and after a comma', async () => {
+        assert.ok(keywordLabels(await complete('SELECT DISTINCT ')).includes('EXISTS'), 'missing EXISTS after DISTINCT');
+        assert.ok(keywordLabels(await complete('SELECT id, ')).includes('EXISTS'), 'missing EXISTS after a comma');
+    });
+
+    test('SELECT list: suggests EXISTS while typing its prefix', async () => {
+        assert.ok(keywordLabels(await complete('SELECT EXI')).includes('EXISTS'), 'missing EXISTS for the prefix');
+    });
+
+    test('SELECT list: does not suggest operators (AND, IN...) after a select expression', async () => {
+        const labels = keywordLabels(await complete('SELECT id '));
+        for (const operator of ['AND', 'OR', 'IN', 'BETWEEN', 'LIKE', 'EXISTS']) {
+            assert.ok(!labels.includes(operator), `${operator} should not be suggested after a select expression`);
+        }
+    });
+
+    test('ORDER BY: does not suggest condition keywords', async () => {
+        const labels = keywordLabels(await complete('SELECT * FROM users ORDER BY id '));
+        assert.ok(!labels.includes('AND'), 'AND should not be suggested in ORDER BY');
+        assert.ok(!labels.includes('IN'),  'IN should not be suggested in ORDER BY');
+    });
+
+    // ── HAVING ────────────────────────────────────────────────────────────────
+
+    test('HAVING: suggests EXISTS and NOT at the start of a condition', async () => {
+        const labels = keywordLabels(await complete('SELECT name, COUNT(*) AS total FROM users GROUP BY name HAVING '));
+        assert.ok(labels.includes('EXISTS'), 'missing EXISTS in HAVING');
+        assert.ok(labels.includes('NOT'),    'missing NOT in HAVING');
+    });
+
+    test('HAVING: suggests operators after an alias', async () => {
+        const labels = keywordLabels(await complete('SELECT name, COUNT(*) AS total FROM users GROUP BY name HAVING total '));
+        for (const operator of ['AND', 'OR', 'IN', 'BETWEEN']) {
+            assert.ok(labels.includes(operator), `missing ${operator} after an alias in HAVING`);
+        }
+    });
+
+    test('HAVING: no condition keywords inside a function call', async () => {
+        const labels = keywordLabels(await complete('SELECT name, COUNT(*) AS total FROM users GROUP BY name HAVING COUNT('));
+        assert.deepStrictEqual(labels, []);
     });
 });

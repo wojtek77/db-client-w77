@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { Connection } from "../db/Connection.js";
 import { CompletionAbstract } from "./CompletionAbstract.js";
 import { SQL_FUNCTIONS } from './sqlFunctions.js';
+import { getKeywordsForContext } from './sqlKeywords.js';
+import { detectExpressionPosition } from '../sql/expressionPosition.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { findCteDefinitions } from '../sql/findCteDefinitions.js';
@@ -218,6 +220,9 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor, specificAliasesToLoad);
             }
 
+            // słowa kluczowe warunków - tak samo jak w WHERE
+            result.push(...this.getConditionKeywordItems(sqlBeforeCursor));
+
             for (const fn of SQL_FUNCTIONS) {
                 result.push(this.createFunctionItem(fn));
             }
@@ -382,6 +387,13 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 }
             }
 
+            // słowa kluczowe warunków (EXISTS, IN, BETWEEN, AND...) - w WHERE zależnie od miejsca kursora, na liście SELECT tylko te zaczynające wyrażenie (EXISTS, NOT)
+            if (isInWhereClause) {
+                result.push(...this.getConditionKeywordItems(sqlBeforeCursor));
+            } else if (isInSelectClause) {
+                result.push(...this.getConditionKeywordItems(sqlBeforeCursor, true));
+            }
+
             // wspólna metoda: Ładujemy wszystkie kolumny dla klauzul strukturalnych
             await this.addColumnsFromQueryTables(result, fullText, defaultSchema, db, sqlBeforeCursor);
 
@@ -405,5 +417,14 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         }
         
         return [];
+    }
+
+    // słowa kluczowe warunków dopasowane do miejsca kursora - po operandzie (kolumna, literał, nawias) są ważniejsze niż kolumny, na początku wyrażenia zostają za nimi
+    private getConditionKeywordItems(sqlBeforeCursor: string, onlyExpressionStart = false): vscode.CompletionItem[] {
+        const position = detectExpressionPosition(sqlBeforeCursor);
+        if (!position || (onlyExpressionStart && position !== 'expression-start')) { return []; }
+
+        const highPriority = position !== 'expression-start';
+        return getKeywordsForContext(position).map((keyword, order) => this.createKeywordItem(keyword.name, order, highPriority));
     }
 }
