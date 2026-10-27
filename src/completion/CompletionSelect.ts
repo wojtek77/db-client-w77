@@ -4,6 +4,7 @@ import { CompletionAbstract } from "./CompletionAbstract.js";
 import { SQL_FUNCTIONS } from './sqlFunctions.js';
 import { getKeywordsForContext } from './sqlKeywords.js';
 import { detectExpressionPosition } from '../sql/expressionPosition.js';
+import { detectWindowPosition, WindowPosition } from '../sql/windowPosition.js';
 import { TableColumn, TableRef } from '../cache/TableColumnsCache.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { findCteDefinitions } from '../sql/findCteDefinitions.js';
@@ -100,8 +101,7 @@ function getSelectModifierContext(sqlBeforeCursor: string, selectStart: number):
 // a nie zawsze na najwyższym poziomie, bo inaczej HAVING/SELECT wewnątrz "FROM (SELECT ... )" myliłoby się z klauzulami zapytania zewnętrznego
 // dzięki tokenizacji słowo kluczowe wewnątrz stringa/komentarza albo będące częścią dłuższego identyfikatora (np. "transform_flag" zawiera "from")
 // nie jest już mylnie brane za granicę klauzuli - to był realny błąd poprzedniej wersji opartej na indexOf na surowym tekście
-export function detectCurrentClause(sqlBeforeCursor: string): DetectedClause | undefined {
-    const tokens = tokenize(sqlBeforeCursor);
+function detectClauseAtCursorDepth(tokens: Token[]): DetectedClause | undefined {
     const depths = computeDepths(tokens);
     const targetDepth = currentDepth(tokens);
 
@@ -122,6 +122,49 @@ export function detectCurrentClause(sqlBeforeCursor: string): DetectedClause | u
         if (simple) { found = { name: simple, start: t.start }; }
     }
     return found;
+}
+
+// słowa, po których nawias nie jest wywołaniem funkcji (podzapytanie, lista wartości, index hint, definicja CTE, specyfikacja okna itd.)
+const NON_FUNCTION_PAREN_WORDS = new Set([
+    'IN', 'NOT', 'EXISTS', 'ANY', 'ALL', 'SOME', 'AND', 'OR', 'XOR', 'FROM', 'JOIN', 'ON', 'USING', 'WHERE', 'WHEN', 'THEN', 'ELSE',
+    'SELECT', 'UNION', 'INTERSECT', 'EXCEPT', 'VALUES', 'INDEX', 'KEY', 'AS', 'BY', 'OVER', 'INTO', 'PARTITION',
+]);
+
+// klauzule, w których argumentem funkcji może być kolumna - w FROM (np. warunek ON) kolumny bez aliasu nie są podpowiadane, więc tam nawias funkcji nie dziedziczy klauzuli
+const CLAUSES_WITH_FUNCTION_ARGS = new Set<SelectClauseName>(['select', 'where', 'group', 'having', 'order', 'partition']);
+
+// offset '(' najbliższego niedomkniętego nawiasu, jeśli jest to wywołanie funkcji (nazwa bezpośrednio przed '(' bez spacji, np. COUNT( albo FIELD( ), w przeciwnym razie -1
+function findEnclosingFunctionParenStart(tokens: Token[]): number {
+    const stack: number[] = [];
+    for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i].type === 'lparen') { stack.push(i); }
+        else if (tokens[i].type === 'rparen') { stack.pop(); }
+    }
+    if (stack.length === 0) { return -1; }
+
+    const open = stack[stack.length - 1];
+    const name = open > 0 ? tokens[open - 1] : undefined;
+    if (tokens[open].spaceBefore !== false || name?.type !== 'word') { return -1; }
+    if (!/^[A-Za-z_]\w*$/.test(name.value) || NON_FUNCTION_PAREN_WORDS.has(name.value.toUpperCase())) { return -1; }
+    return tokens[open].start;
+}
+
+export function detectCurrentClause(sqlBeforeCursor: string): DetectedClause | undefined {
+    let text = sqlBeforeCursor;
+    let insideFunctionCall = false;
+
+    // kursor w argumentach funkcji (np. ORDER BY FIELD(|) nie ma własnej klauzuli na swojej głębokości - szukamy jej nad nawiasem funkcji, krok po kroku dla zagnieżdżonych wywołań
+    for (;;) {
+        const tokens = tokenize(text);
+        const found = detectClauseAtCursorDepth(tokens);
+        if (found) {
+            return !insideFunctionCall || CLAUSES_WITH_FUNCTION_ARGS.has(found.name) ? found : undefined;
+        }
+        const parenStart = findEnclosingFunctionParenStart(tokens);
+        if (parenStart < 0) { return undefined; }
+        text = text.slice(0, parenStart);
+        insideFunctionCall = true;
+    }
 }
 
 export class CompletionSelect extends CompletionAbstract implements CompletionInterface {
@@ -172,6 +215,12 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
             }
         }
         
+        // OVER ( | - w środku specyfikacji okna nie ma jeszcze żadnej klauzuli, więc proponujemy tylko PARTITION BY / ORDER BY
+        const windowPosition = detectWindowPosition(sqlBeforeCursor);
+        if (windowPosition === 'window-spec-start') {
+            return this.getWindowKeywordItems(windowPosition);
+        }
+
         /* LIMIT */
         if (isInLimitClause) {
             return [
@@ -387,6 +436,11 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
                 }
             }
 
+            // OVER po funkcji okna na liście SELECT albo ORDER BY po liście PARTITION BY - słowa składni okna przed kolumnami
+            if (windowPosition !== null && ((isInSelectClause && windowPosition === 'after-window-function') || (isInPartitionClause && windowPosition === 'window-spec-after-partition'))) {
+                result.push(...this.getWindowKeywordItems(windowPosition));
+            }
+
             // słowa kluczowe warunków (EXISTS, IN, BETWEEN, AND...) - w WHERE zależnie od miejsca kursora, na liście SELECT tylko te zaczynające wyrażenie (EXISTS, NOT)
             if (isInWhereClause) {
                 result.push(...this.getConditionKeywordItems(sqlBeforeCursor));
@@ -417,6 +471,11 @@ export class CompletionSelect extends CompletionAbstract implements CompletionIn
         }
         
         return [];
+    }
+
+    // słowa składni okna (OVER, PARTITION BY, ORDER BY) dla danej pozycji - zawsze przed kolumnami, bo kursor stoi dokładnie tam, gdzie takie słowo jest oczekiwane
+    private getWindowKeywordItems(position: WindowPosition): vscode.CompletionItem[] {
+        return getKeywordsForContext(position).map((keyword, order) => this.createKeywordItem(keyword.name, order, true));
     }
 
     // słowa kluczowe warunków dopasowane do miejsca kursora - po operandzie (kolumna, literał, nawias) są ważniejsze niż kolumny, na początku wyrażenia zostają za nimi

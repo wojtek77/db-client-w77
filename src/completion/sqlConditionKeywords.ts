@@ -1,6 +1,6 @@
 import type { SqlKeyword, KeywordContext } from './sqlKeywords.js';
 
-interface KeywordSpec {
+export interface KeywordSpec {
     name: string;
     contexts: KeywordContext[];
     syntax: string;
@@ -8,16 +8,19 @@ interface KeywordSpec {
     examples: string[];
     // snippet wstawiany zamiast samej nazwy - placeholdery otwierają od razu miejsce do uzupełnienia
     snippet?: string;
+    // czy po wstawieniu słowa od razu otworzyć listę podpowiedzi (np. kolumny po PARTITION BY)
+    retriggerSuggest?: boolean;
 }
 
 // składa dokumentację w tym samym formacie markdown co ręcznie zapisane wpisy w sqlKeywords.ts
-function buildKeyword(spec: KeywordSpec): SqlKeyword {
+export function buildKeyword(spec: KeywordSpec): SqlKeyword {
     const fence = '```';
     const examples = spec.examples.map(example => `${fence}sql\n${example}\n${fence}`).join('\n\n');
     return {
         name: spec.name,
         contexts: spec.contexts,
         snippet: spec.snippet,
+        retriggerSuggest: spec.retriggerSuggest,
         signature: spec.syntax,
         documentation: `\n# ${spec.name}\n\n${fence}sql\n${spec.syntax}\n${fence}\n\n${spec.description}\n\n## Examples\n\n${examples}\n`,
     };

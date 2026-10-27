@@ -4,6 +4,7 @@ import { findCurrentQuery } from '../sql/findCurrentQuery.js';
 import { findQueryTables } from '../sql/findQueryTables.js';
 import { findCteDefinitions, findMainStatementFirstWord } from '../sql/findCteDefinitions.js';
 import { findDerivedTables } from '../sql/findDerivedTables.js';
+import { detectCurrentClause } from '../completion/CompletionSelect.js';
 import { getCompletions, insertTextOf, labelOf, makeColumn, makeIndex } from './testHelpers.js';
 
 // funkcje pomocnicze (makeColumn, makeFakeDb, getCompletions, labelOf) są w testHelpers.ts i współdzielone przez wszystkie pliki testowe completion
@@ -2264,5 +2265,177 @@ suite('TableCompletionProvider — condition keywords (SELECT list / WHERE / HAV
     test('HAVING: no condition keywords inside a function call', async () => {
         const labels = keywordLabels(await complete('SELECT name, COUNT(*) AS total FROM users GROUP BY name HAVING COUNT('));
         assert.deepStrictEqual(labels, []);
+    });
+});
+
+suite('detectCurrentClause - cursor inside function arguments', () => {
+    test('finds the clause above a function call parenthesis', () => {
+        assert.strictEqual(detectCurrentClause('SELECT COUNT(')?.name, 'select');
+        assert.strictEqual(detectCurrentClause('SELECT * FROM t WHERE LOWER(')?.name, 'where');
+        assert.strictEqual(detectCurrentClause('SELECT * FROM t GROUP BY DATE(')?.name, 'group');
+        assert.strictEqual(detectCurrentClause('SELECT * FROM t ORDER BY FIELD(')?.name, 'order');
+        assert.strictEqual(detectCurrentClause('SELECT a FROM t GROUP BY a HAVING COUNT(')?.name, 'having');
+    });
+
+    test('finds the clause through nested function calls', () => {
+        assert.strictEqual(detectCurrentClause('SELECT * FROM t ORDER BY FIELD(UPPER(')?.name, 'order');
+        assert.strictEqual(detectCurrentClause("SELECT * FROM t ORDER BY FIELD(type, ")?.name, 'order');
+    });
+
+    test('inside OVER (...) the function parenthesis resolves to the window clause', () => {
+        assert.strictEqual(detectCurrentClause('SELECT ROW_NUMBER() OVER (PARTITION BY a ORDER BY FIELD(')?.name, 'order');
+        assert.strictEqual(detectCurrentClause('SELECT ROW_NUMBER() OVER (PARTITION BY LOWER(')?.name, 'partition');
+    });
+
+    test('keeps the clause of the subquery the function call is in', () => {
+        assert.strictEqual(detectCurrentClause('SELECT * FROM t WHERE id IN (SELECT UPPER(')?.name, 'select');
+    });
+
+    test('does not treat other parentheses as function calls', () => {
+        assert.strictEqual(detectCurrentClause('SELECT * FROM t WHERE x IN ('), undefined);
+        assert.strictEqual(detectCurrentClause('SELECT * FROM t WHERE x IN('), undefined);
+        assert.strictEqual(detectCurrentClause('SELECT * FROM t WHERE ('), undefined);
+        assert.strictEqual(detectCurrentClause('SELECT ROW_NUMBER() OVER ('), undefined);
+    });
+
+    test('does not inherit the FROM clause for function calls in a JOIN condition', () => {
+        assert.strictEqual(detectCurrentClause('SELECT * FROM a JOIN b ON LOWER('), undefined);
+    });
+});
+
+suite('TableCompletionProvider — window functions and function arguments (MariaDB)', () => {
+
+    const dbOverrides = {
+        getDatabase:              () => 'public',
+        findSchemaByTable:        () => 'public',
+        getDefaultDatabaseTables: () => ['users'],
+        getSchemas:               () => [],
+    };
+    const columnsStub = {
+        'public.users': [makeColumn('id', 'int', 'PRI'), makeColumn('name', 'varchar'), makeColumn('type', 'varchar')],
+    };
+
+    // kursor na końcu `sql`, a `rest` to tekst za kursorem (np. FROM stojące za listą SELECT)
+    async function completeAt(sql: string, rest = ''): Promise<vscode.CompletionItem[]> {
+        return getCompletions(sql + rest, sql.length, dbOverrides, columnsStub);
+    }
+
+    function keywordLabels(items: vscode.CompletionItem[]): string[] {
+        return items.filter(i => i.kind === vscode.CompletionItemKind.Keyword).map(labelOf);
+    }
+
+    function functionNames(items: vscode.CompletionItem[]): string[] {
+        return items.filter(i => i.kind === vscode.CompletionItemKind.Function).map(i => i.filterText ?? labelOf(i));
+    }
+
+    // ── funkcje ───────────────────────────────────────────────────────────────
+
+    test('SELECT list suggests window functions', async () => {
+        const names = functionNames(await completeAt('SELECT ', ' FROM users'));
+        for (const fn of ['ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE', 'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE']) {
+            assert.ok(names.includes(fn), `missing ${fn}`);
+        }
+    });
+
+    test('ORDER BY suggests FIELD, FIND_IN_SET and ELT', async () => {
+        const names = functionNames(await completeAt('SELECT * FROM users ORDER BY '));
+        for (const fn of ['FIELD', 'FIND_IN_SET', 'ELT']) {
+            assert.ok(names.includes(fn), `missing ${fn}`);
+        }
+    });
+
+    test('FIELD is inserted with placeholders for the arguments', async () => {
+        const item = (await completeAt('SELECT * FROM users ORDER BY ')).find(i => i.filterText === 'FIELD');
+        assert.ok(item, 'missing FIELD');
+        assert.strictEqual((item!.insertText as vscode.SnippetString).value, 'FIELD(${1:str}, ${2:str1}, ${3:str2})');
+    });
+
+    // ── OVER ──────────────────────────────────────────────────────────────────
+
+    test('suggests OVER right after a window function in the SELECT list', async () => {
+        const items = await completeAt('SELECT ROW_NUMBER() ', ' FROM users');
+        assert.ok(keywordLabels(items).includes('OVER'), 'missing OVER after ROW_NUMBER()');
+        const over = items.find(i => labelOf(i) === 'OVER')!;
+        assert.ok((over.sortText ?? '').startsWith('00_'), 'OVER should be listed before columns');
+    });
+
+    test('suggests OVER also while the word is being typed', async () => {
+        assert.ok(keywordLabels(await completeAt('SELECT *, ROW_NUMBER() OV', ' FROM users')).includes('OVER'));
+    });
+
+    test('OVER is inserted as a snippet that reopens the suggestions inside the parentheses', async () => {
+        const over = (await completeAt('SELECT ROW_NUMBER() ', ' FROM users')).find(i => labelOf(i) === 'OVER')!;
+        assert.strictEqual((over.insertText as vscode.SnippetString).value, 'OVER ($1)$0');
+        assert.strictEqual(over.command?.command, 'editor.action.triggerSuggest');
+    });
+
+    test('does not suggest OVER after a function that cannot take it', async () => {
+        assert.ok(!keywordLabels(await completeAt('SELECT FIELD(id, 1, 2) ', ' FROM users')).includes('OVER'));
+    });
+
+    test('does not suggest OVER in WHERE', async () => {
+        assert.ok(!keywordLabels(await completeAt('SELECT * FROM users WHERE COUNT(id) ')).includes('OVER'));
+    });
+
+    // ── OVER (...) ────────────────────────────────────────────────────────────
+
+    test('inside OVER ( suggests only PARTITION BY and ORDER BY', async () => {
+        const items = await completeAt('SELECT ROW_NUMBER() OVER (', ') FROM users');
+        assert.deepStrictEqual(items.map(labelOf), ['PARTITION BY', 'ORDER BY']);
+    });
+
+    test('PARTITION BY is inserted so that it reopens the suggestions for columns', async () => {
+        const item = (await completeAt('SELECT ROW_NUMBER() OVER (PAR', ') FROM users')).find(i => labelOf(i) === 'PARTITION BY')!;
+        assert.strictEqual((item.insertText as vscode.SnippetString).value, 'PARTITION BY $0');
+        assert.strictEqual(item.command?.command, 'editor.action.triggerSuggest');
+    });
+
+    test('suggests ORDER BY after the PARTITION BY list, together with columns', async () => {
+        const items = await completeAt('SELECT ROW_NUMBER() OVER (PARTITION BY name ', ') FROM users');
+        assert.ok(keywordLabels(items).includes('ORDER BY'), 'missing ORDER BY after PARTITION BY list');
+        assert.ok(items.map(labelOf).includes('id'), 'columns should still be suggested');
+    });
+
+    test('does not suggest ORDER BY right after PARTITION BY nor once ORDER BY is there', async () => {
+        assert.ok(!keywordLabels(await completeAt('SELECT ROW_NUMBER() OVER (PARTITION BY ', ') FROM users')).includes('ORDER BY'));
+        assert.ok(!keywordLabels(await completeAt('SELECT ROW_NUMBER() OVER (PARTITION BY name ORDER BY id ', ') FROM users')).includes('ORDER BY'));
+    });
+
+    // ── argumenty funkcji ─────────────────────────────────────────────────────
+
+    test('suggests columns inside a function call in the SELECT list', async () => {
+        const labels = (await completeAt('SELECT UPPER(', ') FROM users')).map(labelOf);
+        assert.ok(labels.includes('name'), 'missing name inside UPPER(');
+    });
+
+    test('suggests columns inside FIELD( in ORDER BY, also as the second argument', async () => {
+        assert.ok((await completeAt('SELECT * FROM users ORDER BY FIELD(')).map(labelOf).includes('type'));
+        assert.ok((await completeAt("SELECT * FROM users ORDER BY FIELD(type, 'a', ")).map(labelOf).includes('name'));
+    });
+
+    test('suggests columns inside nested function calls in WHERE', async () => {
+        assert.ok((await completeAt('SELECT * FROM users WHERE LOWER(TRIM(')).map(labelOf).includes('name'));
+    });
+
+    test('suggests columns inside a function call in GROUP BY', async () => {
+        assert.ok((await completeAt('SELECT COUNT(*) FROM users GROUP BY LEFT(')).map(labelOf).includes('name'));
+    });
+
+    test('suggests columns of the derived table query inside OVER (... ORDER BY FIELD(', async () => {
+        const head = 'SELECT s.id\nFROM users s\nLEFT JOIN (\n    SELECT *,\n        ROW_NUMBER() OVER (PARTITION BY id ORDER BY FIELD(';
+        const tail = "type, 'a', 'b') ASC) AS rn\n    FROM users\n) sq ON s.id = sq.id";
+        const labels = (await completeAt(head, tail)).map(labelOf);
+        assert.ok(labels.includes('type'), 'missing type inside FIELD( in OVER');
+    });
+
+    test('HAVING COUNT( suggests columns of the query tables', async () => {
+        const labels = (await completeAt('SELECT name, COUNT(*) AS total FROM users GROUP BY name HAVING COUNT(')).map(labelOf);
+        assert.ok(labels.includes('id'), 'missing id inside HAVING COUNT(');
+        assert.deepStrictEqual(keywordLabels(await completeAt('SELECT name, COUNT(*) AS total FROM users GROUP BY name HAVING COUNT(')), []);
+    });
+
+    test('does not suggest tables for a comma inside function arguments of a JOIN condition', async () => {
+        const items = await completeAt('SELECT * FROM users u JOIN users v ON CONCAT(u.name, ');
+        assert.deepStrictEqual(items.filter(i => i.kind === vscode.CompletionItemKind.Struct).map(labelOf), []);
     });
 });

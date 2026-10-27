@@ -9,7 +9,7 @@ const CONDITION_START_WORDS = new Set(['WHERE', 'HAVING', 'AND', 'OR', 'XOR', 'W
 // słowa, po których oczekiwana jest wartość lub dalsza część konstrukcji, a nie operator - po nich nie proponujemy żadnych słów kluczowych
 const VALUE_EXPECTED_WORDS = new Set([
     'IN', 'LIKE', 'REGEXP', 'RLIKE', 'BETWEEN', 'IS', 'ESCAPE', 'DIV', 'MOD', 'INTERVAL', 'EXISTS', 'ANY', 'SOME', 'ALL',
-    'CASE', 'THEN', 'ELSE', 'BINARY', 'DISTINCT', 'SEPARATOR', 'COLLATE', 'SOUNDS', 'MEMBER', 'OF', 'AS', 'FROM', 'JOIN', 'BY',
+    'CASE', 'THEN', 'ELSE', 'BINARY', 'DISTINCT', 'SEPARATOR', 'COLLATE', 'SOUNDS', 'MEMBER', 'OF', 'AS', 'FROM', 'JOIN', 'BY', 'OVER',
 ]);
 
 // słowa, po których może zaczynać się lista wyrażeń SELECT (po nich gwiazdka jest operandem, a nie mnożeniem)

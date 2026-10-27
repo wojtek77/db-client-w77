@@ -1494,4 +1494,463 @@ SELECT CONCAT('New ID: ', LAST_INSERT_ID());
 \`\`\`
 `
 },
+    // funkcje okna (MariaDB 10.2+), używane zawsze z OVER
+
+{
+    category: 'Window',
+
+    name: 'ROW_NUMBER',
+
+    signature:
+        'ROW_NUMBER()',
+
+    snippet:
+        'ROW_NUMBER()',
+
+    documentation: `
+# ROW_NUMBER
+
+\`\`\`sql
+ROW_NUMBER()
+\`\`\`
+
+Numbers the rows of each partition sequentially, starting at 1. Always used together with OVER. Rows that tie on the ORDER BY get different numbers in an unspecified order, so add more ORDER BY columns when the result must be deterministic. Window function, available in MariaDB 10.2+.
+
+## Full Syntax
+
+\`\`\`sql
+ROW_NUMBER() OVER (
+    [PARTITION BY expr, ...]
+    [ORDER BY expr [ASC | DESC], ...]
+)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+ROW_NUMBER() OVER (ORDER BY created_at)
+\`\`\`
+
+\`\`\`sql
+ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary DESC)
+\`\`\`
+
+\`\`\`sql
+SELECT *
+FROM (
+    SELECT t.*, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) AS rn
+    FROM logins t
+) x
+WHERE rn = 1
+\`\`\`
+`
+},
+
+{
+    category: 'Window',
+
+    name: 'RANK',
+
+    signature:
+        'RANK()',
+
+    snippet:
+        'RANK()',
+
+    documentation: `
+# RANK
+
+\`\`\`sql
+RANK()
+\`\`\`
+
+Returns the rank of each row within its partition. Rows that tie on the ORDER BY get the same rank and the next rank is skipped (1, 1, 3, ...). Always used together with OVER. Window function, available in MariaDB 10.2+.
+
+## Full Syntax
+
+\`\`\`sql
+RANK() OVER (
+    [PARTITION BY expr, ...]
+    ORDER BY expr [ASC | DESC], ...
+)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+RANK() OVER (ORDER BY score DESC)
+\`\`\`
+
+\`\`\`sql
+RANK() OVER (PARTITION BY department ORDER BY salary DESC)
+\`\`\`
+`
+},
+
+{
+    category: 'Window',
+
+    name: 'DENSE_RANK',
+
+    signature:
+        'DENSE_RANK()',
+
+    snippet:
+        'DENSE_RANK()',
+
+    documentation: `
+# DENSE_RANK
+
+\`\`\`sql
+DENSE_RANK()
+\`\`\`
+
+Returns the rank of each row within its partition without gaps: rows that tie get the same rank and the next rank follows directly (1, 1, 2, ...). Always used together with OVER. Window function, available in MariaDB 10.2+.
+
+## Full Syntax
+
+\`\`\`sql
+DENSE_RANK() OVER (
+    [PARTITION BY expr, ...]
+    ORDER BY expr [ASC | DESC], ...
+)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+DENSE_RANK() OVER (ORDER BY score DESC)
+\`\`\`
+
+\`\`\`sql
+DENSE_RANK() OVER (PARTITION BY department ORDER BY salary DESC)
+\`\`\`
+`
+},
+
+{
+    category: 'Window',
+
+    name: 'NTILE',
+
+    signature:
+        'NTILE(buckets)',
+
+    snippet:
+        'NTILE(${1:buckets})',
+
+    documentation: `
+# NTILE
+
+\`\`\`sql
+NTILE(buckets)
+\`\`\`
+
+Divides the rows of each partition into the given number of buckets of (nearly) equal size and returns the bucket number of the current row, starting at 1. Always used together with OVER. Window function, available in MariaDB 10.2+.
+
+## Full Syntax
+
+\`\`\`sql
+NTILE(buckets) OVER (
+    [PARTITION BY expr, ...]
+    ORDER BY expr [ASC | DESC], ...
+)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+NTILE(4) OVER (ORDER BY salary)
+\`\`\`
+
+\`\`\`sql
+NTILE(10) OVER (PARTITION BY department ORDER BY salary DESC)
+\`\`\`
+`
+},
+
+{
+    category: 'Window',
+
+    name: 'LAG',
+
+    signature:
+        'LAG(expr [, offset [, default]])',
+
+    snippet:
+        'LAG(${1:column})',
+
+    documentation: `
+# LAG
+
+\`\`\`sql
+LAG(expr [, offset [, default]])
+\`\`\`
+
+Returns the value of expr from the row that is offset rows before the current row within its partition (default offset is 1). Returns default (NULL if omitted) when there is no such row. Always used together with OVER. Window function, available in MariaDB 10.2+.
+
+## Full Syntax
+
+\`\`\`sql
+LAG(expr [, offset [, default]]) OVER (
+    [PARTITION BY expr, ...]
+    ORDER BY expr [ASC | DESC], ...
+)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+LAG(price) OVER (ORDER BY day)
+\`\`\`
+
+\`\`\`sql
+LAG(price, 1, 0) OVER (PARTITION BY product_id ORDER BY day)
+\`\`\`
+
+\`\`\`sql
+price - LAG(price) OVER (ORDER BY day) AS change
+\`\`\`
+`
+},
+
+{
+    category: 'Window',
+
+    name: 'LEAD',
+
+    signature:
+        'LEAD(expr [, offset [, default]])',
+
+    snippet:
+        'LEAD(${1:column})',
+
+    documentation: `
+# LEAD
+
+\`\`\`sql
+LEAD(expr [, offset [, default]])
+\`\`\`
+
+Returns the value of expr from the row that is offset rows after the current row within its partition (default offset is 1). Returns default (NULL if omitted) when there is no such row. Always used together with OVER. Window function, available in MariaDB 10.2+.
+
+## Full Syntax
+
+\`\`\`sql
+LEAD(expr [, offset [, default]]) OVER (
+    [PARTITION BY expr, ...]
+    ORDER BY expr [ASC | DESC], ...
+)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+LEAD(price) OVER (ORDER BY day)
+\`\`\`
+
+\`\`\`sql
+LEAD(price, 1, 0) OVER (PARTITION BY product_id ORDER BY day)
+\`\`\`
+`
+},
+
+{
+    category: 'Window',
+
+    name: 'FIRST_VALUE',
+
+    signature:
+        'FIRST_VALUE(expr)',
+
+    snippet:
+        'FIRST_VALUE(${1:column})',
+
+    documentation: `
+# FIRST_VALUE
+
+\`\`\`sql
+FIRST_VALUE(expr)
+\`\`\`
+
+Returns the value of expr from the first row of the window frame. Always used together with OVER. Window function, available in MariaDB 10.2+.
+
+## Full Syntax
+
+\`\`\`sql
+FIRST_VALUE(expr) OVER (
+    [PARTITION BY expr, ...]
+    [ORDER BY expr [ASC | DESC], ...]
+)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+FIRST_VALUE(name) OVER (PARTITION BY department ORDER BY salary DESC)
+\`\`\`
+
+\`\`\`sql
+FIRST_VALUE(price) OVER (ORDER BY day)
+\`\`\`
+`
+},
+
+{
+    category: 'Window',
+
+    name: 'LAST_VALUE',
+
+    signature:
+        'LAST_VALUE(expr)',
+
+    snippet:
+        'LAST_VALUE(${1:column})',
+
+    documentation: `
+# LAST_VALUE
+
+\`\`\`sql
+LAST_VALUE(expr)
+\`\`\`
+
+Returns the value of expr from the last row of the window frame. With ORDER BY the default frame ends at the current row, so to get the last row of the whole partition the frame has to be extended (ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING). Always used together with OVER. Window function, available in MariaDB 10.2+.
+
+## Full Syntax
+
+\`\`\`sql
+LAST_VALUE(expr) OVER (
+    [PARTITION BY expr, ...]
+    [ORDER BY expr [ASC | DESC], ...]
+    [frame_clause]
+)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+LAST_VALUE(price) OVER (ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+\`\`\`
+`
+},
+
+    // string - dopisane na końcu listy
+
+{
+    category: 'String',
+
+    name: 'FIELD',
+
+    signature:
+        'FIELD(str, str1, str2, ...)',
+
+    snippet:
+        'FIELD(${1:str}, ${2:str1}, ${3:str2})',
+
+    documentation: `
+# FIELD
+
+\`\`\`sql
+FIELD(str, str1, str2, ...)
+\`\`\`
+
+Returns the position of str in the list str1, str2, ... (1 for the first), or 0 if str is not found. Mostly used in ORDER BY to sort rows in a custom order instead of alphabetically.
+
+## Full Syntax
+
+\`\`\`sql
+FIELD(str, str1, str2, ...)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+ORDER BY FIELD(status, 'new', 'active', 'closed')
+\`\`\`
+
+\`\`\`sql
+SELECT FIELD('b', 'a', 'b', 'c');
+\`\`\`
+
+\`\`\`sql
+ORDER BY FIELD(type, 'trzyliterowa', 'dwuliterowa', 'jednoliterowa') ASC
+\`\`\`
+`
+},
+
+{
+    category: 'String',
+
+    name: 'FIND_IN_SET',
+
+    signature:
+        'FIND_IN_SET(str, strlist)',
+
+    snippet:
+        'FIND_IN_SET(${1:str}, ${2:strlist})',
+
+    documentation: `
+# FIND_IN_SET
+
+\`\`\`sql
+FIND_IN_SET(str, strlist)
+\`\`\`
+
+Returns the position of str in strlist, a string of comma-separated values (1 for the first), or 0 if str is not found.
+
+## Full Syntax
+
+\`\`\`sql
+FIND_IN_SET(str, strlist)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+SELECT FIND_IN_SET('b', 'a,b,c');
+\`\`\`
+
+\`\`\`sql
+WHERE FIND_IN_SET('admin', roles) > 0
+\`\`\`
+`
+},
+
+{
+    category: 'String',
+
+    name: 'ELT',
+
+    signature:
+        'ELT(N, str1, str2, ...)',
+
+    snippet:
+        'ELT(${1:N}, ${2:str1}, ${3:str2})',
+
+    documentation: `
+# ELT
+
+\`\`\`sql
+ELT(N, str1, str2, ...)
+\`\`\`
+
+Returns the N-th string from the list str1, str2, ... (1 for the first). Returns NULL if N is less than 1 or greater than the number of strings. The counterpart of FIELD.
+
+## Full Syntax
+
+\`\`\`sql
+ELT(N, str1, str2, ...)
+\`\`\`
+
+## Examples
+
+\`\`\`sql
+SELECT ELT(2, 'a', 'b', 'c');
+\`\`\`
+
+\`\`\`sql
+ELT(priority, 'low', 'normal', 'high')
+\`\`\`
+`
+},
 ];

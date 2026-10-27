@@ -161,6 +161,10 @@ export abstract class CompletionAbstract {
         if (kw?.snippet) {
             item.insertText = new vscode.SnippetString(kw.snippet);
         }
+        // słowa wymagające dalszego ciągu (np. PARTITION BY) od razu otwierają kolejną listę podpowiedzi
+        if (kw?.retriggerSuggest) {
+            item.command = { command: 'editor.action.triggerSuggest', title: 'Re-trigger completions' };
+        }
         if (kw) {
             // brak item.detail celowo - z pełnym opisem markdown "SQL Keyword" tylko zbędnie odpychał nagłówek w dół
             item.documentation = new vscode.MarkdownString(kw.documentation);

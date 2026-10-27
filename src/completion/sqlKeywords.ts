@@ -1,8 +1,10 @@
 import type { ExpressionPosition } from '../sql/expressionPosition.js';
+import type { WindowPosition } from '../sql/windowPosition.js';
 import { CONDITION_KEYWORDS } from './sqlConditionKeywords.js';
+import { WINDOW_KEYWORDS } from './sqlWindowKeywords.js';
 
-// miejsce, w którym słowo warunkowe jest podpowiadane: początek wyrażenia, tuż po operandzie albo po NOT stojącym po operandzie
-export type KeywordContext = ExpressionPosition;
+// miejsce, w którym słowo jest podpowiadane: początek wyrażenia, tuż po operandzie, po NOT stojącym po operandzie albo w składni funkcji okna (OVER, PARTITION BY, ORDER BY)
+export type KeywordContext = ExpressionPosition | WindowPosition;
 
 export interface SqlKeyword {
     name: string;
@@ -12,6 +14,8 @@ export interface SqlKeyword {
     contexts?: KeywordContext[];
     // snippet wstawiany zamiast samej nazwy słowa
     snippet?: string;
+    // czy po wstawieniu słowa od razu otworzyć listę podpowiedzi (np. kolumny po PARTITION BY)
+    retriggerSuggest?: boolean;
 }
 
 export const SQL_KEYWORDS: SqlKeyword[] = [
@@ -503,6 +507,8 @@ SELECT FOUND_ROWS()
 },
 
 ...CONDITION_KEYWORDS,
+
+...WINDOW_KEYWORDS,
 ];
 
 // słowa kluczowe podpowiadane w danym kontekście, w kolejności zdefiniowanej w SQL_KEYWORDS
