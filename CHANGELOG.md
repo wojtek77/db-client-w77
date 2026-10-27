@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.18
+
+### Added
+- SQL completion of window functions (MariaDB 10.2+): `ROW_NUMBER`,
+  `RANK`, `DENSE_RANK`, `NTILE`, `LAG`, `LEAD`, `FIRST_VALUE` and
+  `LAST_VALUE`.
+- SQL completion of the string functions `FIELD`, `FIND_IN_SET` and
+  `ELT`.
+- Window syntax keywords: `OVER` is suggested right after a window
+  function (or an aggregate such as `COUNT`, `SUM`) in the SELECT list,
+  `PARTITION BY` and `ORDER BY` inside `OVER (`, and `ORDER BY` after a
+  `PARTITION BY` list. After picking one of them the next list of
+  suggestions (e.g. columns after `PARTITION BY`) opens automatically.
+
+### Fixed
+- Columns and functions are now suggested inside the arguments of a
+  function call in the SELECT list, `WHERE`, `GROUP BY`, `ORDER BY`,
+  `PARTITION BY` and `HAVING` (e.g. `ORDER BY FIELD(|`,
+  `SELECT UPPER(|`). Before, the list was empty there.
+
 ## 1.2.17
 
 ### Fixed
