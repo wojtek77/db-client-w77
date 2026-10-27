@@ -4,6 +4,62 @@ import { ConnectionColors } from '../db/ConnectionColors.js';
 import * as path from 'path';
 import * as fs from 'fs';
 
+interface InputWithActionOptions {
+    title: string;
+    prompt: string;
+    value: string;
+    valueSelection: [number, number];
+    validate: (value: string) => string | undefined; // szybka walidacja przy każdej zmianie tekstu
+    action: (trimmedValue: string) => void; // operacja na dysku wykonywana po Enter - rzucony błąd zostaje w polu jako czerwony komunikat
+}
+
+// pole tekstowe, które po Enter wykonuje akcję i przy błędzie (np. ENOENT) zostaje otwarte z czerwonym komunikatem, żeby można było poprawić nazwę
+// zwraca wpisaną nazwę po udanej akcji albo undefined po anulowaniu (Esc)
+function showInputBoxWithAction(options: InputWithActionOptions): Promise<string | undefined> {
+    return new Promise((resolve) => {
+        const input = vscode.window.createInputBox();
+        input.title = options.title;
+        input.prompt = options.prompt;
+        input.value = options.value;
+        input.valueSelection = options.valueSelection;
+        input.ignoreFocusOut = true;
+
+        const showError = (message: string | undefined) => {
+            input.validationMessage = message
+                ? { message, severity: vscode.InputBoxValidationSeverity.Error }
+                : undefined;
+        };
+
+        input.onDidChangeValue((value) => showError(options.validate(value)));
+
+        input.onDidAccept(() => {
+            const validationError = options.validate(input.value);
+            if (validationError) {
+                showError(validationError);
+                return;
+            }
+
+            const finalName = input.value.trim();
+            try {
+                options.action(finalName);
+            } catch (error) {
+                showError(error instanceof Error ? error.message : String(error)); // pole zostaje otwarte, użytkownik poprawia nazwę
+                return;
+            }
+
+            resolve(finalName);
+            input.hide();
+        });
+
+        input.onDidHide(() => {
+            resolve(undefined); // no-op, jeśli promise został już rozwiązany po udanej akcji
+            input.dispose();
+        });
+
+        input.show();
+    });
+}
+
 export class RecentSqlFiles {
     
     private static instance: RecentSqlFiles;
@@ -311,13 +367,14 @@ export class RecentSqlFiles {
 
             isShowingSubPicker = true;
 
-            const enteredName = await vscode.window.showInputBox({
+            let newPath = '';
+
+            const enteredName = await showInputBoxWithAction({
                 title: 'Rename SQL file',
                 prompt: `Enter a new name for "${oldBaseName}.sql"`,
                 value: oldBaseName,
                 valueSelection: [0, oldBaseName.length],
-                ignoreFocusOut: true,
-                validateInput: (value) => {
+                validate: (value) => {
                     const trimmed = value.trim();
                     if (!trimmed) {
                         return 'File name cannot be empty';
@@ -330,6 +387,12 @@ export class RecentSqlFiles {
                         return `"${trimmed}.sql" already exists - choose a different name`;
                     }
                     return undefined;
+                },
+                action: (name) => {
+                    // fizyczna zmiana nazwy na dysku - błąd FS zostaje w polu jako czerwony komunikat, wpis w liście bez zmian
+                    const candidatePath = path.join(dir, `${name}.sql`);
+                    fs.renameSync(oldPath, candidatePath);
+                    newPath = candidatePath;
                 }
             });
 
@@ -337,19 +400,6 @@ export class RecentSqlFiles {
 
             if (enteredName === undefined) {
                 quickPick.hide(); // anulowano (Esc) - zamykamy całość, wracamy do edytora
-                return;
-            }
-
-            const finalName = enteredName.trim();
-            const newPath = path.join(dir, `${finalName}.sql`);
-
-            try {
-                // fizyczna zmiana nazwy na dysku - jeśli się nie powiedzie, wpis w liście zostaje bez zmian
-                fs.renameSync(oldPath, newPath);
-            } catch (error) {
-                vscode.window.showErrorMessage(`Could not rename file: ${error instanceof Error ? error.message : error}`);
-                quickPick.items = buildQuickPickItems(); // bez tego lista wracała pusta
-                quickPick.show();
                 return;
             }
 
@@ -388,13 +438,14 @@ export class RecentSqlFiles {
 
             isShowingSubPicker = true;
 
-            const enteredName = await vscode.window.showInputBox({
+            let finalPath = '';
+
+            const enteredName = await showInputBoxWithAction({
                 title: 'New SQL file',
                 prompt: `File will be created in: ${targetDir}`,
                 value: defaultName,
                 valueSelection: [0, defaultName.length],
-                ignoreFocusOut: true,
-                validateInput: (value) => {
+                validate: (value) => {
                     const trimmed = value.trim();
                     if (!trimmed) {
                         return 'File name cannot be empty';
@@ -406,6 +457,11 @@ export class RecentSqlFiles {
                     }
 
                     return undefined;
+                },
+                action: (name) => {
+                    const candidatePath = path.join(targetDir, `${name}.sql`);
+                    fs.writeFileSync(candidatePath, '', { encoding: 'utf-8', flag: 'wx' }); // wx - nie nadpisuje istniejącego pliku, błąd FS trafia do czerwonego komunikatu w polu
+                    finalPath = candidatePath;
                 }
             });
 
@@ -415,11 +471,6 @@ export class RecentSqlFiles {
                 quickPick.hide(); // anulowano (Esc) - zamykamy całość, wracamy do edytora
                 return;
             }
-
-            const finalName = enteredName.trim(); // walidacja pola już zagwarantowała, że taka nazwa jest wolna, więc dodatkowe wyliczanie sufiksu nie jest potrzebne
-            const finalPath = path.join(targetDir, `${finalName}.sql`);
-
-            fs.writeFileSync(finalPath, '', 'utf-8');
 
             const fileUri = vscode.Uri.file(finalPath);
             await vscode.window.showTextDocument(fileUri, {
