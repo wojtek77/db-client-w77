@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.17
+
+### Fixed
+- Recent SQL files list (F3): entering an invalid name for a new file
+  (e.g. `a/a/`) or hitting any file system error (`ENOENT`, permissions,
+  etc.) no longer closes the input and returns to the list. The error is
+  shown in red under the field and the name can be corrected, just like
+  with regular validation. The same applies to renaming a file.
+- Creating a new SQL file no longer overwrites a file that appeared on
+  disk after the name was validated.
+
 ## 1.2.16
 
 ### Added
