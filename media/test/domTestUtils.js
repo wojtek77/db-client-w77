@@ -39,6 +39,7 @@ const BASE_HTML = `<!doctype html>
         <span id="searchCount" class="search-count"></span>
     </div>
     <div class="pagination">
+        <span class="row-count"><span id="rowCount">---</span> rows</span>
         <button class="btn" id="firstBtn"></button>
         <button class="btn" id="prevBtn"></button>
         <span id="currentPage">1</span>

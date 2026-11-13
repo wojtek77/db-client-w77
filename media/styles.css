@@ -573,6 +573,10 @@ mark.search-match {
     padding: 0;
 }
 
+.row-count {
+    white-space: nowrap;
+}
+
 .page-info {
     font-size: 11px;
     /* margin: 0 10px; */

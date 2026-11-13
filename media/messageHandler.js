@@ -85,6 +85,12 @@ function updateDbAndTimes(connectionName = '-------', connectionTime = null, que
     document.getElementById('queryTime').textContent = qt;
     document.getElementById('queryTimeUnit').textContent = qtu;
 }
+function updateRowCount(count = null) {
+    // liczba wszystkich wierszy pobranych z DB (bez filtra wyszukiwania), '---' gdy brak wyniku
+    const el = document.getElementById('rowCount');
+    if (!el) {return;}
+    el.textContent = (typeof count === 'number') ? count.toLocaleString('en-US') : '---';
+}
 function updateInfoMessage(msg = '') {
     if (infoMessage) {
         if (msg) {
@@ -151,8 +157,10 @@ window.addEventListener('message', event => {
             document.getElementById('queryTimeUnit').textContent = 's';
         }, 100);
         
+        // w trakcie zapytania stary licznik byłby mylący
+        updateRowCount();
         startGridContainer();
-        
+
         startSpinner();
         spinner.style.borderTopColor = '#ffb937';
         
@@ -219,6 +227,7 @@ window.addEventListener('message', event => {
         state.totalRows = msg.totalRows ?? 0;
         state.totalRowsUnfiltered = msg.totalRowsUnfiltered ?? msg.totalRows ?? 0;
         updateDbAndTimes(state.connectionName, state.connectionTime, state.queryTime, state.connectionColor, state.isProduction, state.isReadOnly);
+        updateRowCount(state.totalRowsUnfiltered);
         updateInfoMessage(state.infoMessage);
         updateErrorMessage(state.errorMessage);
         updatePagination(state.currentPage, state.totalPages);
@@ -343,6 +352,8 @@ window.addEventListener('message', event => {
         
         startGridContainer();
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, State.getInstance().queryTime, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
+        // powrót do zakładki pliku - licznik wierszy bierzemy z jego własnego State
+        updateRowCount(State.getInstance().totalRowsUnfiltered);
         updateInfoMessage(State.getInstance().infoMessage);
         updateErrorMessage(State.getInstance().errorMessage);
         updatePagination(State.getInstance().currentPage, State.getInstance().totalPages);
@@ -377,6 +388,7 @@ window.addEventListener('message', event => {
         sqlFile = undefined; // zapomnij, dla jakiego pliku była ostatnio wyrenderowana siatka
 
         updateDbAndTimes();
+        updateRowCount();
         updateInfoMessage();
         updateErrorMessage();
         updatePagination();
@@ -393,6 +405,8 @@ window.addEventListener('message', event => {
         State.getInstance().isProduction = msg.isProduction ?? false;
         State.getInstance().isReadOnly = msg.isReadOnly ?? false;
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, null, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
+        // zmiana połączenia kasuje czas zapytania, więc czyścimy też licznik wierszy
+        updateRowCount();
         // showFlashMessage('Connection DB was changed', 3);
     }
     

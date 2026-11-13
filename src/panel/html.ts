@@ -64,7 +64,7 @@ ${cssContent}
         | ⏱
         <span id="queryTime" title="SQL execution time">---</span>
         <span id="queryTimeUnit">ms</span>
-        
+
         <span id="cancelQuery" class="cancel-query" title="cancel query">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -111,6 +111,10 @@ ${cssContent}
     </div>
 
     <div class="pagination">
+
+        <span class="row-count" title="Rows fetched from DB">
+            <span id="rowCount">---</span> rows
+        </span>
 
         <button class="btn" id="firstBtn">
             ⏮
