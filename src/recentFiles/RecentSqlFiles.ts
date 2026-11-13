@@ -496,6 +496,8 @@ export class RecentSqlFiles {
         quickPick.items = buildQuickPickItems();
         quickPick.placeholder = buildPlaceholder();
         quickPick.ignoreFocusOut = true;
+        // @ts-expect-error sortByLabel istnieje w runtime VS Code, ale nie ma go w publicznych typach - bez tego wyszukiwanie sortuje listę alfabetycznie
+        quickPick.sortByLabel = false;
         quickPick.buttons = buildButtons();
         quickPick.canSelectMany = true; // pozwala zaznaczyć checkboxami wiele plików naraz i otworzyć je jednym Enterem
         if (quickPick.items.length > 0) {
