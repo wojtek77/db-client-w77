@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.20
+
+### Fixed
+- Recent SQL files list (F3): searching the list no longer breaks the
+  order. While text is typed in the search field the matching files now
+  stay sorted by last opened (most recent first), the same as in the
+  unfiltered list, instead of being sorted alphabetically.
+
 ## 1.2.19
 
 ### Added
