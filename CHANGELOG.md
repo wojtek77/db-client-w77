@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.19
+
+### Added
+- Results toolbar: the number of rows fetched from the database is now
+  shown to the left of the page navigation (e.g. `1,234 rows`). It
+  counts all rows returned by the query, regardless of the search
+  filter. The value is cleared while a query is running and after
+  changing the connection, and restored when switching between SQL file
+  tabs.
+
 ## 1.2.18
 
 ### Added
