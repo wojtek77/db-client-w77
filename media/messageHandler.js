@@ -405,8 +405,6 @@ window.addEventListener('message', event => {
         State.getInstance().isProduction = msg.isProduction ?? false;
         State.getInstance().isReadOnly = msg.isReadOnly ?? false;
         updateDbAndTimes(State.getInstance().connectionName, State.getInstance().connectionTime, null, State.getInstance().connectionColor, State.getInstance().isProduction, State.getInstance().isReadOnly);
-        // zmiana połączenia kasuje czas zapytania, więc czyścimy też licznik wierszy
-        updateRowCount();
         // showFlashMessage('Connection DB was changed', 3);
     }
     
